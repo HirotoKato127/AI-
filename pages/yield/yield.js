@@ -1,25 +1,259 @@
-// Yield Page JavaScript Module
-import { RepositoryFactory } from '../../scripts/api/index.js';
+// Yield Page JavaScript Module - Team Development Integration
 
-const repositories = RepositoryFactory.create();
+// 動的インポート用の変数
+let PersonalSection = null;
+let CompanySection = null;
+let ComparisonSection = null;
 
-export function mount() {
-  console.log('Yield page mounted');
+// セクションインスタンスの保持
+let personalSectionInstance = null;
+let companySectionInstance = null;
+let comparisonSectionInstance = null;
+
+export async function mount() {
+  console.log('🚀 Yield page mounting started...');
   
-  // ページがマウントされた後に実行する初期化処理
-  initializeDatePickers();
-  initializeKPICharts();
-  initializeEmployeeControls();
-  initializeFilters();
-  loadYieldData();
+  // 基本的な DOM 要素の確認
+  const personalContainer = document.getElementById('personal-content-container');
+  const companyContainer = document.getElementById('company-content-container');
+  const comparisonContainer = document.getElementById('comparison-content-container');
+  
+  console.log('📋 Container check:', {
+    personal: !!personalContainer,
+    company: !!companyContainer,
+    comparison: !!comparisonContainer
+  });
+
+  if (!personalContainer || !companyContainer || !comparisonContainer) {
+    console.error('❌ Containers not found!');
+    return;
+  }
+
+  try {
+    // 各セクションのHTMLコンテンツを直接読み込み
+    console.log('🔄 Loading section content from HTML files...');
+    
+    // Personal section
+    try {
+      const personalResponse = await fetch('/pages/yield/sections/personal/personal.html');
+      if (personalResponse.ok) {
+        const personalHTML = await personalResponse.text();
+        personalContainer.innerHTML = personalHTML;
+        console.log('✅ Personal section HTML loaded');
+      } else {
+        throw new Error('Personal HTML not found');
+      }
+    } catch (error) {
+      console.warn('⚠️ Personal HTML fallback:', error);
+      await loadPersonalFallback(personalContainer);
+    }
+
+    // Company section
+    try {
+      const companyResponse = await fetch('/pages/yield/sections/company/company.html');
+      if (companyResponse.ok) {
+        const companyHTML = await companyResponse.text();
+        companyContainer.innerHTML = companyHTML;
+        console.log('✅ Company section HTML loaded');
+      } else {
+        throw new Error('Company HTML not found');
+      }
+    } catch (error) {
+      console.warn('⚠️ Company HTML fallback:', error);
+      await loadCompanyFallback(companyContainer);
+    }
+
+    // Comparison section
+    try {
+      const comparisonResponse = await fetch('/pages/yield/sections/comparison/comparison.html');
+      if (comparisonResponse.ok) {
+        const comparisonHTML = await comparisonResponse.text();
+        comparisonContainer.innerHTML = comparisonHTML;
+        console.log('✅ Comparison section HTML loaded');
+      } else {
+        throw new Error('Comparison HTML not found');
+      }
+    } catch (error) {
+      console.warn('⚠️ Comparison HTML fallback:', error);
+      await loadComparisonFallback(comparisonContainer);
+    }
+
+    console.log('🎉 All sections loaded successfully');
+    
+  } catch (error) {
+    console.error('❌ Failed to load sections:', error);
+  }
 }
 
-export function unmount() {
-  console.log('Yield page unmounted');
+// Personal section fallback
+async function loadPersonalFallback(container) {
+  container.innerHTML = `
+    <!-- 売り上げ達成率と目標金額（統合カード） -->
+    <div class="kpi-v2-summary-unified" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 24px; border-radius: 12px; margin: 20px 0; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);">
+      <div class="kpi-v2-achievement-section" style="margin-bottom: 16px;">
+        <div class="kpi-v2-label" style="font-size: 14px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">売り上げ達成率</div>
+        <div class="kpi-v2-value kpi-v2-value-large" style="font-size: 36px; font-weight: 800; color: #3b82f6; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);">33%</div>
+      </div>
+      <div class="kpi-v2-target-section">
+        <div class="kpi-v2-label" style="font-size: 14px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">現状 / 目標金額</div>
+        <div class="kpi-v2-value" style="font-size: 20px; font-weight: 700;">
+          <span class="kpi-v2-current" style="color: #059669; font-size: 1.1em;">¥957,000</span>
+          <span class="kpi-v2-separator" style="margin: 0 12px; color: #9ca3af;">/</span>
+          <span class="kpi-v2-target" style="color: #6b7280;">¥3,000,000</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7KPI 数の行 -->
+    <div class="kpi-v2-scroll-wrapper" style="margin: 20px 0;">
+      <div class="kpi-v2-row" data-kpi-type="counts" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;">
+        <div class="kpi-v2-card" style="background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12); border-left: 4px solid #3b82f6; transform: translateY(0); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          <div class="kpi-v2-label" style="font-size: 12px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">提案数</div>
+          <div class="kpi-v2-value" style="font-size: 28px; font-weight: 700; color: #1f2937;">25</div>
+          <div class="kpi-v2-meta" style="font-size: 11px; color: #9ca3af; margin-top: 4px;">新規面談数 30(10)</div>
+        </div>
+        <div class="kpi-v2-card" style="background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12); border-left: 4px solid #3b82f6; transform: translateY(0); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          <div class="kpi-v2-label" style="font-size: 12px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">推薦数</div>
+          <div class="kpi-v2-value" style="font-size: 28px; font-weight: 700; color: #1f2937;">18</div>
+          <div class="kpi-v2-meta" style="font-size: 11px; color: #9ca3af; margin-top: 4px;">推薦数 30(10)</div>
+        </div>
+        <div class="kpi-v2-card" style="background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12); border-left: 4px solid #3b82f6; transform: translateY(0); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          <div class="kpi-v2-label" style="font-size: 12px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">面談設定数</div>
+          <div class="kpi-v2-value" style="font-size: 28px; font-weight: 700; color: #1f2937;">22</div>
+          <div class="kpi-v2-meta" style="font-size: 11px; color: #9ca3af; margin-top: 4px;">面談設定数 30(10)</div>
+        </div>
+        <div class="kpi-v2-card" style="background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12); border-left: 4px solid #3b82f6; transform: translateY(0); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          <div class="kpi-v2-label" style="font-size: 12px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">面談実施数</div>
+          <div class="kpi-v2-value" style="font-size: 28px; font-weight: 700; color: #1f2937;">20</div>
+          <div class="kpi-v2-meta" style="font-size: 11px; color: #9ca3af; margin-top: 4px;">面談実施数 30(10)</div>
+        </div>
+        <div class="kpi-v2-card" style="background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12); border-left: 4px solid #3b82f6; transform: translateY(0); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          <div class="kpi-v2-label" style="font-size: 12px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">内定数</div>
+          <div class="kpi-v2-value" style="font-size: 28px; font-weight: 700; color: #1f2937;">12</div>
+          <div class="kpi-v2-meta" style="font-size: 11px; color: #9ca3af; margin-top: 4px;">内定数 30(10)</div>
+        </div>
+        <div class="kpi-v2-card" style="background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12); border-left: 4px solid #3b82f6; transform: translateY(0); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          <div class="kpi-v2-label" style="font-size: 12px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">承諾数</div>
+          <div class="kpi-v2-value" style="font-size: 28px; font-weight: 700; color: #1f2937;">8</div>
+          <div class="kpi-v2-meta" style="font-size: 11px; color: #9ca3af; margin-top: 4px;">承諾数 30(10)</div>
+        </div>
+        <div class="kpi-v2-card" style="background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12); border-left: 4px solid #3b82f6; transform: translateY(0); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          <div class="kpi-v2-label" style="font-size: 12px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">決定数</div>
+          <div class="kpi-v2-value" style="font-size: 28px; font-weight: 700; color: #1f2937;">5</div>
+          <div class="kpi-v2-meta" style="font-size: 11px; color: #9ca3af; margin-top: 4px;">決定数 30(10)</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+export async function unmount() {
+  console.log('Yield page unmounted - Cleaning up modular sections');
   
-  // ページがアンマウントされる前のクリーンアップ処理
+  try {
+    // 各セクションのアンマウント処理を並列実行
+    const unmountPromises = [];
+    
+    if (personalSectionInstance) {
+      unmountPromises.push(personalSectionInstance.unmount());
+    }
+    
+    if (companySectionInstance) {
+      unmountPromises.push(companySectionInstance.unmount());
+    }
+    
+    if (comparisonSectionInstance) {
+      unmountPromises.push(comparisonSectionInstance.unmount());
+    }
+    
+    await Promise.all(unmountPromises);
+    
+    // インスタンスをクリア
+    personalSectionInstance = null;
+    companySectionInstance = null;
+    comparisonSectionInstance = null;
+    
+  } catch (error) {
+    console.error('Error during yield sections unmount:', error);
+  }
+  
+  // 共通のクリーンアップ処理
   cleanupEventListeners();
   cleanupCharts();
+}
+
+// フォールバック初期化（従来のコード）
+async function fallbackInitialization() {
+  console.log('Running fallback initialization for yield page');
+  
+  try {
+    // 直接コンテンツを挿入
+    const personalContainer = document.getElementById('personal-content-container');
+    const companyContainer = document.getElementById('company-content-container');
+    const comparisonContainer = document.getElementById('comparison-content-container');
+    
+    if (personalContainer) {
+      personalContainer.innerHTML = `
+        <!-- 売り上げ達成率と目標金額（統合カード） -->
+        <div class="kpi-v2-summary-unified">
+          <div class="kpi-v2-achievement-section">
+            <div class="kpi-v2-label">売り上げ達成率</div>
+            <div class="kpi-v2-value kpi-v2-value-large" id="personalAchievementRate">33%</div>
+          </div>
+          <div class="kpi-v2-target-section">
+            <div class="kpi-v2-label">現状 / 目標金額</div>
+            <div class="kpi-v2-value">
+              <span class="kpi-v2-current" id="personalCurrent">¥957,000</span>
+              <span class="kpi-v2-separator">/</span>
+              <span class="kpi-v2-target" id="personalTarget">¥3,000,000</span>
+            </div>
+          </div>
+        </div>
+        <!-- 7KPI 数の行 -->
+        <div class="kpi-v2-scroll-wrapper">
+          <div class="kpi-v2-row" data-kpi-type="counts">
+            <div class="kpi-v2-card" data-kpi="proposals">
+              <div class="kpi-v2-label">提案数</div>
+              <div class="kpi-v2-value" id="personalProposals">10</div>
+              <div class="kpi-v2-meta">新規面談数 30(10)</div>
+            </div>
+            <div class="kpi-v2-card" data-kpi="recommendations">
+              <div class="kpi-v2-label">推薦数</div>
+              <div class="kpi-v2-value" id="personalRecommendations">10</div>
+              <div class="kpi-v2-meta">推薦数 30(10)</div>
+            </div>
+            <div class="kpi-v2-card" data-kpi="interviewsScheduled">
+              <div class="kpi-v2-label">面談設定数</div>
+              <div class="kpi-v2-value" id="personalInterviewsScheduled">10</div>
+              <div class="kpi-v2-meta">面談設定数 30(10)</div>
+            </div>
+          </div>
+        </div>
+      `;
+      console.log('Personal section fallback content loaded');
+    }
+    
+    if (companyContainer) {
+      await loadCompanyFallback(companyContainer);
+      console.log('Company section fallback content loaded');
+    }
+    
+    if (comparisonContainer) {
+      await loadComparisonFallback(comparisonContainer);
+      console.log('Comparison section fallback content loaded');
+    }
+    
+    // ページがマウントされた後に実行する初期化処理
+    initializeDatePickers();
+    // initializeKPICharts();
+    // initializeEmployeeControls();
+    // initializeFilters();
+    // loadYieldData(); // API関連は無効化
+    
+    console.log('Fallback initialization completed');
+  } catch (error) {
+    console.error('Error in fallback initialization:', error);
+  }
 }
 
 // 日付選択器の初期化
@@ -103,6 +337,9 @@ function initializeContactMasks() {
 // Yield データの読み込み
 async function loadYieldData() {
   try {
+    // APIへの依存を一時的に無効化
+    console.log('Yield data loading disabled - using static display');
+    /*
     // 個人成績データの読み込み
     await loadPersonalKPIData();
     
@@ -114,12 +351,14 @@ async function loadYieldData() {
     
     // 候補者データの読み込み
     await loadCandidateData();
-    
+    */
   } catch (error) {
     console.error('Failed to load yield data:', error);
   }
 }
 
+// API関連の関数は一時的に無効化
+/*
 // 個人KPIデータの読み込み
 async function loadPersonalKPIData() {
   try {
@@ -241,7 +480,7 @@ async function loadEmployeeData() {
     });
     
     // データを表示
-    updateEmployeeTable(data);
+    updateEmployeeDisplay(data);
   } catch (error) {
     console.error('Failed to load employee data:', error);
     // フォールバック：モックデータを使用
@@ -287,90 +526,12 @@ function loadEmployeeDataFallback() {
   
   updateEmployeeDisplay(employeeData);
 }
+*/
 
 // 候補者データの読み込み
 async function loadCandidateData() {
   // 既存のHTMLテーブルデータを使用
   console.log('Candidate data loaded from HTML table');
-}
-
-// 個人KPI表示の更新
-function updatePersonalKPIDisplay(data) {
-  const elements = {
-    personalAchievementRate: data.achievementRate + '%',
-    personalCurrent: '¥' + data.currentAmount.toLocaleString(),
-    personalTarget: '¥' + data.targetAmount.toLocaleString(),
-    personalProposals: data.proposals,
-    personalRecommendations: data.recommendations,
-    personalInterviewsScheduled: data.interviewsScheduled,
-    personalInterviewsHeld: data.interviewsHeld,
-    personalOffers: data.offers,
-    personalAccepts: data.accepts,
-    personalHires: data.hires,
-    personalProposalRate: data.proposalRate + '%',
-    personalRecommendationRate: data.recommendationRate + '%',
-    personalInterviewScheduleRate: data.interviewScheduleRate + '%',
-    personalInterviewHeldRate: data.interviewHeldRate + '%',
-    personalOfferRate: data.offerRate + '%',
-    personalAcceptRate: data.acceptRate + '%',
-    personalHireRate: data.hireRate + '%'
-  };
-  
-  Object.entries(elements).forEach(([id, value]) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.textContent = value;
-    }
-  });
-}
-
-// 社内KPI表示の更新
-function updateCompanyKPIDisplay(data) {
-  const elements = {
-    companyProposals: data.proposals,
-    companyRecommendations: data.recommendations,
-    companyInterviewsScheduled: data.interviewsScheduled,
-    companyInterviewsHeld: data.interviewsHeld,
-    companyOffers: data.offers,
-    companyAccepts: data.accepts,
-    companyProposalRate: data.proposalRate + '%',
-    companyRecommendationRate: data.recommendationRate + '%',
-    companyInterviewScheduleRate: data.interviewScheduleRate + '%',
-    companyInterviewHeldRate: data.interviewHeldRate + '%',
-    companyOfferRate: data.offerRate + '%',
-    companyAcceptRate: data.acceptRate + '%'
-  };
-  
-  Object.entries(elements).forEach(([id, value]) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.textContent = value;
-    }
-  });
-}
-
-// 社員表示の更新
-function updateEmployeeDisplay(data) {
-  const tableBody = document.getElementById('employeeTableBody');
-  if (!tableBody) return;
-  
-  tableBody.innerHTML = data.map(employee => `
-    <tr>
-      <td>${employee.name}</td>
-      <td>${employee.proposals}</td>
-      <td>${employee.recommendations}</td>
-      <td>${employee.interviewsScheduled}</td>
-      <td>${employee.interviewsHeld}</td>
-      <td>${employee.offers}</td>
-      <td>${employee.accepts}</td>
-      <td>${employee.proposalRate}%</td>
-      <td>${employee.recommendationRate}%</td>
-      <td>${employee.interviewScheduleRate}%</td>
-      <td>${employee.interviewHeldRate}%</td>
-      <td>${employee.offerRate}%</td>
-      <td>${employee.acceptRate}%</td>
-    </tr>
-  `).join('');
 }
 
 // 月次推移チャートの描画

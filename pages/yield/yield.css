@@ -1,4 +1,89 @@
-/* Yield page specific styles */
+/* Yield page specific styles - Inherits base KPI v2 styles from base.css */
+
+/* Yield specific chart and employee styles */
+[data-kpi="v2"] .chart-section {
+  margin-top: 2rem;
+}
+
+[data-kpi="v2"] .chart-container {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+}
+
+[data-kpi="v2"] .employee-section {
+  margin-top: 2rem;
+}
+
+[data-kpi="v2"] .employee-controls {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+[data-kpi="v2"] .employee-search {
+  flex: 1;
+  min-width: 200px;
+}
+
+[data-kpi="v2"] .employee-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+[data-kpi="v2"] .employee-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  transition: all 0.2s ease;
+}
+
+[data-kpi="v2"] .employee-card:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+  transform: translateY(-1px);
+}
+
+[data-kpi="v2"] .employee-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 0.5rem;
+}
+
+[data-kpi="v2"] .employee-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+
+[data-kpi="v2"] .employee-stat {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem;
+  background: #f8fafc;
+  border-radius: 0.375rem;
+}
+
+[data-kpi="v2"] .employee-stat-label {
+  color: #64748b;
+  font-weight: 500;
+}
+
+[data-kpi="v2"] .employee-stat-value {
+  color: #1e293b;
+  font-weight: 600;
+}
 
 /* ===== KPI v2: 個人成績・全体セクション ===== */
 [data-kpi="v2"] .kpi-v2-section {

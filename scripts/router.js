@@ -14,6 +14,10 @@ const routes = {
 // CSS files for specific pages
 const pageCSS = {
   'yield': 'pages/yield/yield.css',
+  'candidates': 'pages/candidates/candidates.css',
+  'ad-performance': 'pages/ad-performance/ad-performance.css',
+  'teleapo': 'pages/teleapo/teleapo.css',
+  'referral': 'pages/referral/referral.css',
 };
 
 let current = null;
