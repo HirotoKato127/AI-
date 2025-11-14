@@ -292,7 +292,7 @@
   [data-kpi="v2"] .kpi-v2-row {
     gap: 0.5rem;
   }
-  
+
   [data-kpi="v2"] .kpi-v2-card {
     width: 140px;
     padding: 0.875rem 1rem;
@@ -452,7 +452,8 @@
   background: linear-gradient(135deg, #eef2ff 0%, #e0f2fe 100%);
   border: 1px solid #c7d2fe;
   border-radius: 0.875rem;
-  padding: 1rem 1.5rem; /* 縮小されたパディング */
+  padding: 1rem 1.5rem;
+  /* 縮小されたパディング */
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
   display: flex;
   gap: 2rem;
@@ -593,12 +594,13 @@
   [data-kpi="v2"] .kpi-v2-row {
     gap: 1.5rem;
   }
-  
+
   [data-kpi="v2"] .kpi-v2-card {
-    width: calc((100% - 9rem) / 7); /* 7等分 - ガター調整 */
+    width: calc((100% - 9rem) / 7);
+    /* 7等分 - ガター調整 */
     min-width: 140px;
   }
-  
+
   [data-kpi="v2"] .kpi-v2-summary-row {
     gap: 2rem;
   }
@@ -611,24 +613,24 @@
     align-items: stretch;
     gap: 1rem;
   }
-  
+
   [data-kpi="v2"] .kpi-v2-range-picker {
     justify-content: center;
   }
-  
+
   [data-kpi="v2"] .kpi-v2-summary-row {
     flex-direction: column;
     gap: 1rem;
   }
-  
+
   [data-kpi="v2"] .kpi-v2-row {
     gap: 1rem;
   }
-  
+
   [data-kpi="v2"] .kpi-v2-card {
     width: 140px;
   }
-  
+
   [data-kpi="v2"] .kpi-v2-section {
     padding: 1.25rem;
   }
@@ -949,4 +951,164 @@
   border-radius: 0.375rem;
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
+}
+
+/* テレアポ：集計期間ラベル */
+[data-kpi="v2"] .kpi-v2-period-label {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: -0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* テレアポ：期間プリセットボタン */
+[data-kpi="v2"] .kpi-v2-range-picker {
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+[data-kpi="v2"] .kpi-v2-range-presets {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+[data-kpi="v2"] .kpi-v2-range-presets {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+[data-kpi="v2"] .kpi-v2-range-btn {
+  padding: 0.4rem 1rem;
+  border-radius: 9999px;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  min-width: 72px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+[data-kpi="v2"] .kpi-v2-range-btn:hover {
+  background-color: #e5edff;
+  border-color: #6366f1;
+  color: #1e293b;
+}
+
+[data-kpi="v2"] .kpi-v2-range-btn-active {
+  background-color: #4f46e5;
+  border-color: #4338ca;
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.4);
+}
+
+
+/* ヒートマップ選択中セル */
+[data-page="teleapo"] .kpi-v2-heatmap-cell-active {
+  outline: 2px solid #4f46e5;
+  outline-offset: 1px;
+  font-weight: 700;
+}
+
+/* テレアポ：全体KPIサマリー */
+[data-kpi="v2"] .kpi-v2-summary-section {
+  margin-bottom: 0.5rem;
+}
+
+[data-kpi="v2"] .kpi-v2-summary-section .kpi-v2-summary-unified {
+  margin-bottom: 0;
+}
+
+/* 社員成績：選択中の社員行 */
+.teleapo-employee-row-active {
+  background-color: #eef2ff !important;
+}
+
+/* 上部KPIサマリー下の「数値4つ」 */
+/* 上部KPIサマリー下の「数値4つ」少し大きく */
+[data-kpi="v2"] .kpi-v2-summary-counts {
+  margin-top: 0.9rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem 1.8rem;
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+[data-kpi="v2"] .kpi-v2-summary-count-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+[data-kpi="v2"] .kpi-v2-summary-count-label {
+  font-weight: 500;
+  color: #64748b;
+}
+
+[data-kpi="v2"] .kpi-v2-summary-count-value {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: #0f172a;
+}
+
+/* 社員行選択時のハイライト */
+.teleapo-employee-row-active {
+  background-color: #eef2ff !important;
+}
+
+/* ヒートマップ中央＆少し大きく */
+[data-page="teleapo"] .teleapo-heatmap-wrapper {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+[data-page="teleapo"] #teleapoHeatmapTable {
+  width: 100%;
+}
+
+[data-page="teleapo"] #teleapoHeatmapTable th,
+[data-page="teleapo"] #teleapoHeatmapTable td {
+  padding: 0.6rem 0.6rem;
+}
+
+[data-page="teleapo"] .kpi-v2-heatmap-cell {
+  font-size: 0.9rem;
+  font-weight: 500;
+  min-width: 52px;
+  min-height: 2.6rem;
+}
+
+[data-page="teleapo"] .kpi-v2-heatmap-cell-active {
+  outline: 2px solid #4f46e5;
+  outline-offset: 1px;
+  font-weight: 700;
+}
+
+
+/* ヒートマップを中央＆少し大きめに */
+[data-page="teleapo"] .teleapo-heatmap-wrapper {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+[data-page="teleapo"] #teleapoHeatmapTable {
+  width: 100%;
+}
+
+[data-page="teleapo"] #teleapoHeatmapTable th,
+[data-page="teleapo"] #teleapoHeatmapTable td {
+  padding: 0.6rem 0.6rem;
+}
+
+[data-page="teleapo"] .kpi-v2-heatmap-cell {
+  font-size: 0.9rem;
+  font-weight: 500;
+  min-width: 52px;
+  min-height: 2.6rem;
 }
