@@ -77,6 +77,15 @@
 
     <!-- 社員テーブル（検索・ソートは削除） -->
     <div class="kpi-v2-subsection">
+      <div class="flex items-center justify-between mb-2">
+        <h4 class="text-base font-semibold text-slate-800">社員成績</h4>
+        <select id="teleapoEmployeeSortSelect" class="bg-white border border-slate-300 rounded-md px-3 py-1.5 text-xs">
+          <option value="connectRate-desc">通電率（高い順）</option>
+          <option value="setRate-desc">設定率（高い順）</option>
+          <option value="showRate-desc">着座率（高い順）</option>
+        </select>
+      </div>
+
       <div id="teleapoEmployeeTableWrapper" class="overflow-auto rounded-lg border border-slate-200 mb-4">
         <table class="table-grid min-w-[800px]">
           <thead>
@@ -111,13 +120,26 @@
           ※ 現在はモックの時系列です。本番では日別・週別の実データに差し替え予定。
         </p>
       </div>
+      <div id="teleapoEmployeeAnalysisWrapper" class="mt-4 border border-slate-200 rounded-lg p-3 bg-white">
+        <div class="flex items-center justify-between mb-2">
+          <h5 class="text-sm font-semibold text-slate-800">AI分析コメント</h5>
+          <span id="teleapoEmployeeAnalysisStatus" class="text-[11px] text-slate-400"></span>
+        </div>
+        <p id="teleapoEmployeeAnalysisText" class="text-sm text-slate-800 leading-relaxed">
+          社員を選択すると、この期間のKPIやヒートマップをもとにAIがコメントを表示します。
+        </p>
+      </div>
+
     </div>
 
     <!-- 時間帯×曜日ヒートマップ -->
     <div class="kpi-v2-subsection">
       <h4 class="kpi-v2-subtitle">時間帯 × 曜日ヒートマップ</h4>
-
       <div class="kpi-v2-filters grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+        <!-- ★ ヒートマップの対象期間を表示 -->
+        <p id="teleapoHeatmapPeriodLabel" class="text-xs text-slate-500 mb-2">
+          <!-- JSで埋める -->
+        </p>
         <div class="kpi-v2-filter-group">
           <span class="kpi-v2-filter-label">担当者</span>
           <select id="teleapoHeatmapEmployeeFilter" class="kpi-v2-filter-select">
@@ -131,20 +153,13 @@
         <div class="kpi-v2-filter-group">
           <span class="kpi-v2-filter-label">指標</span>
           <select id="teleapoHeatmapMetricFilter" class="kpi-v2-filter-select">
-            <option value="dials">架電数</option>
-            <option value="connects">通電数</option>
-            <option value="sets">設定数</option>
-            <option value="shows">着座数</option>
+            <option value="connectRate">通電率</option>
+            <option value="setRate">設定率</option>
           </select>
+
         </div>
-        <div class="kpi-v2-filter-group">
-          <span class="kpi-v2-filter-label">凡例</span>
-          <div class="flex items-center gap-2 text-[11px] text-slate-500">
-            <span class="kpi-v2-heatmap-cell" data-count="0">低</span>
-            <span class="kpi-v2-heatmap-cell" data-count="3">中</span>
-            <span class="kpi-v2-heatmap-cell" data-count="7">高</span>
-          </div>
-        </div>
+
+
       </div>
 
       <!-- ヒートマップ本体 -->
@@ -169,270 +184,345 @@
       <p id="teleapoHeatmapSelectionLabel" class="mt-2 text-[11px] text-slate-500"></p>
     </div>
   </div>
+  <script>
+    (function () {
+      console.log("📊 inline heatmap script running");
+
+      const DAYS = ['月', '火', '水', '木', '金'];
+      const SLOTS = ['09-11', '11-13', '13-15', '15-17', '17-19'];
+
+      // 指標ごとのモックデータ（「all」だけ）
+      const HEATMAP_DATA = {
+        dials: { // 架電数（大きめ）
+          '月': { '09-11': 10, '11-13': 16, '13-15': 14, '15-17': 9, '17-19': 5 },
+          '火': { '09-11': 8, '11-13': 14, '13-15': 13, '15-17': 11, '17-19': 4 },
+          '水': { '09-11': 7, '11-13': 12, '13-15': 15, '15-17': 12, '17-19': 6 },
+          '木': { '09-11': 12, '11-13': 18, '13-15': 17, '15-17': 13, '17-19': 6 },
+          '金': { '09-11': 6, '11-13': 9, '13-15': 11, '15-17': 12, '17-19': 3 }
+        },
+        connects: { // 通電数（架電数より少し低い）
+          '月': { '09-11': 6, '11-13': 11, '13-15': 9, '15-17': 6, '17-19': 3 },
+          '火': { '09-11': 4, '11-13': 9, '13-15': 8, '15-17': 7, '17-19': 2 },
+          '水': { '09-11': 4, '11-13': 8, '13-15': 10, '15-17': 8, '17-19': 4 },
+          '木': { '09-11': 7, '11-13': 12, '13-15': 11, '15-17': 9, '17-19': 4 },
+          '金': { '09-11': 3, '11-13': 6, '13-15': 7, '15-17': 8, '17-19': 2 }
+        },
+        sets: { // 設定数（かなり減る）
+          '月': { '09-11': 3, '11-13': 5, '13-15': 4, '15-17': 3, '17-19': 1 },
+          '火': { '09-11': 2, '11-13': 4, '13-15': 3, '15-17': 3, '17-19': 1 },
+          '水': { '09-11': 2, '11-13': 3, '13-15': 4, '15-17': 3, '17-19': 2 },
+          '木': { '09-11': 3, '11-13': 6, '13-15': 5, '15-17': 4, '17-19': 2 },
+          '金': { '09-11': 1, '11-13': 3, '13-15': 3, '15-17': 3, '17-19': 1 }
+        },
+        shows: { // 着座数（さらに減る）
+          '月': { '09-11': 2, '11-13': 4, '13-15': 3, '15-17': 2, '17-19': 1 },
+          '火': { '09-11': 1, '11-13': 3, '13-15': 2, '15-17': 2, '17-19': 1 },
+          '水': { '09-11': 1, '11-13': 2, '13-15': 3, '15-17': 2, '17-19': 1 },
+          '木': { '09-11': 2, '11-13': 4, '13-15': 4, '15-17': 3, '17-19': 1 },
+          '金': { '09-11': 1, '11-13': 2, '13-15': 2, '15-17': 2, '17-19': 0 }
+        }
+      };
+
+      const metricSelect = document.getElementById('teleapoHeatmapMetricFilter');
+      const empSelect = document.getElementById('teleapoHeatmapEmployeeFilter');
+      const tbody = document.getElementById('teleapoHeatmapTableBody');
+
+      if (!tbody || !metricSelect || !empSelect) {
+        console.warn("heatmap controls not found");
+        return;
+      }
+
+      function renderHeatmap() {
+        const metricKey = metricSelect.value || 'dials'; // dials / connects / sets / shows
+        const data = HEATMAP_DATA[metricKey] || HEATMAP_DATA.dials;
+
+        console.log("renderHeatmap metric =", metricKey);
+
+        // 最大値（色のスケール用）
+        let maxValue = 0;
+        DAYS.forEach(day => {
+          SLOTS.forEach(slot => {
+            const v = data?.[day]?.[slot] ?? 0;
+            if (v > maxValue) maxValue = v;
+          });
+        });
+        if (maxValue === 0) maxValue = 1;
+
+        tbody.innerHTML = '';
+
+        SLOTS.forEach(slot => {
+          const tr = document.createElement('tr');
+
+          const th = document.createElement('th');
+          th.textContent = `${slot}時`;
+          th.className = 'px-3 py-2 border border-slate-200 text-left bg-slate-50';
+          tr.appendChild(th);
+
+          DAYS.forEach(day => {
+            const td = document.createElement('td');
+            td.className = 'px-1 py-1 border border-slate-200 text-center';
+
+            const value = data?.[day]?.[slot] ?? 0;
+            const intensity = value / maxValue;
+
+            const cell = document.createElement('div');
+            cell.className = 'kpi-v2-heatmap-cell';
+            cell.textContent = value === 0 ? '-' : String(value);
+
+            const alpha = 0.2 + 0.5 * intensity;
+            cell.style.backgroundColor = `rgba(59, 130, 246, ${alpha.toFixed(2)})`;
+
+            td.appendChild(cell);
+            tr.appendChild(td);
+          });
+
+          tbody.appendChild(tr);
+        });
+      }
+
+      // 初期描画
+      renderHeatmap();
+
+      // 指標変更時に再描画
+      metricSelect.addEventListener('change', renderHeatmap);
+      // 担当者セレクトは現状 all と同じ挙動にしておく（あとで社員別にしたければここで分岐）
+      empSelect.addEventListener('change', renderHeatmap);
+    })();
+  </script>
 
 
-  <!-- ★ 第3段階追加：時間帯×曜日ヒートマップ -->
-  <div class="kpi-v2-subsection">
-    <h4 class="kpi-v2-subtitle">時間帯 × 曜日ヒートマップ</h4>
-
-    <!-- フィルタ -->
-    <div class="kpi-v2-filters grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-      <div class="kpi-v2-filter-group">
-        <span class="kpi-v2-filter-label">担当者</span>
-        <select id="teleapoHeatmapEmployeeFilter" class="kpi-v2-filter-select">
-          <option value="all">全体</option>
-          <option value="佐藤">佐藤</option>
-          <option value="田中">田中</option>
-          <option value="山本">山本</option>
-          <option value="鈴木">鈴木</option>
-        </select>
+  <!-- 架電ログ -->
+  <div class="section-shell space-y-4">
+    <div class="flex items-center justify-between">
+      <h3 class="text-lg font-semibold text-slate-800 whitespace-nowrap">架電ログ</h3>
+      <div class="flex items-center gap-2">
+        <input type="date" id="teleapoLogRangeStart"
+          class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" />
+        <span class="text-slate-500">〜</span>
+        <input type="date" id="teleapoLogRangeEnd"
+          class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" />
       </div>
+    </div>
 
-      <div class="kpi-v2-filter-group">
-        <span class="kpi-v2-filter-label">指標</span>
-        <select id="teleapoHeatmapMetricFilter" class="kpi-v2-filter-select">
-          <option value="dials">架電数</option>
-          <option value="connects">通電数</option>
-          <option value="sets">設定数</option>
-          <option value="shows">着座数</option>
-        </select>
-      </div>
-
-      <div class="kpi-v2-filter-group">
-        <span class="kpi-v2-filter-label">凡例</span>
-        <div class="flex items-center gap-2 text-[11px] text-slate-500">
-          <span class="kpi-v2-heatmap-cell" data-count="0">低</span>
-          <span class="kpi-v2-heatmap-cell" data-count="3">中</span>
-          <span class="kpi-v2-heatmap-cell" data-count="7">高</span>
+    <!-- フィルタと検索 -->
+    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
+      <h4 class="text-sm font-semibold text-slate-700">絞り込み条件</h4>
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 text-xs text-slate-500">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-semibold text-slate-500">担当者</label>
+          <select id="teleapoLogEmployeeFilter" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
+            <option value="">全員</option>
+            <option value="佐藤">佐藤</option>
+            <option value="田中">田中</option>
+            <option value="山本">山本</option>
+            <option value="鈴木">鈴木</option>
+          </select>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-semibold text-slate-500">アポ結果</label>
+          <select id="teleapoLogResultFilter" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
+            <option value="">全て</option>
+            <option value="通電">通電</option>
+            <option value="不在">不在</option>
+            <option value="設定">設定</option>
+            <option value="着座">着座</option>
+            <option value="コールバック">コールバック</option>
+          </select>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-semibold text-slate-500">相手名検索</label>
+          <input type="text" id="teleapoLogTargetSearch"
+            class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="相手名で検索..." />
+        </div>
+        <div class="flex items-end gap-2">
+          <button id="teleapoLogFilterReset"
+            class="px-3 py-2 border border-slate-300 rounded-md text-sm hover:bg-slate-100 whitespace-nowrap">
+            条件をクリア
+          </button>
+          <div id="teleapoLogFilterCount" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-semibold">
+            0件
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- ヒートマップ本体 -->
-    <div class="overflow-auto rounded-lg border border-slate-200 bg-white teleapo-heatmap-wrapper">
-      <table class="min-w-[640px] border-collapse text-sm text-slate-700" id="teleapoHeatmapTable">
-        <thead class="bg-slate-50">
+    <!-- ログテーブル -->
+    <div class="overflow-auto rounded-lg border border-slate-200">
+      <table class="table-grid min-w-[1200px]" id="teleapoLogTable">
+        <thead>
           <tr>
-            <th class="px-3 py-2 border border-slate-200 text-left">時間帯＼曜日</th>
-            <th class="px-3 py-2 border border-slate-200 text-center">月</th>
-            <th class="px-3 py-2 border border-slate-200 text-center">火</th>
-            <th class="px-3 py-2 border border-slate-200 text-center">水</th>
-            <th class="px-3 py-2 border border-slate-200 text-center">木</th>
-            <th class="px-3 py-2 border border-slate-200 text-center">金</th>
+            <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="datetime">
+              日時
+              <span class="ml-1 text-xs text-slate-400">▼</span>
+            </th>
+            <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="employee">担当者</th>
+            <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="target">相手</th>
+            <th>電話番号</th>
+            <th>メールアドレス</th>
+            <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="result">アポ結果</th>
+            <th>メモ</th>
           </tr>
         </thead>
-        <tbody id="teleapoHeatmapTableBody">
-          <!-- JS で生成 -->
-        </tbody>
-      </table>
-    </div>
-
-
-    <!-- ★ 追加：選択中の説明ラベル -->
-    <p id="teleapoHeatmapSelectionLabel" class="mt-2 text-[11px] text-slate-500"></p>
-  </div>
-
-  </div>
-
-
-  <!-- ここで集計期間を表示 -->
-  <p class="kpi-v2-period-label" id="teleapoCompanyPeriodLabel"></p>
-
-
-
-  <!-- 社員成績 -->
-  <div class="kpi-v2-subsection">
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-3">
-        <input type="text" id="teleapoEmployeeSearchInput"
-          class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="社員名で検索..." />
-        <select id="teleapoEmployeeSortSelect" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
-          <option value="name-asc">社員名（昇順）</option>
-          <option value="dials-desc">架電数（降順）</option>
-          <option value="shows-desc" selected>着座数（降順）</option>
-          <option value="connectRate-desc">通電率（降順）</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- テーブル表示 -->
-    <div class="overflow-auto rounded-lg border border-slate-200 bg-white teleapo-heatmap-wrapper">
-      <table class="min-w-[640px] border-collapse text-sm text-slate-700" id="teleapoHeatmapTable">
-        <thead class="bg-slate-50">
+        <tbody id="teleapoLogTableBody">
           <tr>
-            <th class="px-3 py-2 border border-slate-200 text-left">時間帯＼曜日</th>
-            <th class="px-3 py-2 border border-slate-200 text-center">月</th>
-            <th class="px-3 py-2 border border-slate-200 text-center">火</th>
-            <th class="px-3 py-2 border border-slate-200 text-center">水</th>
-            <th class="px-3 py-2 border border-slate-200 text-center">木</th>
-            <th class="px-3 py-2 border border-slate-200 text-center">金</th>
+            <td class="whitespace-nowrap">2025/11/18 10:30</td>
+            <td>佐藤</td>
+            <td>ABC社 田中様</td>
+            <td>03-1234-5678</td>
+            <td>tanaka@abc-corp.co.jp</td>
+            <td>
+              <span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-semibold">設定</span>
+            </td>
+            <td>一次面談→11/25 15:00設定</td>
           </tr>
-        </thead>
-        <tbody id="teleapoHeatmapTableBody">
-          <!-- JSで生成 -->
+          <tr>
+            <td class="whitespace-nowrap">2025/11/18 11:45</td>
+            <td>田中</td>
+            <td>XYZ社 鈴木様</td>
+            <td>03-9876-5432</td>
+            <td>suzuki@xyz-inc.co.jp</td>
+            <td>
+              <span class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-semibold">通電</span>
+            </td>
+            <td>一次日程打診中</td>
+          </tr>
+          <tr>
+            <td class="whitespace-nowrap">2025/11/18 13:20</td>
+            <td>山本</td>
+            <td>DEF社 佐々木様</td>
+            <td>03-5555-1111</td>
+            <td>sasaki@def-ltd.co.jp</td>
+            <td>
+              <span class="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs font-semibold">不在</span>
+            </td>
+            <td>再架電予定 11/19</td>
+          </tr>
+          <tr>
+            <td class="whitespace-nowrap">2025/11/18 14:15</td>
+            <td>鈴木</td>
+            <td>GHI株式会社 高橋様</td>
+            <td>03-2222-9999</td>
+            <td>takahashi@ghi-group.com</td>
+            <td>
+              <span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">着座</span>
+            </td>
+            <td>面談完了、次回フォローアップ予定</td>
+          </tr>
+          <tr>
+            <td class="whitespace-nowrap">2025/11/18 15:30</td>
+            <td>佐藤</td>
+            <td>JKL商事 山田様</td>
+            <td>03-7777-3333</td>
+            <td>yamada@jkl-trading.jp</td>
+            <td>
+              <span class="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-semibold">コールバック</span>
+            </td>
+            <td>16:00に折り返し予定</td>
+          </tr>
         </tbody>
+
       </table>
     </div>
+    <!-- ★ ここから追加 -->
+    <script>
+      (function () {
+        console.log("📞 inline log script running");
 
-  </div>
-  </div>
-</section>
+        const tbody = document.getElementById("teleapoLogTableBody");
+        if (!tbody) {
+          console.warn("teleapoLogTableBody が見つかりません");
+          return;
+        }
 
-<!-- 架電ログ -->
-<div class="section-shell space-y-4">
-  <div class="flex items-center justify-between">
-    <h3 class="text-lg font-semibold text-slate-800 whitespace-nowrap">架電ログ</h3>
-    <div class="flex items-center gap-2">
-      <input type="date" id="teleapoLogRangeStart"
-        class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" />
-      <span class="text-slate-500">〜</span>
-      <input type="date" id="teleapoLogRangeEnd"
-        class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" />
-    </div>
-  </div>
+        // とりあえず「今日」の日付で 5 行分のモックログを入れる
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, "0");
+        const d = String(today.getDate()).padStart(2, "0");
+        const dateStr = `${y}/${m}/${d}`;
 
-  <!-- フィルタと検索 -->
-  <div class="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
-    <h4 class="text-sm font-semibold text-slate-700">絞り込み条件</h4>
-    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 text-xs text-slate-500">
-      <div class="flex flex-col gap-1">
-        <label class="text-xs font-semibold text-slate-500">担当者</label>
-        <select id="teleapoLogEmployeeFilter" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
-          <option value="">全員</option>
-          <option value="佐藤">佐藤</option>
-          <option value="田中">田中</option>
-          <option value="山本">山本</option>
-          <option value="鈴木">鈴木</option>
-        </select>
-      </div>
-      <div class="flex flex-col gap-1">
-        <label class="text-xs font-semibold text-slate-500">アポ結果</label>
-        <select id="teleapoLogResultFilter" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
-          <option value="">全て</option>
-          <option value="通電">通電</option>
-          <option value="不在">不在</option>
-          <option value="設定">設定</option>
-          <option value="着座">着座</option>
-          <option value="コールバック">コールバック</option>
-        </select>
-      </div>
-      <div class="flex flex-col gap-1">
-        <label class="text-xs font-semibold text-slate-500">相手名検索</label>
-        <input type="text" id="teleapoLogTargetSearch"
-          class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="相手名で検索..." />
-      </div>
-      <div class="flex items-end gap-2">
-        <button id="teleapoLogFilterReset"
-          class="px-3 py-2 border border-slate-300 rounded-md text-sm hover:bg-slate-100 whitespace-nowrap">
-          条件をクリア
+        const employees = ["佐藤", "田中", "山本", "鈴木"];
+        const results = [
+          { label: "設定", className: "bg-emerald-100 text-emerald-700" },
+          { label: "通電", className: "bg-blue-100 text-blue-700" },
+          { label: "不在", className: "bg-slate-100 text-slate-600" },
+          { label: "着座", className: "bg-green-100 text-green-700" },
+          { label: "コールバック", className: "bg-amber-100 text-amber-700" },
+        ];
+
+        const rows = [];
+        for (let i = 0; i < 5; i++) {
+          const hour = 10 + i * 2;
+          const hh = String(hour).padStart(2, "0");
+          const timeStr = `${hh}:30`;
+
+          const emp = employees[i % employees.length];
+          const res = results[i % results.length];
+
+          rows.push({
+            datetime: `${dateStr} ${timeStr}`,
+            employee: emp,
+            target: `モック企業${i + 1} ${emp}様`,
+            tel: "03-0000-0000",
+            email: `sample${i + 1}@example.com`,
+            resultLabel: res.label,
+            resultClass: res.className,
+            memo: "モックデータ（あとで実データに差し替え）",
+          });
+        }
+
+        tbody.innerHTML = rows
+          .map(
+            (row) => `
+          <tr>
+            <td class="whitespace-nowrap">${row.datetime}</td>
+            <td>${row.employee}</td>
+            <td>${row.target}</td>
+            <td>${row.tel}</td>
+            <td>${row.email}</td>
+            <td>
+              <span class="px-2 py-1 ${row.resultClass} rounded text-xs font-semibold">
+                ${row.resultLabel}
+              </span>
+            </td>
+            <td>${row.memo}</td>
+          </tr>
+        `
+          )
+          .join("");
+
+        // 件数表示も更新
+        const countEl = document.getElementById("teleapoLogFilterCount");
+        if (countEl) {
+          countEl.textContent = `${rows.length}件`;
+        }
+      })();
+    </script>
+    <!-- ★ ここまで追加 -->
+
+    <!-- ページネーション -->
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2 text-sm text-slate-500">
+        <button
+          class="px-3 py-2 border border-slate-300 rounded-md text-sm hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          id="teleapoLogPrevBtn" disabled>
+          前のページ
         </button>
-        <div id="teleapoLogFilterCount" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-semibold">
-          0件
-        </div>
+        <span class="px-3 py-2 text-sm" id="teleapoLogPageInfo">1 / 1</span>
+        <button
+          class="px-3 py-2 border border-slate-300 rounded-md text-sm hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          id="teleapoLogNextBtn" disabled>
+          次のページ
+        </button>
+      </div>
+      <div class="flex items-center gap-2 text-sm">
+        <label class="text-xs text-slate-500">表示件数</label>
+        <select class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" id="teleapoLogPageSize">
+          <option value="25">25件</option>
+          <option value="50" selected>50件</option>
+          <option value="100">100件</option>
+        </select>
       </div>
     </div>
   </div>
-
-  <!-- ログテーブル -->
-  <div class="overflow-auto rounded-lg border border-slate-200">
-    <table class="table-grid min-w-[1200px]" id="teleapoLogTable">
-      <thead>
-        <tr>
-          <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="datetime">
-            日時
-            <span class="ml-1 text-xs text-slate-400">▼</span>
-          </th>
-          <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="employee">担当者</th>
-          <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="target">相手</th>
-          <th>電話番号</th>
-          <th>メールアドレス</th>
-          <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="result">アポ結果</th>
-          <th>メモ</th>
-        </tr>
-      </thead>
-      <tbody id="teleapoLogTableBody">
-        <!-- ここは既存のサンプル行のままでOK -->
-        <tr>
-          <td class="whitespace-nowrap">2024/11/13 10:30</td>
-          <td>佐藤</td>
-          <td>ABC社 田中様</td>
-          <td>03-1234-5678</td>
-          <td>tanaka@abc-corp.co.jp</td>
-          <td>
-            <span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-semibold">設定</span>
-          </td>
-          <td>一次面談→11/20 15:00設定</td>
-        </tr>
-        <tr>
-          <td class="whitespace-nowrap">2024/11/13 11:45</td>
-          <td>田中</td>
-          <td>XYZ社 鈴木様</td>
-          <td>03-9876-5432</td>
-          <td>suzuki@xyz-inc.co.jp</td>
-          <td>
-            <span class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-semibold">通電</span>
-          </td>
-          <td>一次日程打診中</td>
-        </tr>
-        <tr>
-          <td class="whitespace-nowrap">2024/11/13 13:20</td>
-          <td>山本</td>
-          <td>DEF社 佐々木様</td>
-          <td>03-5555-1111</td>
-          <td>sasaki@def-ltd.co.jp</td>
-          <td>
-            <span class="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs font-semibold">不在</span>
-          </td>
-          <td>再架電予定 11/14</td>
-        </tr>
-        <tr>
-          <td class="whitespace-nowrap">2024/11/13 14:15</td>
-          <td>鈴木</td>
-          <td>GHI株式会社 高橋様</td>
-          <td>03-2222-9999</td>
-          <td>takahashi@ghi-group.com</td>
-          <td>
-            <span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">着座</span>
-          </td>
-          <td>面談完了、次回フォローアップ予定</td>
-        </tr>
-        <tr>
-          <td class="whitespace-nowrap">2024/11/13 15:30</td>
-          <td>佐藤</td>
-          <td>JKL商事 山田様</td>
-          <td>03-7777-3333</td>
-          <td>yamada@jkl-trading.jp</td>
-          <td>
-            <span class="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-semibold">コールバック</span>
-          </td>
-          <td>16:00に折り返し予定</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ページネーション -->
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-2 text-sm text-slate-500">
-      <button
-        class="px-3 py-2 border border-slate-300 rounded-md text-sm hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-        id="teleapoLogPrevBtn" disabled>
-        前のページ
-      </button>
-      <span class="px-3 py-2 text-sm" id="teleapoLogPageInfo">1 / 1</span>
-      <button
-        class="px-3 py-2 border border-slate-300 rounded-md text-sm hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-        id="teleapoLogNextBtn" disabled>
-        次のページ
-      </button>
-    </div>
-    <div class="flex items-center gap-2 text-sm">
-      <label class="text-xs text-slate-500">表示件数</label>
-      <select class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" id="teleapoLogPageSize">
-        <option value="25">25件</option>
-        <option value="50" selected>50件</option>
-        <option value="100">100件</option>
-      </select>
-    </div>
-  </div>
-</div>
+  <script type="module" src="./teleapo.js"></script>
