@@ -270,9 +270,9 @@ export function mount() {
 
 export function unmount() {
   const elements = [
-    'referralCompanyFilter','referralDateStart','referralDateEnd','referralJobFilter','referralFilterReset',
-    'referralSortSelect','referralPrevBtn','referralNextBtn','referralPageSize','referralExportBtn',
-    'matchTabCandidate','matchTabCondition','matchFromCandidate','matchFromCondition','matchResultSort'
+    'referralCompanyFilter', 'referralDateStart', 'referralDateEnd', 'referralJobFilter', 'referralFilterReset',
+    'referralSortSelect', 'referralPrevBtn', 'referralNextBtn', 'referralPageSize', 'referralExportBtn',
+    'matchTabCandidate', 'matchTabCondition', 'matchFromCandidate', 'matchFromCondition', 'matchResultSort'
   ];
   elements.forEach(id => { const el = document.getElementById(id); if (el) el.replaceWith(el.cloneNode(true)); });
   currentPage = 1; filteredData = []; allData = []; currentSort = 'company-asc'; selectedCompanyId = null; currentMatchResults = [];
@@ -315,8 +315,8 @@ function initializeMatchingTabs() {
   const kTab = document.getElementById('matchTabCondition');
   const cPanel = document.getElementById('matchCandidatePanel');
   const kPanel = document.getElementById('matchConditionPanel');
-  cTab?.addEventListener('click', () => { cTab.className='py-2 px-1 border-b-2 border-indigo-500 text-indigo-600 text-sm font-medium'; kTab.className='py-2 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 text-sm font-medium'; cPanel?.classList.remove('hidden'); kPanel?.classList.add('hidden'); });
-  kTab?.addEventListener('click', () => { kTab.className='py-2 px-1 border-b-2 border-indigo-500 text-indigo-600 text-sm font-medium'; cTab.className='py-2 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 text-sm font-medium'; kPanel?.classList.remove('hidden'); cPanel?.classList.add('hidden'); });
+  cTab?.addEventListener('click', () => { cTab.className = 'py-2 px-1 border-b-2 border-indigo-500 text-indigo-600 text-sm font-medium'; kTab.className = 'py-2 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 text-sm font-medium'; cPanel?.classList.remove('hidden'); kPanel?.classList.add('hidden'); });
+  kTab?.addEventListener('click', () => { kTab.className = 'py-2 px-1 border-b-2 border-indigo-500 text-indigo-600 text-sm font-medium'; cTab.className = 'py-2 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 text-sm font-medium'; kPanel?.classList.remove('hidden'); cPanel?.classList.add('hidden'); });
 }
 
 function initializeMatching() {
@@ -331,7 +331,7 @@ function initializeMatching() {
     selectedCompanyId = target.dataset.companyId;
     renderTable();
     renderCompanyDetail();
-    document.getElementById('referralCompanyDetail')?.scrollIntoView({behavior:'smooth',block:'start'});
+    document.getElementById('referralCompanyDetail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 }
 
@@ -366,7 +366,7 @@ function applySort() {
   updateSortIndicators();
 }
 
-function formatCurrency(val){ return val==null?'-':`¥${Number(val).toLocaleString('ja-JP')}`; }
+function formatCurrency(val) { return val == null ? '-' : `¥${Number(val).toLocaleString('ja-JP')}`; }
 
 function remainingBadge(remaining) {
   const num = Number(remaining) ?? 0;
@@ -427,12 +427,32 @@ function buildAgencyInsight(company) {
   const retTone = retention >= 90
     ? `定着率${retention}%で安心感高め`
     : retention >= 80
-    ? `定着率${retention}%で安定域`
-    : `定着率${retention}%で要ケア`;
+      ? `定着率${retention}%で安定域`
+      : `定着率${retention}%で要ケア`;
   const leadTone = lead !== '-' ? `LT${lead}日で決着早め` : 'LT情報なし';
   const feeTone = fee !== '-' ? `Fee${fee}で収益性◯` : 'Fee未設定';
   const refundTone = refund > 0 ? `返金リスクあり（${formatCurrency(refund)}）` : '返金リスク低め';
   return `${retTone}、${leadTone}。${feeTone}、${refundTone}。`;
+}
+
+// 上書き版: 求める性格傾向を一言に反映
+function buildAIInsight(company) {
+  const dt = company.desiredTalent || {};
+  const must = dt.mustQualifications?.length ? dt.mustQualifications.join(' / ') : '';
+  const nice = dt.niceQualifications?.length ? dt.niceQualifications.join(' / ') : '';
+  const exp = dt.experiences?.length ? dt.experiences.join(' / ') : '';
+  const salary = dt.salaryRange ? `${dt.salaryRange[0]}〜${dt.salaryRange[1]}万` : '年収レンジ未設定';
+  const pos = company.highlightPosition || company.jobTitle || 'ポジション未設定';
+
+  const mustPart = must ? `必須「${must}」` : '';
+  const nicePart = nice ? `歓迎「${nice}」` : '';
+  const expPart = exp ? `経験「${exp}」` : '';
+  const parts = [mustPart, nicePart, expPart].filter(Boolean).join('・');
+
+  const personalities = dt.personality?.length ? dt.personality.join(' / ') : '';
+  const tone = personalities ? `求める気質は「${personalities}」。` : '';
+
+  return `${pos}を${salary}、${parts || '柔軟に検討'}で採用強化。${tone}`;
 }
 
 function renderTable() {
@@ -448,8 +468,8 @@ function renderTable() {
     prioritized.unshift(sel);
   }
   tableBody.innerHTML = prioritized.map(item => `
-    <tr class="hover:bg-slate-50 ${item.id===selectedCompanyId?'bg-indigo-50/70 border-l-4 border-indigo-400':''}" data-company-id="${item.id}">
-      <td class="sticky-col font-semibold text-left" style="position:sticky;left:0;background:#fff;z-index:30;">${item.company}</td>
+    <tr class="hover:bg-slate-50 ${item.id === selectedCompanyId ? 'selected-row border-l-4 border-indigo-400' : ''}" data-company-id="${item.id}">
+      <td class="sticky-col font-semibold text-left" style="position:sticky;left:0;z-index:30;">${item.company}</td>
       <td class="text-left">${remainingBadge(item.remaining)}</td>
       <td class="text-left">${retentionBadge(item.retention)}</td>
       <td>${item.jobTitle}</td>
@@ -462,7 +482,7 @@ function renderTable() {
       <td class="text-right">${item.planHeadcount}名</td>
       <td class="text-right">${formatCurrency(item.refundAmount)}</td>
       <td class="text-right">${item.leadTime ?? '-'}日</td>
-      <td class="text-right">${item.fee != null ? Math.round(item.fee*100)+'%' : '-'}</td>
+      <td class="text-right">${item.fee != null ? Math.round(item.fee * 100) + '%' : '-'}</td>
       <td class="text-left text-xs">${item.prejoinDeclineReason || '-'}</td>
       <td class="text-right">${item.prejoinDeclines ?? 0}件</td>
       <td class="text-right">${item.dropoutCount ?? 0}件</td>
@@ -480,7 +500,7 @@ function attachRowClickHandlers() {
       selectedCompanyId = companyId;
       renderTable();
       renderCompanyDetail();
-      document.getElementById('referralCompanyDetail')?.scrollIntoView({behavior:'smooth',block:'start'});
+      document.getElementById('referralCompanyDetail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   });
 }
@@ -491,19 +511,19 @@ function renderCompanyDetail() {
   const company = filteredData.find(c => c.id === selectedCompanyId);
   if (!company) { container.innerHTML = '<div class="text-sm text-slate-500">企業が選択されていません</div>'; return; }
 
-  const badge = (text, classes='', size='px-3 py-1 text-xs') => `<span class="${size} rounded-lg font-semibold ${classes}">${text}</span>`;
-  const feeText = company.fee != null ? `${Math.round(company.fee*100)}%` : '-';
+  const badge = (text, classes = '', size = 'px-3 py-1 text-xs') => `<span class="${size} rounded-lg font-semibold ${classes}">${text}</span>`;
+  const feeText = company.fee != null ? `${Math.round(company.fee * 100)}%` : '-';
   const retentionClass = 'bg-emerald-50 text-emerald-700 border border-emerald-100';
   const leadClass = 'bg-amber-50 text-amber-700 border border-amber-100';
   const refundClass = Number(company.refundAmount) > 0 ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-slate-50 text-slate-700 border border-slate-100';
 
   const stages = [
-    { key:'proposal', label: '提案', value: company.proposal, color:'bg-indigo-500' },
-    { key:'docScreen', label: '書類', value: company.docScreen, color:'bg-sky-500' },
-    { key:'interview1', label: '一次', value: company.interview1, color:'bg-amber-500' },
-    { key:'interview2', label: '二次', value: company.interview2, color:'bg-orange-500' },
-    { key:'offer', label: '内定', value: company.offer, color:'bg-emerald-500' },
-    { key:'joined', label: '入社', value: company.joined, color:'bg-teal-500' }
+    { key: 'proposal', label: '提案', value: company.proposal, color: 'bg-indigo-500' },
+    { key: 'docScreen', label: '書類', value: company.docScreen, color: 'bg-sky-500' },
+    { key: 'interview1', label: '一次', value: company.interview1, color: 'bg-amber-500' },
+    { key: 'interview2', label: '二次', value: company.interview2, color: 'bg-orange-500' },
+    { key: 'offer', label: '内定', value: company.offer, color: 'bg-emerald-500' },
+    { key: 'joined', label: '入社', value: company.joined, color: 'bg-teal-500' }
   ];
 
   const candidateBubble = (c) => `
@@ -531,7 +551,7 @@ function renderCompanyDetail() {
         <span class="text-xs text-slate-700 mt-1">${s.label}</span>
         ${bubbles}
       </div>
-      ${idx < stages.length-1 ? '<div class="flex-1 flex items-center justify-center text-slate-400 text-2xl leading-none min-w-[60px] max-w-[80px]">➜</div>' : ''}
+      ${idx < stages.length - 1 ? '<div class="flex-1 flex items-center justify-center text-slate-400 text-2xl leading-none min-w-[60px] max-w-[80px]">➜</div>' : ''}
     `;
   }).join('');
 
@@ -667,7 +687,7 @@ function resetFilters() {
 }
 
 function exportToCSV() {
-  const headers = ['企業名','残り人数','定着率','募集職種','提案件数','書類選考','一次面接','二次面接','内定','入社','採用予定人数','返金額','平均リードタイム(日)','Fee','入社前辞退理由','入社辞退人数','選考脱落者人数'];
+  const headers = ['企業名', '残り人数', '定着率', '募集職種', '提案件数', '書類選考', '一次面接', '二次面接', '内定', '入社', '採用予定人数', '返金額', '平均リードタイム(日)', 'Fee', '入社前辞退理由', '入社辞退人数', '選考脱落者人数'];
   const csvContent = [
     headers.join(','),
     ...filteredData.map(item => [
@@ -701,7 +721,7 @@ function performCandidateMatching() {
   const txt = document.getElementById('candidateText')?.value || '';
   if (!txt.trim()) { alert('候補者のプロフィールを入力してください'); return; }
   const criteria = buildCriteriaFromProfile(txt);
-  const results = filteredData.map(c => calculateMatchScore(c, criteria)).sort((a,b)=>b.score-a.score);
+  const results = filteredData.map(c => calculateMatchScore(c, criteria)).sort((a, b) => b.score - a.score);
   currentMatchResults = results;
   const sortSel = document.getElementById('matchResultSort');
   if (sortSel) sortSel.value = 'score-desc';
@@ -723,12 +743,12 @@ function performConditionMatching() {
   const criteria = {
     salaryMin: clampSalary(document.getElementById('conditionSalaryMin')?.value),
     salaryMax: clampSalary(document.getElementById('conditionSalaryMax')?.value),
-    location: (document.getElementById('conditionLocation')?.value || '').split(/[,、\/]/).map(v=>v.trim()).filter(Boolean).join(' '),
+    location: (document.getElementById('conditionLocation')?.value || '').split(/[,、\/]/).map(v => v.trim()).filter(Boolean).join(' '),
     skillsText: [jobTitleText, skills, mustQ, niceQ, expText, personalityText].join(' '),
     rawTextLower: [jobTitleText, skills, mustQ, niceQ, expText, personalityText].join(' ').toLowerCase(),
-    qualifications: mustQ.split(/[,、\/]/).map(v=>v.trim()).filter(Boolean),
-    personalities: personalityText.split(/[,、\/]/).map(v=>v.trim()).filter(Boolean),
-    experiences: expText.split(/[,、\/]/).map(v=>v.trim()).filter(Boolean)
+    qualifications: mustQ.split(/[,、\/]/).map(v => v.trim()).filter(Boolean),
+    personalities: personalityText.split(/[,、\/]/).map(v => v.trim()).filter(Boolean),
+    experiences: expText.split(/[,、\/]/).map(v => v.trim()).filter(Boolean)
   };
   if (!criteria.salaryMin && !criteria.salaryMax && !criteria.location && !skills.trim()) {
     alert('最低でも1つは条件を入力してください');
@@ -738,7 +758,7 @@ function performConditionMatching() {
     alert('年収上限は年収下限以上の値を入力してください');
     return;
   }
-  const results = filteredData.map(c => calculateMatchScore(c, criteria)).sort((a,b)=>b.score-a.score);
+  const results = filteredData.map(c => calculateMatchScore(c, criteria)).sort((a, b) => b.score - a.score);
   currentMatchResults = results;
   const sortSel = document.getElementById('matchResultSort');
   if (sortSel) sortSel.value = 'score-desc';
@@ -767,7 +787,7 @@ function buildCriteriaFromProfile(text) {
   if (text.includes('結果志向')) personalities.push('結果志向');
   if (text.includes('柔軟')) personalities.push('柔軟');
   if (text.includes('チーム')) personalities.push('チーム志向');
-  const locCandidates = ['東京','名古屋','大阪','福岡','リモート','とうきょう','なごや','おおさか','ふくおか','りもーと'];
+  const locCandidates = ['東京', '名古屋', '大阪', '福岡', 'リモート', 'とうきょう', 'なごや', 'おおさか', 'ふくおか', 'りもーと'];
   const detectedLoc = locCandidates.find(l => text.includes(l) || norm.includes(l)) || '';
   return {
     salaryMin: null,
@@ -922,5 +942,4 @@ function sortMatchResults() {
   const sortedResults = [...currentMatchResults].sort((a, b) => b.score - a.score);
   displayMatchResults(sortedResults);
 }
-
 
