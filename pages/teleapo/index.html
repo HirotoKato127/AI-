@@ -4,7 +4,7 @@
 
 
   <!-- 上部：全体KPI（率＋件数） -->
-    <div class="kpi-v2-section kpi-v2-summary-section" id="teleapoSectionKpi">
+  <div class="kpi-v2-section kpi-v2-summary-section" id="teleapoSectionKpi">
 
     <div class="flex items-start justify-between mb-2 gap-4">
       <div>
@@ -23,26 +23,33 @@
     <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
       <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center flex flex-col gap-2">
         <div class="text-xs font-semibold text-slate-700">コンタクト率（全体）</div>
-        <div class="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight" id="teleapoKpiContactRateTotal">-</div>
+        <div class="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight" id="teleapoKpiContactRateTotal">-
+        </div>
         <div class="mt-1 grid grid-cols-2 gap-1 text-[11px] text-slate-600 w-full">
-          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiContactRateTel" class="font-semibold text-slate-800">-</span></div>
-          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiContactRateOther" class="font-semibold text-slate-800">-</span></div>
+          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiContactRateTel"
+              class="font-semibold text-slate-800">-</span></div>
+          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiContactRateOther"
+              class="font-semibold text-slate-800">-</span></div>
         </div>
       </div>
       <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center flex flex-col gap-2">
         <div class="text-xs font-semibold text-slate-700">設定率（全体）</div>
         <div class="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight" id="teleapoKpiSetRateTotal">-</div>
         <div class="mt-1 grid grid-cols-2 gap-1 text-[11px] text-slate-600 w-full">
-          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiSetRateTel" class="font-semibold text-slate-800">-</span></div>
-          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiSetRateOther" class="font-semibold text-slate-800">-</span></div>
+          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiSetRateTel"
+              class="font-semibold text-slate-800">-</span></div>
+          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiSetRateOther"
+              class="font-semibold text-slate-800">-</span></div>
         </div>
       </div>
       <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center flex flex-col gap-2">
         <div class="text-xs font-semibold text-slate-700">着座率（全体）</div>
         <div class="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight" id="teleapoKpiShowRateTotal">-</div>
         <div class="mt-1 grid grid-cols-2 gap-1 text-[11px] text-slate-600 w-full">
-          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiShowRateTel" class="font-semibold text-slate-800">-</span></div>
-          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiShowRateOther" class="font-semibold text-slate-800">-</span></div>
+          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiShowRateTel"
+              class="font-semibold text-slate-800">-</span></div>
+          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiShowRateOther"
+              class="font-semibold text-slate-800">-</span></div>
         </div>
       </div>
     </div>
@@ -57,220 +64,283 @@
         <div class="text-xs font-semibold text-slate-700">コンタクト数（全体）</div>
         <div class="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight" id="teleapoKpiContactsTotal">0</div>
         <div class="mt-1 grid grid-cols-2 gap-1 text-[11px] text-slate-600 w-full">
-          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiContactsTel" class="font-semibold text-slate-800">0</span></div>
-          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiContactsOther" class="font-semibold text-slate-800">0</span></div>
+          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiContactsTel"
+              class="font-semibold text-slate-800">0</span></div>
+          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiContactsOther"
+              class="font-semibold text-slate-800">0</span></div>
         </div>
       </div>
       <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center flex flex-col gap-2">
         <div class="text-xs font-semibold text-slate-700">設定数（全体）</div>
         <div class="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight" id="teleapoKpiSetsTotal">0</div>
         <div class="mt-1 grid grid-cols-2 gap-1 text-[11px] text-slate-600 w-full">
-          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiSetsTel" class="font-semibold text-slate-800">0</span></div>
-          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiSetsOther" class="font-semibold text-slate-800">0</span></div>
+          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiSetsTel"
+              class="font-semibold text-slate-800">0</span></div>
+          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiSetsOther"
+              class="font-semibold text-slate-800">0</span></div>
         </div>
       </div>
       <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center flex flex-col gap-2">
         <div class="text-xs font-semibold text-slate-700">着座数（全体）</div>
         <div class="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight" id="teleapoKpiShowsTotal">0</div>
         <div class="mt-1 grid grid-cols-2 gap-1 text-[11px] text-slate-600 w-full">
-          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiShowsTel" class="font-semibold text-slate-800">0</span></div>
-          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiShowsOther" class="font-semibold text-slate-800">0</span></div>
+          <div class="flex items-center justify-between px-1"><span>架電ルート</span><span id="teleapoKpiShowsTel"
+              class="font-semibold text-slate-800">0</span></div>
+          <div class="flex items-center justify-between px-1"><span>その他ルート</span><span id="teleapoKpiShowsOther"
+              class="font-semibold text-slate-800">0</span></div>
         </div>
       </div>
     </div>
   </div><!-- 社員成績 & ヒートマップ -->
   <div class="kpi-v2-section">
-  <div class="kpi-v2-header mb-1">
-    <div class="flex flex-col gap-1">
-      <p class="kpi-v2-period-label text-xs text-slate-700" id="teleapoCompanyPeriodLabel"></p>
-    </div>
-    <div class="flex flex-col lg:flex-row items-start lg:items-center gap-2 lg:gap-4">
-      <div class="flex items-center gap-2">
-        <input type="date" id="teleapoCompanyRangeStart" class="kpi-v2-date-input text-sm px-4 py-2" />
-        <span class="kpi-v2-date-separator text-lg">〜</span>
-        <input type="date" id="teleapoCompanyRangeEnd" class="kpi-v2-date-input text-sm px-4 py-2" />
+    <div class="kpi-v2-header mb-1">
+      <div class="flex flex-col gap-1">
+        <p class="kpi-v2-period-label text-xs text-slate-700" id="teleapoCompanyPeriodLabel"></p>
       </div>
-      <div class="kpi-v2-range-presets flex gap-2" data-scope="company">
-        <button type="button" class="kpi-v2-range-btn px-4 py-2" data-preset="today">今日</button>
-        <button type="button" class="kpi-v2-range-btn px-4 py-2" data-preset="thisWeek">今週</button>
-        <button type="button" class="kpi-v2-range-btn kpi-v2-range-btn-active px-4 py-2" data-preset="thisMonth">今月</button>
+      <div class="flex flex-col lg:flex-row items-start lg:items-center gap-2 lg:gap-4">
+        <div class="flex items-center gap-2">
+          <input type="date" id="teleapoCompanyRangeStart" class="kpi-v2-date-input text-sm px-4 py-2" />
+          <span class="kpi-v2-date-separator text-lg">〜</span>
+          <input type="date" id="teleapoCompanyRangeEnd" class="kpi-v2-date-input text-sm px-4 py-2" />
+        </div>
+        <div class="kpi-v2-range-presets flex gap-2" data-scope="company">
+          <button type="button" class="kpi-v2-range-btn px-4 py-2" data-preset="today">今日</button>
+          <button type="button" class="kpi-v2-range-btn px-4 py-2" data-preset="thisWeek">今週</button>
+          <button type="button" class="kpi-v2-range-btn kpi-v2-range-btn-active px-4 py-2"
+            data-preset="thisMonth">今月</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <div class="kpi-v2-subsection" id="teleapoSectionEmployees">
-    <div class="flex items-center justify-between mb-2">
-      <h4 class="text-base font-semibold text-slate-800">社員成績（架電ルートのみ）</h4>
-      <select id="teleapoEmployeeSortSelect" class="bg-white border border-slate-300 rounded-md px-3 py-1.5 text-xs">
-        <option value="connectRate-desc">通電率（高い順）</option>
-        <option value="setRate-desc">設定率（高い順）</option>
-        <option value="showRate-desc">着座率（高い順）</option>
-      </select>
+    <div class="kpi-v2-subsection" id="teleapoSectionEmployees">
+      <div class="flex items-center justify-between mb-2">
+        <h4 class="text-base font-semibold text-slate-800">社員成績（架電ルートのみ）</h4>
+        <select id="teleapoEmployeeSortSelect" class="bg-white border border-slate-300 rounded-md px-3 py-1.5 text-xs">
+          <option value="connectRate-desc">通電率（高い順）</option>
+          <option value="setRate-desc">設定率（高い順）</option>
+          <option value="showRate-desc">着座率（高い順）</option>
+        </select>
+      </div>
+
+      <div id="teleapoEmployeeTableWrapper" class="overflow-auto rounded-lg border border-slate-200 mb-4 bg-white">
+        <table class="table-grid min-w-[800px]" id="teleapoEmployeeTable">
+          <thead>
+            <tr>
+              <th class="whitespace-nowrap cursor-pointer" data-sort="name">社員</th>
+              <th class="whitespace-nowrap cursor-pointer" data-sort="dials">架電数</th>
+              <th class="whitespace-nowrap cursor-pointer" data-sort="connects">通電数</th>
+              <th class="whitespace-nowrap cursor-pointer" data-sort="sets">設定数</th>
+              <th class="whitespace-nowrap cursor-pointer" data-sort="shows">着座数</th>
+              <th class="whitespace-nowrap cursor-pointer" data-sort="connectRate">通電率</th>
+              <th class="whitespace-nowrap cursor-pointer" data-sort="setRate">設定率</th>
+              <th class="whitespace-nowrap cursor-pointer" data-sort="showRate">着座率</th>
+            </tr>
+          </thead>
+          <tbody id="teleapoEmployeeTableBody"></tbody>
+        </table>
+      </div>
     </div>
 
-    <div id="teleapoEmployeeTableWrapper" class="overflow-auto rounded-lg border border-slate-200 mb-4 bg-white">
-      <table class="table-grid min-w-[800px]" id="teleapoEmployeeTable">
-        <thead>
-          <tr>
-            <th class="whitespace-nowrap cursor-pointer" data-sort="name">社員</th>
-            <th class="whitespace-nowrap cursor-pointer" data-sort="dials">架電数</th>
-            <th class="whitespace-nowrap cursor-pointer" data-sort="connects">通電数</th>
-            <th class="whitespace-nowrap cursor-pointer" data-sort="sets">設定数</th>
-            <th class="whitespace-nowrap cursor-pointer" data-sort="shows">着座数</th>
-            <th class="whitespace-nowrap cursor-pointer" data-sort="connectRate">通電率</th>
-            <th class="whitespace-nowrap cursor-pointer" data-sort="setRate">設定率</th>
-            <th class="whitespace-nowrap cursor-pointer" data-sort="showRate">着座率</th>
-          </tr>
-        </thead>
-        <tbody id="teleapoEmployeeTableBody"></tbody>
-      </table>
+    <div id="teleapoEmployeeChartWrapper" class="kpi-v2-subsection hidden">
+      <h5 id="teleapoEmployeeChartTitle" class="text-sm font-semibold text-slate-800 mb-2">社員別 成長KPI（架電・設定・着座）</h5>
+      <div class="kpi-v2-chart-container">
+        <svg id="teleapoEmployeeTrendChart" viewBox="0 0 800 260" class="w-full h-auto"></svg>
+      </div>
     </div>
-  </div>
 
-  <div id="teleapoEmployeeChartWrapper" class="kpi-v2-subsection hidden">
-    <h5 id="teleapoEmployeeChartTitle" class="text-sm font-semibold text-slate-800 mb-2">社員別 成長KPI（架電・設定・着座）</h5>
-    <div class="kpi-v2-chart-container">
-      <svg id="teleapoEmployeeTrendChart" viewBox="0 0 800 260" class="w-full h-auto"></svg>
-    </div>
-  </div>
-
-      <div class="kpi-v2-subsection" id="teleapoSectionHeatmap">
-        <h4 class="kpi-v2-subtitle mb-2">通電率分析</h4>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch teleapo-analysis-row">
-          <div id="teleapoAttemptChartWrapper" class="space-y-2 teleapo-analysis-card">
-            <div class="flex items-center justify-between">
-              <h5 class="text-sm font-semibold text-slate-800 teleapo-analysis-title">架電回数と通電率</h5>
-              <span id="teleapoAttemptPeriodLabel" class="text-[10px] text-slate-500"></span>
-            </div>
-            <p id="teleapoAttemptChartNote" class="text-[10px] text-slate-500 teleapo-analysis-footnote"></p>
-            <div class="kpi-v2-chart-container teleapo-analysis-body">
-              <svg id="teleapoAttemptChart" viewBox="0 0 800 220" class="w-full h-full"></svg>
-            </div>
+    <div class="kpi-v2-subsection" id="teleapoSectionHeatmap">
+      <h4 class="kpi-v2-subtitle mb-2">通電率分析</h4>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch teleapo-analysis-row">
+        <div id="teleapoAttemptChartWrapper" class="space-y-2 teleapo-analysis-card">
+          <div class="flex items-center justify-between">
+            <h5 class="text-sm font-semibold text-slate-800 teleapo-analysis-title">架電回数と通電率</h5>
+            <span id="teleapoAttemptPeriodLabel" class="text-[10px] text-slate-500"></span>
           </div>
-          <div class="space-y-2 teleapo-analysis-card teleapo-heatmap-col">
-            <h5 class="text-sm font-semibold text-slate-800 teleapo-analysis-title">通電率ヒートマップ（曜日×時間帯）</h5>
-            <div class="kpi-v2-filters flex flex-wrap items-center gap-3 teleapo-analysis-subhead">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="kpi-v2-filter-label">集計期間（ヒートマップ）</span>
-                <div id="teleapoHeatmapRangeButtons" class="flex flex-wrap gap-1">
-                  <button type="button" class="kpi-v2-range-btn kpi-v2-range-btn-active" data-heatmap-range="1w">直近1週</button>
-                  <button type="button" class="kpi-v2-range-btn" data-heatmap-range="1m">直近1ヶ月</button>
-                  <button type="button" class="kpi-v2-range-btn" data-heatmap-range="6m">直近半年</button>
-                </div>
-                <p id="teleapoHeatmapPeriodLabel" class="text-[11px] text-slate-500"></p>
+          <p id="teleapoAttemptChartNote" class="text-[10px] text-slate-500 teleapo-analysis-footnote"></p>
+          <div class="kpi-v2-chart-container teleapo-analysis-body">
+            <svg id="teleapoAttemptChart" viewBox="0 0 800 220" class="w-full h-full"></svg>
+          </div>
+        </div>
+        <div class="space-y-2 teleapo-analysis-card teleapo-heatmap-col">
+          <h5 class="text-sm font-semibold text-slate-800 teleapo-analysis-title">通電率ヒートマップ（曜日×時間帯）</h5>
+          <div class="kpi-v2-filters flex flex-wrap items-center gap-3 teleapo-analysis-subhead">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="kpi-v2-filter-label">集計期間（ヒートマップ）</span>
+              <div id="teleapoHeatmapRangeButtons" class="flex flex-wrap gap-1">
+                <button type="button" class="kpi-v2-range-btn kpi-v2-range-btn-active"
+                  data-heatmap-range="1w">直近1週</button>
+                <button type="button" class="kpi-v2-range-btn" data-heatmap-range="1m">直近1ヶ月</button>
+                <button type="button" class="kpi-v2-range-btn" data-heatmap-range="6m">直近半年</button>
               </div>
-              <div class="flex items-center gap-2">
-                <span class="kpi-v2-filter-label">社員</span>
-                <select id="teleapoHeatmapEmployeeFilter" class="kpi-v2-filter-select">
-                  <option value="all">全員</option>
-                  <option value="佐藤">佐藤</option>
-                  <option value="鈴木">鈴木</option>
-                  <option value="高橋">高橋</option>
-                  <option value="田中">田中</option>
-                </select>
-              </div>
+              <p id="teleapoHeatmapPeriodLabel" class="text-[11px] text-slate-500"></p>
             </div>
-            <div class="overflow-auto rounded-lg border border-slate-200 bg-white teleapo-heatmap-wrapper teleapo-analysis-body">
-              <table class="min-w-[640px] border-collapse text-sm text-slate-700" id="teleapoHeatmapTable">
-                <thead class="bg-slate-50">
-                  <tr>
-                    <th class="px-3 py-2 border border-slate-200 text-left">曜日＼時間帯</th>
-                    <th class="px-3 py-2 border border-slate-200 text-center">月</th>
-                    <th class="px-3 py-2 border border-slate-200 text-center">火</th>
-                    <th class="px-3 py-2 border border-slate-200 text-center">水</th>
-                    <th class="px-3 py-2 border border-slate-200 text-center">木</th>
-                    <th class="px-3 py-2 border border-slate-200 text-center">金</th>
-                  </tr>
-                </thead>
-                <tbody id="teleapoHeatmapTableBody"></tbody>
-              </table>
+            <div class="flex items-center gap-2">
+              <span class="kpi-v2-filter-label">社員</span>
+              <select id="teleapoHeatmapEmployeeFilter" class="kpi-v2-filter-select">
+                <option value="all">全員</option>
+                <option value="佐藤">佐藤</option>
+                <option value="鈴木">鈴木</option>
+                <option value="高橋">高橋</option>
+                <option value="田中">田中</option>
+              </select>
             </div>
+          </div>
+          <div
+            class="overflow-auto rounded-lg border border-slate-200 bg-white teleapo-heatmap-wrapper teleapo-analysis-body">
+            <table class="min-w-[640px] border-collapse text-sm text-slate-700" id="teleapoHeatmapTable">
+              <thead class="bg-slate-50">
+                <tr>
+                  <th class="px-3 py-2 border border-slate-200 text-left">曜日＼時間帯</th>
+                  <th class="px-3 py-2 border border-slate-200 text-center">月</th>
+                  <th class="px-3 py-2 border border-slate-200 text-center">火</th>
+                  <th class="px-3 py-2 border border-slate-200 text-center">水</th>
+                  <th class="px-3 py-2 border border-slate-200 text-center">木</th>
+                  <th class="px-3 py-2 border border-slate-200 text-center">金</th>
+                </tr>
+              </thead>
+              <tbody id="teleapoHeatmapTableBody"></tbody>
+            </table>
           </div>
         </div>
       </div>
     </div>
   </div>
-</div><div class="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3" id="teleapoSectionLogs">
-      <h4 class="text-sm font-semibold text-slate-700">架電ログ</h4>
-      <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 text-xs text-slate-500">
-        <div class="flex flex-col gap-1">
-          <label class="text-xs font-semibold text-slate-500">担当者</label>
-          <select id="teleapoLogEmployeeFilter" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
-            <option value="">全員</option>
-            <option value="佐藤">佐藤</option>
-            <option value="田中">田中</option>
-            <option value="山本">山本</option>
-            <option value="鈴木">鈴木</option>
-          </select>
+  </div>
+
+  <section class="kpi-v2-section teleapo-form-card" id="teleapoFormSection">
+    <div class="teleapo-form-header">
+      <div>
+        <p class="teleapo-form-eyebrow">新規架電ログを登録</p>
+        <h4 class="teleapo-form-title">架電ログ入力</h4>
+      </div>
+      <span class="teleapo-form-badge">RDS保存</span>
+    </div>
+    <div class="teleapo-form-grid teleapo-form-grid-6">
+      <label class="teleapo-form-field">
+        <span>日時</span>
+        <input id="dialFormCalledAt" type="datetime-local" required />
+      </label>
+      <label class="teleapo-form-field">
+        <span>担当者</span>
+        <select id="dialFormEmployee" required></select>
+      </label>
+      <label class="teleapo-form-field">
+        <span>候補者名</span>
+        <input id="dialFormCandidateName" list="dialFormCandidateList" type="text" required placeholder="候補者名を入力" />
+        <datalist id="dialFormCandidateList"></datalist>
+      </label>
+      <label class="teleapo-form-field">
+        <span>経路</span>
+        <select id="dialFormRoute" required>
+          <option value="電話">電話</option>
+          <option value="SMS">SMS</option>
+          <option value="その他">その他</option>
+        </select>
+      </label>
+      <label class="teleapo-form-field">
+        <span>架電回数</span>
+        <input id="dialFormCallNo" type="number" min="1" max="10" required placeholder="1〜10" />
+      </label>
+      <label class="teleapo-form-field">
+        <span>アポ結果</span>
+        <select id="dialFormResult" required>
+          <option value="通電">通電</option>
+          <option value="不在">不在</option>
+          <option value="NG">NG</option>
+          <option value="設定">設定</option>
+          <option value="SMS送信">SMS送信</option>
+        </select>
+      </label>
+    </div>
+    <input type="hidden" id="dialFormCandidateId" />
+    <div class="teleapo-form-actions">
+      <div class="teleapo-form-hint">日時は自動入力、候補者名を選ぶと架電回数・経路を自動セットします</div>
+      <button id="dialFormSubmit" type="button" class="teleapo-form-submit">保存</button>
+    </div>
+    <p id="dialFormMessage" class="teleapo-form-message text-sm"></p>
+  </section>
+
+  <div class="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3" id="teleapoSectionLogs">
+    <h4 class="text-sm font-semibold text-slate-700">架電ログ</h4>
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 text-xs text-slate-500">
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-semibold text-slate-500">担当者</label>
+        <select id="teleapoLogEmployeeFilter" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
+          <option value="">全員</option>
+          <option value="佐藤">佐藤</option>
+          <option value="田中">田中</option>
+          <option value="山本">山本</option>
+          <option value="鈴木">鈴木</option>
+        </select>
+      </div>
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-semibold text-slate-500">アポ結果</label>
+        <select id="teleapoLogResultFilter" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
+          <option value="">全て</option>
+          <option value="通電">通電</option>
+          <option value="不在">不在</option>
+          <option value="設定">設定</option>
+          <option value="着座">着座</option>
+          <option value="コールバック">コールバック</option>
+        </select>
+      </div>
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-semibold text-slate-500">経路</label>
+        <select id="teleapoLogRouteFilter" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
+          <option value="">全て</option>
+          <option value="tel">架電</option>
+          <option value="other">その他</option>
+        </select>
+      </div>
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-semibold text-slate-500">相手名検索</label>
+        <input type="text" id="teleapoLogTargetSearch"
+          class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="相手名で検索..." />
+      </div>
+      <div class="flex items-end gap-2">
+        <button id="teleapoLogFilterReset"
+          class="px-3 py-2 border border-slate-300 rounded-md text-sm hover:bg-slate-100 whitespace-nowrap">
+          条件をクリア
+        </button>
+        <div id="teleapoLogFilterCount" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-semibold">
+          0件
         </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-xs font-semibold text-slate-500">アポ結果</label>
-          <select id="teleapoLogResultFilter" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
-            <option value="">全て</option>
-            <option value="通電">通電</option>
-            <option value="不在">不在</option>
-            <option value="設定">設定</option>
-            <option value="着座">着座</option>
-            <option value="コールバック">コールバック</option>
-          </select>
-        </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-xs font-semibold text-slate-500">経路</label>
-          <select id="teleapoLogRouteFilter" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm">
-            <option value="">全て</option>
-            <option value="tel">架電</option>
-            <option value="other">その他</option>
-          </select>
-        </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-xs font-semibold text-slate-500">相手名検索</label>
-          <input type="text" id="teleapoLogTargetSearch"
-            class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="相手名で検索..." />
-        </div>
-        <div class="flex items-end gap-2">
-          <button id="teleapoLogFilterReset"
-            class="px-3 py-2 border border-slate-300 rounded-md text-sm hover:bg-slate-100 whitespace-nowrap">
-            条件をクリア
-          </button>
-          <div id="teleapoLogFilterCount" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-semibold">
-            0件
-          </div>
-          <span id="teleapoLogPeriodLabel" class="text-[11px] text-slate-500"></span>
-        </div>
+        <span id="teleapoLogPeriodLabel" class="text-[11px] text-slate-500"></span>
       </div>
     </div>
+  </div>
 
-    <!-- ログテーブル -->
-    <div class="overflow-auto rounded-lg border border-slate-200 bg-white">
-      <table class="table-grid min-w-[1200px]" id="teleapoLogTable">
-        <thead>
-          <tr>
-            <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="datetime">
-              日時
-              <span class="ml-1 text-xs text-slate-400">↕</span>
-            </th>
-            <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="employee">
-              担当者
-            </th>
-            <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="route">
-              経路
-            </th>
-            <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="target">
-              相手
-            </th>
-            <th>電話番号</th>
-            <th>メールアドレス</th>
-            <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="result">
-              アポ結果
-            </th>
-            <th>メモ</th>
-          </tr>
-        </thead>
-        <tbody id="teleapoLogTableBody">
-          <!-- JSで描画 -->
-        </tbody>
-      </table>
-    </div>
+  <!-- ログテーブル -->
+  <div class="overflow-auto rounded-lg border border-slate-200 bg-white">
+    <table class="table-grid min-w-[1200px]" id="teleapoLogTable">
+      <thead>
+        <tr>
+          <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="datetime">
+            日時
+            <span class="ml-1 text-xs text-slate-400">↕</span>
+          </th>
+          <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="employee">
+            担当者
+          </th>
+          <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="route">
+            経路
+          </th>
+          <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="target">
+            相手
+          </th>
+          <th>電話番号</th>
+          <th>メールアドレス</th>
+          <th class="cursor-pointer hover:bg-slate-100 sortable" data-sort="result">
+            アポ結果
+          </th>
+          <th>メモ</th>
+        </tr>
+      </thead>
+      <tbody id="teleapoLogTableBody">
+        <!-- JSで描画 -->
+      </tbody>
+    </table>
+  </div>
   </div>
 
   <script type="module" src="./teleapo.js"></script>

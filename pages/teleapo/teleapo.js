@@ -12,15 +12,10 @@ const CANDIDATE_DETAIL_PAGE_URL = 'http://localhost:8081/#/candidates'; // 例: 
 const CANDIDATE_ID_PARAM = 'candidateId';
 
 function buildCandidateDetailUrl(candidateId) {
-  try {
-    const url = new URL(CANDIDATE_DETAIL_PAGE_URL, window.location.origin);
-    url.searchParams.set(CANDIDATE_ID_PARAM, String(candidateId));
-    return url.pathname + url.search;
-  } catch {
-    // 何かあっても落ちないように
-    return `${CANDIDATE_DETAIL_PAGE_URL}?${CANDIDATE_ID_PARAM}=${encodeURIComponent(candidateId)}`;
-  }
+  // ハッシュルーター前提： http://localhost:8081/#/candidates?candidateId=123
+  return `${CANDIDATE_DETAIL_PAGE_URL}?${CANDIDATE_ID_PARAM}=${encodeURIComponent(candidateId)}`;
 }
+
 
 function escapeHtml(str) {
   return String(str ?? '')
@@ -47,6 +42,16 @@ let teleapoSummaryScope = { type: 'company', name: '全体' };
 let teleapoHeatmapRange = '1m';
 let teleapoLogSort = { key: 'datetime', dir: 'desc' };
 let teleapoEmployeeSortState = { key: 'connectRate', dir: 'desc' };
+let employeeNameToUserId = new Map();
+
+function rebuildEmployeeMap() {
+  employeeNameToUserId = new Map();
+  for (const l of teleapoLogData) {
+    if (l.employee && Number.isFinite(l.callerUserId)) {
+      employeeNameToUserId.set(l.employee, l.callerUserId);
+    }
+  }
+}
 
 const teleapoInitialMockLogs = [
   // 同じターゲットに複数回架電した例（1回目不在→2回目通電）
@@ -156,40 +161,29 @@ function toDateTimeString(value) {
 
 function mapApiLog(log = {}) {
   const rawDatetime = log.datetime || log.called_at || log.calledAt || log.call_at;
-
   const employee = log.employee || log.caller_name || log.caller || log.user_name || '';
 
-  // ★ 候補者ID（RDSの teleapo_logs.candidate_id）
   const candidateIdRaw = log.candidate_id ?? log.candidateId ?? log.candidateID;
   const candidateId = candidateIdRaw === undefined || candidateIdRaw === null || candidateIdRaw === ''
     ? undefined
     : Number(candidateIdRaw);
 
-  // ★ 相手（RDSは candidate_name が入っている）
+  // ★ 追加：callerUserId（RDSの teleapo_logs.caller_user_id）
+  const callerUserIdRaw = log.caller_user_id ?? log.callerUserId;
+  const callerUserIdNum = callerUserIdRaw === undefined || callerUserIdRaw === null || callerUserIdRaw === ''
+    ? undefined
+    : Number(callerUserIdRaw);
+
   const target = log.target || log.candidate_name || log.candidateName || log.company_name || '';
 
-  // ★ 電話・メール（RDS JOINで返ってくる candidate_phone/candidate_email を最優先）
-  const tel =
-    log.candidate_phone ||
-    log.candidatePhone ||
-    log.phone ||
-    log.tel ||
-    '';
-
-  const email =
-    log.candidate_email ||
-    log.candidateEmail ||
-    log.email ||
-    '';
+  const tel = log.candidate_phone || log.candidatePhone || log.phone || log.tel || '';
+  const email = log.candidate_email || log.candidateEmail || log.email || '';
 
   const rawResult = log.result || log.result_code || log.status || log.outcome || '';
   const resultCode = normalizeResultCode(log.resultCode || rawResult);
-
   const memo = log.memo || log.note || '';
-
   const route = normalizeRoute(log.route || log.route_type || log.channel || '');
 
-  // ★ call_no（RDSの teleapo_logs.call_no）
   const callNo = Number(log.call_no || log.callNo || log.call_number || log.callNoNumber);
 
   return normalizeLog({
@@ -202,14 +196,12 @@ function mapApiLog(log = {}) {
     resultRaw: rawResult,
     resultCode,
     memo,
-
-    // ★ クリック遷移用に保持
     candidateId: Number.isFinite(candidateId) && candidateId > 0 ? candidateId : undefined,
-
-    // ★ 何回目架電（RDSの call_no を優先）
+    callerUserId: Number.isFinite(callerUserIdNum) && callerUserIdNum > 0 ? callerUserIdNum : undefined, // ★追加
     callAttempt: Number.isFinite(callNo) && callNo > 0 ? callNo : undefined
   });
 }
+
 
 function getCallKey(log) {
   return log.candidateId || log.target || log.tel || log.email || '不明';
@@ -1062,7 +1054,7 @@ async function fetchTeleapoApi() {
   params.append('limit', '2000');
   params.append('offset', '0');
 
-  const url = `${TELEAPO_API_URL}?${params.toString()}`;
+  const url = `${TELEAPO_LOGS_URL}?${params.toString()}`;
 
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Teleapo API HTTP ${res.status}`);
@@ -1077,11 +1069,14 @@ async function loadTeleapoData() {
     const logs = Array.isArray(data?.logs) ? data.logs : Array.isArray(data?.items) ? data.items : [];
     teleapoLogData = logs.map(mapApiLog).filter(l => l.datetime);
     annotateCallAttempts(teleapoLogData);
+    rebuildEmployeeMap();
+    refreshCandidateDatalist();
     applyFilters();
   } catch (err) {
     console.error('[teleapo] API取得に失敗したためモックを使用します', err);
     teleapoLogData = teleapoInitialMockLogs.map(normalizeLog);
     annotateCallAttempts(teleapoLogData);
+    refreshCandidateDatalist();
     applyFilters();
   }
 }
@@ -1095,7 +1090,29 @@ export function mount() {
   initEmployeeSortHeaders();
   initLogTableSort();
   initLogForm();
-  loadTeleapoData();
+  initDialForm();
+  loadTeleapoData().then(() => {
+    refreshCandidateDatalist();
+  });
+}
+
+function localDateTimeToRfc3339(localValue) {
+  // localValue: "YYYY-MM-DDTHH:mm"
+  if (!localValue || !localValue.includes("T")) return null;
+
+  const [datePart, timePart] = localValue.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm] = timePart.split(":").map(Number);
+
+  const dt = new Date(y, m - 1, d, hh, mm, 0); // ローカルとして生成
+  const tzMin = -dt.getTimezoneOffset(); // 例: JSTなら +540
+  const sign = tzMin >= 0 ? "+" : "-";
+  const abs = Math.abs(tzMin);
+  const tzH = String(Math.floor(abs / 60)).padStart(2, "0");
+  const tzM = String(abs % 60).padStart(2, "0");
+
+  const pad2 = (n) => String(n).padStart(2, "0");
+  return `${y}-${pad2(m)}-${pad2(d)}T${pad2(hh)}:${pad2(mm)}:00${sign}${tzH}:${tzM}`;
 }
 
 export function unmount() {
@@ -1111,4 +1128,176 @@ if (typeof window !== 'undefined') {
     window.__teleapoMounted = true;
     mount();
   });
+}
+
+// ★ ここを実際のAPI Gatewayに合わせる（teleapo GETと同じでOK）
+const TELEAPO_API_BASE = "https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev";
+const TELEAPO_LOGS_PATH = "/teleapo/logs";
+const TELEAPO_LOGS_URL = `${TELEAPO_API_BASE}${TELEAPO_LOGS_PATH}`;
+
+
+function nowLocalDateTime() {
+  const d = new Date();
+  const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString();
+  return iso.slice(0, 16);
+}
+
+function populateEmployeeSelect() {
+  const sel = document.getElementById("dialFormEmployee");
+  if (!sel) return;
+  sel.innerHTML = TELEAPO_EMPLOYEES.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+}
+
+function refreshCandidateDatalist() {
+  const listEl = document.getElementById("dialFormCandidateList");
+  if (!listEl) return;
+  const names = Array.from(
+    new Set(
+      teleapoLogData
+        .map(l => (l.target || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b, "ja"));
+  listEl.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join("");
+}
+
+function routeLabelFromLogRoute(logRoute) {
+  if (!logRoute) return "電話";
+  const t = `${logRoute}`.toLowerCase();
+  if (t.includes("sms")) return "SMS";
+  if (t.includes("other") || t.includes("mail") || t.includes("line")) return "その他";
+  return "電話";
+}
+
+function updateCallNoAndRoute(candidateName) {
+  const name = (candidateName || "").trim();
+  const callNoInput = document.getElementById("dialFormCallNo");
+  const routeSelect = document.getElementById("dialFormRoute");
+  const candidateIdHidden = document.getElementById("dialFormCandidateId");
+  if (!name) return;
+
+  const matched = teleapoLogData.filter(l => (l.target || "").trim() === name);
+  if (matched.length === 0) {
+    if (callNoInput) callNoInput.value = "1";
+    if (routeSelect) routeSelect.value = "電話";
+    if (candidateIdHidden) candidateIdHidden.value = "";
+    return;
+  }
+
+  const maxAttempt = matched.reduce((acc, l) => {
+    const n = Number(l.callAttempt || l.call_no || l.callNo || 0);
+    return Number.isFinite(n) ? Math.max(acc, n) : acc;
+  }, 0);
+  if (callNoInput) callNoInput.value = String(maxAttempt + 1 || 1);
+
+  const latest = [...matched].sort((a, b) => {
+    const ta = parseDateTime(a.datetime)?.getTime() || 0;
+    const tb = parseDateTime(b.datetime)?.getTime() || 0;
+    return tb - ta;
+  })[0];
+  if (routeSelect) routeSelect.value = routeLabelFromLogRoute(latest.route);
+  if (candidateIdHidden && latest?.candidateId) candidateIdHidden.value = String(latest.candidateId);
+}
+
+function resetDialFormDefaults() {
+  const dt = document.getElementById("dialFormCalledAt");
+  if (dt) dt.value = nowLocalDateTime();
+  const emp = document.getElementById("dialFormEmployee");
+  if (emp && emp.options.length) emp.value = emp.options[0].value;
+  const route = document.getElementById("dialFormRoute");
+  if (route) route.value = "電話";
+  const callNo = document.getElementById("dialFormCallNo");
+  if (callNo) callNo.value = "1";
+  const msg = document.getElementById("dialFormMessage");
+  if (msg) msg.textContent = "";
+}
+
+function bindDialForm() {
+  const candidateInput = document.getElementById("dialFormCandidateName");
+  if (candidateInput) {
+    ["change", "blur"].forEach(ev =>
+      candidateInput.addEventListener(ev, () => updateCallNoAndRoute(candidateInput.value))
+    );
+  }
+
+  const submitBtn = document.getElementById("dialFormSubmit");
+  if (!submitBtn) return;
+  submitBtn.addEventListener("click", async () => {
+    const candidateIdRaw = document.getElementById("dialFormCandidateId")?.value || "";
+    const candidateId = candidateIdRaw ? Number(candidateIdRaw) : undefined;
+
+    const candidateName = (document.getElementById("dialFormCandidateName")?.value || "").trim();
+    const calledAtLocal = document.getElementById("dialFormCalledAt")?.value || nowLocalDateTime();
+    const calledAt = localDateTimeToRfc3339(calledAtLocal);
+
+    const route = document.getElementById("dialFormRoute")?.value || "";
+    const result = document.getElementById("dialFormResult")?.value || "";
+    const employee = document.getElementById("dialFormEmployee")?.value || "";
+    const memo = document.getElementById("dialFormMemo")?.value || ""; // ※無ければ空でOK
+    const msg = document.getElementById("dialFormMessage");
+
+    // 必須チェック
+    if (!candidateName || !calledAt || !route || !result || !employee) {
+      if (msg) msg.textContent = "すべて入力してください。";
+      return;
+    }
+
+    // ★ callerUserId を社員名から特定
+    const callerUserId = employeeNameToUserId.get(employee);
+    if (!callerUserId) {
+      if (msg) msg.textContent = "callerUserIdが取得できません（ログ取得後に社員ID辞書が作られます）。";
+      return;
+    }
+
+    // ★ candidateId が取れない場合はまずここで止める（将来は candidates API で名前検索して補完する）
+    if (!candidateId) {
+      if (msg) msg.textContent = "candidateIdが取得できません。候補者名は一覧から選択してください。";
+      return;
+    }
+
+    try {
+      const payload = {
+        candidateId,
+        calledAt,
+        route,
+        result,
+        callerUserId,
+        memo
+      };
+
+      const res = await fetch(TELEAPO_LOGS_URL, {
+        method: "POST", // ★ PUT → POST
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status} ${text.slice(0, 200)}`);
+      }
+
+      if (msg) msg.textContent = "保存しました";
+
+      // ★ call_no はバック側採番なので、保存後に再取得して画面更新するのが確実
+      await loadTeleapoData();
+
+      resetDialFormDefaults();
+      const candidateInput = document.getElementById("dialFormCandidateName");
+      if (candidateInput) candidateInput.value = "";
+      const candidateIdHidden = document.getElementById("dialFormCandidateId");
+      if (candidateIdHidden) candidateIdHidden.value = "";
+
+    } catch (err) {
+      console.error(err);
+      if (msg) msg.textContent = "保存に失敗しました";
+    }
+  });
+
+}
+
+function initDialForm() {
+  populateEmployeeSelect();
+  resetDialFormDefaults();
+  refreshCandidateDatalist();
+  bindDialForm();
 }

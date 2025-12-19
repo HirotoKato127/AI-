@@ -573,3 +573,128 @@
   width: 100%;
   height: 100%;
 }
+
+/* ===========================
+ * 架電ログ入力フォーム
+ * =========================*/
+
+[data-page="teleapo"] .teleapo-form-card {
+  margin-top: 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 40%, #ffffff 100%);
+  box-shadow: 0 10px 35px rgba(15, 23, 42, 0.06);
+}
+
+[data-page="teleapo"] .teleapo-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+[data-page="teleapo"] .teleapo-form-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-page="teleapo"] .teleapo-form-eyebrow {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0;
+}
+
+[data-page="teleapo"] .teleapo-form-badge {
+  font-size: 0.75rem;
+  color: #2563eb;
+  background-color: #dbeafe;
+  border: 1px solid #bfdbfe;
+  border-radius: 9999px;
+  padding: 0.25rem 0.75rem;
+  white-space: nowrap;
+}
+
+[data-page="teleapo"] .teleapo-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem 1rem;
+  margin-top: 0.5rem;
+}
+
+[data-page="teleapo"] .teleapo-form-grid.teleapo-form-grid-6 {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+[data-page="teleapo"] .teleapo-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: #334155;
+}
+
+[data-page="teleapo"] .teleapo-form-field span {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+[data-page="teleapo"] .teleapo-form-field input,
+[data-page="teleapo"] .teleapo-form-field select {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.9rem;
+  color: #0f172a;
+  background-color: #ffffff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+[data-page="teleapo"] .teleapo-form-field input:focus,
+[data-page="teleapo"] .teleapo-form-field select:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+[data-page="teleapo"] .teleapo-form-actions {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+[data-page="teleapo"] .teleapo-form-hint {
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+[data-page="teleapo"] .teleapo-form-submit {
+  padding: 0.65rem 1.4rem;
+  background-color: #4f46e5;
+  color: #ffffff;
+  border: 1px solid #4f46e5;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
+}
+
+[data-page="teleapo"] .teleapo-form-submit:hover {
+  background-color: #4338ca;
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.15);
+}
+
+[data-page="teleapo"] .teleapo-form-submit:active {
+  transform: translateY(1px);
+}
+
+[data-page="teleapo"] .teleapo-form-message {
+  margin-top: 0.5rem;
+  min-height: 1.5rem;
+  color: #0f172a;
+}

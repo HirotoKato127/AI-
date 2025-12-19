@@ -1,11 +1,11 @@
-// Candidates Page JavaScript Module (RDS integrated / full)
+﻿// teleapo と同じAPI Gatewayの base
+const CANDIDATES_API_BASE = "https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev";
 
-// =========================
-// API設定（必要なら変更）
-// =========================
-const CANDIDATES_API_BASE = "";
-// 例: "https://xxxxxxxx.execute-api.ap-northeast-1.amazonaws.com/dev"
-// 同一オリジンで /api が通るなら "" のままでOK
+// 一覧は「/candidates」（末尾スラッシュなし）
+const CANDIDATES_LIST_PATH = "/candidates";
+
+// 詳細は「/candidates/{candidateId}」（末尾スラッシュなし）
+const candidateDetailPath = (id) => `/candidates/${encodeURIComponent(String(id))}`;
 
 const candidatesApi = (path) => `${CANDIDATES_API_BASE}${path}`;
 
@@ -172,8 +172,8 @@ async function loadCandidatesData(filtersOverride = {}) {
 
   try {
     const url = queryString
-      ? candidatesApi(`/api/candidates?${queryString}`)
-      : candidatesApi(`/api/candidates`);
+      ? candidatesApi(`${CANDIDATES_LIST_PATH}?${queryString}`)   // /candidates/?...
+      : candidatesApi(`${CANDIDATES_LIST_PATH}`);                // /candidates/
 
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -429,9 +429,34 @@ function updateLastSyncedDisplay(ts) {
 // 行クリック：必ず詳細APIを叩く（重要）
 // =========================
 async function fetchCandidateDetailById(id) {
-  const url = candidatesApi(`/api/candidates/${encodeURIComponent(String(id))}`);
+  // 1) すでに一覧にある場合はそれを返す（不要なAPIコールを減らす）
+  const cached =
+    allCandidates.find((c) => String(c.id) === String(id)) ||
+    filteredCandidates.find((c) => String(c.id) === String(id));
+  if (cached) return cached;
+
+  // 2) 一覧APIを id 絞りで呼ぶ（安定しているほうを優先）
+  const altUrl = candidatesApi(`${CANDIDATES_LIST_PATH}?id=${encodeURIComponent(id)}`);
+  try {
+    const altRes = await fetch(altUrl);
+    if (altRes.ok) {
+      const altJson = await altRes.json().catch(() => null);
+      const item = Array.isArray(altJson?.items)
+        ? altJson.items.find((it) => String(it.id) === String(id))
+        : null;
+      if (item) return normalizeCandidate({ ...item, id: String(item.id) });
+    }
+  } catch (e) {
+    console.error("candidate detail alt fetch failed", e);
+  }
+
+  // 3) 最後の手段として詳細APIを叩く（これが 500 を返す場合はそのまま例外）
+  const url = candidatesApi(candidateDetailPath(id)); // /candidates/{candidateId}
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Candidate detail HTTP ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Candidate detail HTTP ${res.status}: ${text}`);
+  }
   return normalizeCandidate(await res.json());
 }
 
@@ -453,15 +478,29 @@ async function openCandidateById(id) {
   openCandidateModal();
   highlightSelectedRow();
 
-  const detail = await fetchCandidateDetailById(idStr);
+  try {
+    const detail = await fetchCandidateDetailById(idStr);
 
-  // 一覧にも反映（あれば更新、無ければ詳細モーダルだけでも表示できる）
-  applyCandidateUpdate(detail, { preserveDetailState: true });
+    // 一覧にも反映（あれば更新、無ければ詳細モーダルだけでも表示できる）
+    applyCandidateUpdate(detail, { preserveDetailState: true });
 
-  // 明示的に描画（applyCandidateUpdate 内でも描画されるが、安全に二重でOK）
-  renderCandidateDetail(detail, { preserveEditState: false });
-  openCandidateModal();
-  highlightSelectedRow();
+    // 明示的に描画（applyCandidateUpdate 内でも描画されるが、安全に二重でOK）
+    renderCandidateDetail(detail, { preserveEditState: false });
+    openCandidateModal();
+    highlightSelectedRow();
+  } catch (e) {
+    console.error("candidate detail fetch error", e);
+    const fallback = filteredCandidates.find((c) => String(c.id) === idStr)
+      || allCandidates.find((c) => String(c.id) === idStr);
+    if (fallback) {
+      renderCandidateDetail(fallback, { preserveEditState: false });
+      openCandidateModal();
+      highlightSelectedRow();
+    } else {
+      setCandidateDetailLoading("詳細の取得に失敗しました。ネットワーク状態を確認してください。");
+      openCandidateModal();
+    }
+  }
 }
 
 async function handleTableClick(event) {
@@ -653,7 +692,7 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true } = {
 
   normalizeCandidate(candidate);
 
-  const response = await fetch(candidatesApi(`/api/candidates/${encodeURIComponent(String(candidate.id))}`), {
+  const response = await fetch(candidatesApi(candidateDetailPath(candidate.id)), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(candidate),
@@ -1137,3 +1176,346 @@ function applyHearingTemplate(templateId) {
   }
 }
 // ====== /Detail Content Handlers ======
+
+// -----------------------
+// 詳細セクション（簡易）
+// -----------------------
+function renderRegistrationSection(candidate) {
+  const fields = [
+    { label: "登録日時", value: candidate.registeredAt || candidate.registeredDate, type: "datetime", displayFormatter: formatDateTimeJP },
+    { label: "更新日時", value: candidate.updatedAt, type: "datetime", displayFormatter: formatDateTimeJP },
+    { label: "担当者", value: candidate.advisorName },
+    { label: "担当パートナー", value: candidate.partnerName },
+  ];
+  return renderDetailGridFields(fields, "registration");
+}
+
+function renderMeetingSection(candidate) {
+  const fields = [
+    { label: "SMS送信確認", value: candidate.smsConfirmed, input: "checkbox", valueType: "boolean", displayFormatter: (v) => (v ? "済" : "未") },
+    { label: "フェーズ", value: candidate.phase, input: "select", options: phaseOptions },
+    { label: "通電日", value: candidate.callDate, type: "date", displayFormatter: formatDateJP },
+    { label: "新規接触予定日", value: candidate.firstContactPlannedAt, type: "date", displayFormatter: formatDateJP },
+    { label: "新規接触日", value: candidate.firstContactAt, type: "date", displayFormatter: formatDateJP },
+    { label: "着座確認", value: candidate.attendanceConfirmed, input: "checkbox", valueType: "boolean", displayFormatter: (v) => (v ? "確認済" : "未") },
+  ];
+  return renderDetailGridFields(fields, "meeting");
+}
+
+function renderApplicantInfoSection(candidate) {
+  const age = candidate.age ?? calculateAge(candidate.birthday);
+  const fields = [
+    { label: "求職者コード", value: candidate.candidateCode },
+    { label: "求職者名", value: candidate.candidateName },
+    { label: "求職者名（ヨミガナ）", value: candidate.candidateKana },
+    { label: "応募企業名", value: candidate.companyName },
+    { label: "応募求人名", value: candidate.jobName },
+    { label: "勤務地", value: candidate.workLocation },
+    { label: "電話番号", value: candidate.phone },
+    { label: "メールアドレス", value: candidate.email, type: "email" },
+    { label: "生年月日", value: candidate.birthday, type: "date", displayFormatter: formatDateJP },
+    { label: "年齢", value: age ? `${age}歳` : "-", editable: false },
+    { label: "現住所", value: candidate.address },
+    { label: "市区町村", value: candidate.city },
+    { label: "備考", value: candidate.remarks || candidate.memo, input: "textarea" },
+  ];
+  return renderDetailGridFields(fields, "applicant");
+}
+
+function renderHearingSection(candidate) {
+  const hearing = candidate.hearing || {};
+  const editing = detailEditState.hearing;
+  const memoValue = hearing.memo || buildHearingMemoValue(hearing);
+  if (editing) {
+    return `
+      ${renderHearingTemplatePanel(editing)}
+      <label class="detail-textarea-field">
+        <span>ヒアリングメモ</span>
+        <textarea rows="6" id="hearingMemoTextarea" class="detail-inline-input detail-inline-textarea" data-detail-field="hearing.memo" data-detail-section="hearing">${escapeHtml(memoValue || "")}</textarea>
+      </label>
+    `;
+  }
+  return `
+    ${renderHearingTemplatePanel(editing)}
+    <label class="detail-textarea-field">
+      <span>ヒアリングメモ</span>
+      <span class="detail-value">${escapeHtml(memoValue || "-")}</span>
+    </label>
+  `;
+}
+
+function renderSelectionProgressSection(candidate) {
+  const rows = candidate.selectionProgress || [];
+  const editing = detailEditState.selection;
+  const headerAction = editing ? "<th>操作</th>" : "";
+
+  let bodyHtml;
+  if (rows.length === 0) {
+    const colspan = editing ? 14 : 13;
+    bodyHtml = `<tr><td colspan="${colspan}" class="detail-empty-row text-center py-3">企業の進捗は登録されていません。</td></tr>`;
+  } else {
+    bodyHtml = rows
+      .map((row, index) => {
+        const cells = [
+          row.companyName,
+          row.route,
+          formatDateJP(row.recommendationDate),
+          formatDateJP(row.interviewSetupDate),
+          formatDateJP(row.interviewDate),
+          formatDateJP(row.offerDate),
+          formatDateJP(row.closingDate),
+          formatDateJP(row.acceptanceDate),
+          formatDateJP(row.onboardingDate),
+          formatDateJP(row.preJoinDeclineDate),
+          row.fee,
+          row.status,
+          row.notes,
+        ]
+          .map((v) => `<td><span class="detail-value">${escapeHtml(formatDisplayValue(v))}</span></td>`)
+          .join("");
+        const action = editing
+          ? `<td class="detail-table-actions text-center"><button type="button" class="repeatable-remove-btn" data-remove-row="selectionProgress" data-index="${index}">削除</button></td>`
+          : "";
+        return `<tr>${cells}${action}</tr>`;
+      })
+      .join("");
+  }
+
+  return `
+    <div class="repeatable-header">
+      <h5>企業ごとの進捗</h5>
+    </div>
+    <div class="detail-table-wrapper">
+      <table class="detail-table min-w-[1000px]">
+        <thead>
+          <tr>
+            <th>受験企業名</th><th>応募経路</th><th>推薦日</th><th>面接設定日</th><th>面接日</th>
+            <th>内定日</th><th>クロージング予定日</th><th>内定承諾日</th><th>入社日</th><th>入社前辞退日</th>
+            <th>紹介FEE</th><th>選考状況</th><th>備考</th>${headerAction}
+          </tr>
+        </thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderAfterAcceptanceSection(candidate) {
+  const data = candidate.afterAcceptance || {};
+  const fields = [
+    { label: "受注金額（税抜）", value: data.amount },
+    { label: "職種", value: data.jobCategory },
+  ];
+  const reportStatuses =
+    (data.reportStatuses || [])
+      .map((s) => `<span class="cs-pill is-active">${escapeHtml(s)}</span>`)
+      .join("") || "-";
+  return `
+    ${renderDetailGridFields(fields, "afterAcceptance")}
+    <div class="detail-pill-list">${reportStatuses}</div>
+  `;
+}
+
+function renderRefundSection(candidate) {
+  const info = candidate.refundInfo || {};
+  const fields = [
+    { label: "退職日", value: info.resignationDate, type: "date", displayFormatter: formatDateJP },
+    { label: "返金・減額（税抜）", value: info.refundAmount },
+  ];
+  const report = info.reportStatus || "";
+  return `
+    ${renderDetailGridFields(fields, "refund")}
+    <label class="detail-textarea-field">
+      <span>返金報告</span>
+      <span class="detail-value">${escapeHtml(report || "-")}</span>
+    </label>
+  `;
+}
+
+function renderNextActionSection(candidate) {
+  const action = candidate.actionInfo || {};
+  const fields = [
+    { label: "次回アクション日", value: action.nextActionDate, type: "date", displayFormatter: formatDateJP },
+    { label: "最終結果", value: action.finalResult },
+  ];
+  return renderDetailGridFields(fields, "nextAction");
+}
+
+function renderCsSection(candidate) {
+  const checklist = candidate.csChecklist || {};
+  const csItems = [
+    { key: "validConfirmed", label: "有効応募確認" },
+    { key: "connectConfirmed", label: "通電確認" },
+    { key: "dial1", label: "1回目架電" },
+    { key: "dial2", label: "2回目架電" },
+    { key: "dial3", label: "3回目架電" },
+    { key: "dial4", label: "4回目架電" },
+    { key: "dial5", label: "5回目架電" },
+    { key: "dial6", label: "6回目架電" },
+    { key: "dial7", label: "7回目架電" },
+    { key: "dial8", label: "8回目架電" },
+    { key: "dial9", label: "9回目架電" },
+    { key: "dial10", label: "10回目架電" },
+  ];
+  const editing = detailEditState.cs;
+  if (editing) {
+    return `
+      <div class="cs-checkbox-grid">
+        ${csItems
+          .map(
+            (item) => `
+            <label class="cs-checkbox">
+              <input type="checkbox" ${checklist[item.key] ? "checked" : ""} data-detail-field="csChecklist.${item.key}" data-detail-section="cs" data-value-type="boolean">
+              <span>${item.label}</span>
+            </label>
+          `
+          )
+          .join("")}
+      </div>
+    `;
+  }
+  return `
+    <div class="detail-pill-list">
+      ${csItems
+        .map((item) => `<span class="cs-pill ${checklist[item.key] ? "is-active" : ""}">${item.label}</span>`)
+        .join("")}
+    </div>
+  `;
+}
+
+function renderMemoSection(candidate) {
+  const editing = detailEditState.memo;
+  if (editing) {
+    return `
+      <label class="detail-textarea-field">
+        <span>自由メモ</span>
+        <textarea rows="4" class="detail-inline-input detail-inline-textarea" data-detail-field="memoDetail" data-detail-section="memo">${escapeHtml(candidate.memoDetail || "")}</textarea>
+      </label>
+    `;
+  }
+  return `
+    <label class="detail-textarea-field">
+      <span>自由メモ</span>
+      <span class="detail-value">${escapeHtml(candidate.memoDetail || "-")}</span>
+    </label>
+  `;
+}
+
+function renderDetailGridFields(fields, sectionKey) {
+  const editing = Boolean(detailEditState[sectionKey]);
+  return `
+    <dl class="detail-grid">
+      ${fields
+        .map((field) => {
+          const value = field.value;
+          if (editing && field.editable !== false && field.path) {
+            return `
+              <div class="detail-grid-item">
+                <dt>${field.label}</dt>
+                <dd>${renderDetailFieldInput(field, value, sectionKey)}</dd>
+              </div>
+            `;
+          }
+          const displayValue = field.displayFormatter ? field.displayFormatter(value) : formatDisplayValue(value);
+          const inner =
+            field.link && value
+              ? `<a href="${value}" target="_blank" rel="noreferrer">${escapeHtml(value)}</a>`
+              : escapeHtml(displayValue);
+          return `
+            <div class="detail-grid-item">
+              <dt>${field.label}</dt>
+              <dd><span class="detail-value">${inner}</span></dd>
+            </div>
+          `;
+        })
+        .join("")}
+    </dl>
+  `;
+}
+
+function renderDetailFieldInput(field, value, sectionKey) {
+  const dataset = field.path ? `data-detail-field="${field.path}" data-detail-section="${sectionKey}"` : "";
+  const valueType = field.valueType ? ` data-value-type="${field.valueType}"` : "";
+  if (field.input === "textarea") {
+    return `<textarea class="detail-inline-input detail-inline-textarea" ${dataset}${valueType}>${escapeHtml(value || "")}</textarea>`;
+  }
+  if (field.input === "select") {
+    return `
+      <select class="detail-inline-input" ${dataset}${valueType}>
+        ${(field.options || [])
+          .map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${option}</option>`)
+          .join("")}
+      </select>
+    `;
+  }
+  if (field.input === "checkbox") {
+    return `
+      <label class="meeting-check">
+        <input type="checkbox" ${value ? "checked" : ""} ${dataset}${valueType || ' data-value-type="boolean"'}>
+        <span>${field.checkboxLabel || "済"}</span>
+      </label>
+    `;
+  }
+  const type = field.type === "datetime" ? "datetime-local" : field.type || "text";
+  return `<input type="${type}" class="detail-inline-input" value="${escapeHtmlAttr(formatInputValue(value, type))}" ${dataset}${valueType}>`;
+}
+
+function formatInputValue(value, type) {
+  if (!value) return "";
+  if (type === "date") return String(value).slice(0, 10);
+  if (type === "datetime-local" || type === "datetime") {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${y}-${m}-${day}T${hh}:${mm}`;
+  }
+  return value;
+}
+
+function renderHearingTemplatePanel(editing) {
+  const infoText = editing ? "テンプレートを選択するとメモに差し込まれます。" : "テンプレートを確認できます。編集モードで差し込み可能です。";
+  return `
+    <div class="hearing-template-panel ${editing ? "" : "is-readonly"}" data-template-panel="hearing">
+      <div class="hearing-template-panel-header">
+        <span>${infoText}</span>
+      </div>
+      <div class="hearing-template-list">
+        ${hearingTemplates
+          .map((template) => {
+            const disabledAttr = editing ? "" : "disabled";
+            return `<button type="button" class="template-pill" data-template-id="${template.id}" ${disabledAttr}>${template.name}</button>`;
+          })
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function buildHearingMemoValue(hearing) {
+  if (!hearing) return "";
+  if (hearing.memo) return hearing.memo;
+  const legacyFields = [
+    { key: "relocation", label: "転居" },
+    { key: "desiredArea", label: "希望エリア" },
+    { key: "timing", label: "転職時期" },
+    { key: "desiredJob", label: "希望職種" },
+    { key: "firstInterviewMemo", label: "初回面談メモ" },
+    { key: "currentIncome", label: "現年収" },
+    { key: "desiredIncome", label: "希望年収" },
+    { key: "reason", label: "転職理由・転職軸" },
+    { key: "interviewPreference", label: "面接希望日" },
+    { key: "recommendationText", label: "推薦文" },
+    { key: "otherSelections", label: "他社選考状況" },
+  ];
+  return legacyFields
+    .map(({ key, label }) => {
+      if (!hearing[key]) return "";
+      return `${label}: ${hearing[key]}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
