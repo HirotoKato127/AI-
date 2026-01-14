@@ -12,8 +12,26 @@ const candidatesApi = (path) => `${CANDIDATES_API_BASE}${path}`;
 // =========================
 // URLパラメータ（teleapo → candidates の遷移）
 // =========================
-const params = new URLSearchParams(window.location.search);
-const candidateIdFromUrl = params.get("candidateId");
+const TARGET_CANDIDATE_STORAGE_KEY = "target_candidate_id";
+
+function getCandidateIdFromNavigation() {
+  const params = new URLSearchParams(window.location.search || "");
+  const fromUrl = params.get("candidateId");
+  if (fromUrl) return fromUrl;
+  try {
+    return sessionStorage.getItem(TARGET_CANDIDATE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function clearCandidateIdFromNavigation() {
+  try {
+    sessionStorage.removeItem(TARGET_CANDIDATE_STORAGE_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
 
 // =========================
 // フィルタ定義
@@ -65,7 +83,7 @@ let candidatesEditMode = false;
 let currentDetailCandidateId = null;
 let lastSyncedAt = null;
 let pendingInlineUpdates = {};
-let openedFromUrlOnce = false;
+let lastOpenedCandidateId = null;
 
 // =========================
 // 正規化
@@ -202,10 +220,12 @@ async function loadCandidatesData(filtersOverride = {}) {
     refreshSelectionState();
 
     // ★ teleapo → candidates で ?candidateId= が来ている場合、自動で詳細を開く
-    if (!openedFromUrlOnce && candidateIdFromUrl) {
-      openedFromUrlOnce = true;
+    const candidateIdFromNavigation = getCandidateIdFromNavigation();
+    if (candidateIdFromNavigation && candidateIdFromNavigation !== lastOpenedCandidateId) {
+      lastOpenedCandidateId = candidateIdFromNavigation;
       try {
-        await openCandidateById(candidateIdFromUrl);
+        await openCandidateById(candidateIdFromNavigation);
+        clearCandidateIdFromNavigation();
       } catch (e) {
         console.error("open by url failed:", e);
       }
@@ -844,6 +864,35 @@ function formatDisplayValue(value) {
   if (value === null || value === undefined || value === "") return "-";
   return value;
 }
+
+function formatMoneyToMan(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  const text = String(value).trim();
+  if (!text) return "-";
+  const hasMan = text.includes("万");
+  const nums = text.match(/-?\d[\d,]*/g);
+  if (!nums || !nums.length) return text;
+
+  const toMan = (raw) => {
+    const cleaned = String(raw).replace(/,/g, "");
+    const num = Number(cleaned);
+    if (!Number.isFinite(num)) return null;
+    if (hasMan) return Math.round(num);
+    if (num >= 10000) return Math.floor(num / 10000);
+    return Math.round(num);
+  };
+
+  if (nums.length >= 2 && /[〜~\-ー]/.test(text)) {
+    const min = toMan(nums[0]);
+    const max = toMan(nums[1]);
+    if (min === null || max === null) return text;
+    return `${min}〜${max}万円`;
+  }
+
+  const single = toMan(nums[0]);
+  if (single === null) return text;
+  return `${single}万円`;
+}
 function calculateAge(birthday) {
   if (!birthday) return null;
   const birthDate = new Date(birthday);
@@ -1245,8 +1294,8 @@ function renderHearingSection(candidate) {
     { label: "新規面談マスト項目", value: candidate.mandatoryInterviewItems, input: "textarea", path: "mandatoryInterviewItems" },
     { label: "希望エリア", value: candidate.desiredLocation, path: "desiredLocation" },
     { label: "希望職種", value: candidate.desiredJobType, path: "desiredJobType" },
-    { label: "現年収", value: candidate.currentIncome, path: "currentIncome" },
-    { label: "希望年収", value: candidate.desiredIncome, path: "desiredIncome" },
+    { label: "現年収", value: candidate.currentIncome, path: "currentIncome", displayFormatter: formatMoneyToMan },
+    { label: "希望年収", value: candidate.desiredIncome, path: "desiredIncome", displayFormatter: formatMoneyToMan },
     { label: "就業ステータス", value: candidate.employmentStatus, input: "select", options: employmentStatusOptions, path: "employmentStatus" },
     { label: "転職理由", value: candidate.careerReason, input: "textarea", path: "careerReason" },
     { label: "転職軸", value: candidate.careerMotivation, input: "textarea", path: "careerMotivation" },
@@ -1297,7 +1346,7 @@ function renderSelectionProgressSection(candidate) {
           { value: formatDateJP(row.preJoinDeclineDate) },
           { value: formatDateJP(row.postJoinQuitDate) },
           { value: formatDateJP(row.closeExpectedDate) },
-          { value: row.feeAmount },
+          { value: formatMoneyToMan(row.feeAmount) },
           { value: row.selectionNote },
         ]
           .map((cell) => {
@@ -1384,7 +1433,7 @@ function renderMoneySection(candidate) {
       .map((row) => `
         <tr>
           <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
-          <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.feeAmount))}</span></td>
+          <td><span class="detail-value">${escapeHtml(formatDisplayValue(formatMoneyToMan(row.feeAmount)))}</span></td>
           <td class="text-center">${renderBooleanPill(row.orderReported)}</td>
         </tr>
       `)
@@ -1405,7 +1454,7 @@ function renderMoneySection(candidate) {
         return `
           <tr>
             <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
-            <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.refundAmount))}</span></td>
+            <td><span class="detail-value">${escapeHtml(formatDisplayValue(formatMoneyToMan(row.refundAmount)))}</span></td>
             <td><span class="detail-value">${escapeHtml(formatDisplayValue(formatDateJP(retirementDate)))}</span></td>
             <td><span class="detail-value">${escapeHtml(formatDisplayValue(refundType))}</span></td>
             <td class="text-center">${renderBooleanPill(row.refundReported)}</td>
@@ -1446,7 +1495,7 @@ function renderMoneySection(candidate) {
 function renderAfterAcceptanceSection(candidate) {
   const data = candidate.afterAcceptance || {};
   const fields = [
-    { label: "受注金額（税抜）", value: data.amount },
+    { label: "受注金額（税抜）", value: data.amount, displayFormatter: formatMoneyToMan },
     { label: "職種", value: data.jobCategory },
   ];
   const reportStatuses =
@@ -1499,7 +1548,7 @@ function renderRefundSection(candidate) {
       const cells = [
         item.companyName || "-",
         formatDateJP(item.resignationDate),
-        item.refundAmount || "-",
+        formatMoneyToMan(item.refundAmount),
         item.reportStatus || "-",
       ]
         .map((v) => `<td><span class="detail-value">${escapeHtml(formatDisplayValue(v))}</span></td>`)
