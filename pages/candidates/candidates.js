@@ -1707,7 +1707,7 @@ function renderRefundSection(candidate) {
   const fallbackInfo = candidate.refundInfo || {};
   const fallbackList =
     !listFromCandidate &&
-    (fallbackInfo.resignationDate || fallbackInfo.refundAmount || fallbackInfo.reportStatus)
+      (fallbackInfo.resignationDate || fallbackInfo.refundAmount || fallbackInfo.reportStatus)
       ? [
         {
           companyName: "",
@@ -1798,21 +1798,20 @@ function renderCsSection(candidate) {
   return `
     <div class="cs-summary-grid">
       ${items
-        .map(
-          (item) => `
+      .map(
+        (item) => `
             <div class="cs-summary-item">
               <span class="cs-summary-label">${escapeHtml(item.label)}</span>
               <div class="cs-summary-value">
-                ${
-                  editing && item.path
-                    ? renderDetailFieldInput({ path: item.path, type: item.type }, item.value, "cs")
-                    : item.html || escapeHtml(formatDisplayValue(item.value))
-                }
+                ${editing && item.path
+            ? renderDetailFieldInput({ path: item.path, type: item.type }, item.value, "cs")
+            : item.html || escapeHtml(formatDisplayValue(item.value))
+          }
               </div>
             </div>
           `
-        )
-        .join("")}
+      )
+      .join("")}
     </div>
   `;
 }
@@ -1904,10 +1903,9 @@ function renderDetailGridFields(fields, sectionKey, options = {}) {
       ${fields
         .map((field) => {
           const value = field.value;
-          const spanClass = resolveDetailGridSpanClass(field);
           if (editing && field.editable !== false && field.path) {
             return `
-              <div class="detail-grid-item ${spanClass}">
+              <div class="detail-grid-item">
                 <dt>${field.label}</dt>
                 <dd>${renderDetailFieldInput(field, value, sectionKey)}</dd>
               </div>
@@ -1919,13 +1917,13 @@ function renderDetailGridFields(fields, sectionKey, options = {}) {
               ? `<a href="${value}" target="_blank" rel="noreferrer">${escapeHtml(value)}</a>`
               : escapeHtml(displayValue);
           return `
-            <div class="detail-grid-item ${spanClass}">
+            <div class="detail-grid-item">
               <dt>${field.label}</dt>
               <dd><span class="detail-value">${inner}</span></dd>
             </div>
           `;
-        })
-        .join("")}
+      })
+      .join("")}
     </dl>
   `;
 }
@@ -1940,16 +1938,16 @@ function renderDetailFieldInput(field, value, sectionKey) {
     return `
       <select class="detail-inline-input" ${dataset}${valueType}>
         ${(field.options || [])
-          .map((option) => {
-            const isObject = option && typeof option === "object";
-            const optValue = isObject ? option.value : option;
-            const optLabel = isObject ? option.label : option;
-            const isSelected = isObject && "selected" in option
-              ? option.selected
-              : String(optValue ?? "") === String(value ?? "");
-            return `<option value="${escapeHtmlAttr(optValue ?? "")}" ${isSelected ? "selected" : ""}>${escapeHtml(optLabel ?? "")}</option>`;
-          })
-          .join("")}
+        .map((option) => {
+          const isObject = option && typeof option === "object";
+          const optValue = isObject ? option.value : option;
+          const optLabel = isObject ? option.label : option;
+          const isSelected = isObject && "selected" in option
+            ? option.selected
+            : String(optValue ?? "") === String(value ?? "");
+          return `<option value="${escapeHtmlAttr(optValue ?? "")}" ${isSelected ? "selected" : ""}>${escapeHtml(optLabel ?? "")}</option>`;
+        })
+        .join("")}
       </select>
     `;
   }
