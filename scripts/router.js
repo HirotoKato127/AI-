@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Client-side router for dashboard application
  * Handles navigation between pages using ES modules
  */
@@ -13,28 +13,14 @@ const routes = {
   mypage: () => import("../pages/mypage/mypage.js"),
   members: () => import("../pages/members/members.js"),
   yield: () => import("../pages/yield/yield.js"),
-const routes = {
-    login: () => import("../pages/login/login.js"),
-    mypage: () => import("../pages/mypage/mypage.js"),
-    members: () => import("../pages/members/members.js"),
-    yield: () => import("../pages/yield/yield.js"),
-
-    // --- mainブランチで追加された新しいページ ---
-    "yield-personal": () => import("../pages/yield-personal/yield-personal.js"),
-    "yield-company": () => import("../pages/yield-company/yield-company.js"),
-    "yield-admin": () => import("../pages/yield-admin/yield-admin.js"),
-
-    // --- origin/kato (あなたの変更) の最新バージョンを採用 ---
-    candidates: () => import("../pages/candidates/candidates.js?v=20260301"),
-    "ad-performance": () => import("../pages/ad-performance/ad-performance.js?v=20260218"),
-    teleapo: () => import("../pages/teleapo/teleapo.js?v=20260306"),
-    referral: () => import("../pages/referral/referral.js?v=20260217"),
-    settings: () => import("../pages/settings/settings.js?v=20260230"),
-
-    // --- mainブランチで追加されたその他の新しいページ ---
-    "goal-settings": () => import("../pages/goal-settings/goal-settings.js"),
-    "kpi-summery-test": () => import("../pages/kpi-summery-test/kpi-summery-test.js"),
-};
+  "yield-personal": () => import("../pages/yield-personal/yield-personal.js"),
+  "yield-company": () => import("../pages/yield-company/yield-company.js"),
+  "yield-admin": () => import("../pages/yield-admin/yield-admin.js"),
+  candidates: () => import("../pages/candidates/candidates.js?v=20260301"),
+  "ad-performance": () => import("../pages/ad-performance/ad-performance.js?v=20260218"),
+  teleapo: () => import("../pages/teleapo/teleapo.js?v=20260306"),
+  referral: () => import("../pages/referral/referral.js?v=20260217"),
+  settings: () => import("../pages/settings/settings.js?v=20260230"),
   "goal-settings": () => import("../pages/goal-settings/goal-settings.js"),
   "kpi-summery-test": () => import("../pages/kpi-summery-test/kpi-summery-test.js"),
 };
@@ -104,30 +90,30 @@ function loadPageCSS(page) {
 }
 
 /**
- * ナビゲーション前のルーターガード
- * - 未ログイン時の保護ルートアクセス → login へ
- * - ロール不足のルートアクセス → yield へ
+ * 繝翫ン繧ｲ繝ｼ繧ｷ繝ｧ繝ｳ蜑阪・繝ｫ繝ｼ繧ｿ繝ｼ繧ｬ繝ｼ繝・
+ * - 譛ｪ繝ｭ繧ｰ繧､繝ｳ譎ゅ・菫晁ｭｷ繝ｫ繝ｼ繝医い繧ｯ繧ｻ繧ｹ 竊・login 縺ｸ
+ * - 繝ｭ繝ｼ繝ｫ荳崎ｶｳ縺ｮ繝ｫ繝ｼ繝医い繧ｯ繧ｻ繧ｹ 竊・yield 縺ｸ
  * @param {string} page
- * @returns {string} 実際に遷移すべきページID
+ * @returns {string} 螳滄圀縺ｫ驕ｷ遘ｻ縺吶∋縺阪・繝ｼ繧ｸID
  */
 export function beforeNavigate(page) {
   if (page === "yield") return "yield-personal";
   const session = getSession();
   const meta = routeMeta[page];
 
-  // 未ログインかつ保護ルートの場合は login へ誘導
+  // 譛ｪ繝ｭ繧ｰ繧､繝ｳ縺九▽菫晁ｭｷ繝ｫ繝ｼ繝医・蝣ｴ蜷医・ login 縺ｸ隱伜ｰ・
   if (!meta?.public && !session) {
     if (page !== "login") {
       try {
         sessionStorage.setItem(POST_LOGIN_REDIRECT_KEY, page);
       } catch {
-        // sessionStorage が使えない環境では単純にloginへ遷移
+        // sessionStorage 縺御ｽｿ縺医↑縺・腸蠅・〒縺ｯ蜊倡ｴ斐↓login縺ｸ驕ｷ遘ｻ
       }
       return "login";
     }
   }
 
-  // ロール不足の場合は yield へフォールバック
+  // 繝ｭ繝ｼ繝ｫ荳崎ｶｳ縺ｮ蝣ｴ蜷医・ yield 縺ｸ繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ
   if (meta?.roles && !hasRole(meta.roles)) {
     return "yield";
   }
@@ -136,7 +122,7 @@ export function beforeNavigate(page) {
 }
 
 /**
- * ログイン前にアクセスしようとしていた保護ルートを取得して破棄する
+ * 繝ｭ繧ｰ繧､繝ｳ蜑阪↓繧｢繧ｯ繧ｻ繧ｹ縺励ｈ縺・→縺励※縺・◆菫晁ｭｷ繝ｫ繝ｼ繝医ｒ蜿門ｾ励＠縺ｦ遐ｴ譽・☆繧・
  * @returns {string|null}
  */
 export function consumePostLoginRedirect() {
@@ -158,11 +144,11 @@ export async function navigate(to) {
     .filter(Boolean);
   const rawPage = to || segments[0] || "candidates";
 
-  // ルーターガード（beforeNavigate）で実際に表示すべきページを決定
+  // 繝ｫ繝ｼ繧ｿ繝ｼ繧ｬ繝ｼ繝会ｼ・eforeNavigate・峨〒螳滄圀縺ｫ陦ｨ遉ｺ縺吶∋縺阪・繝ｼ繧ｸ繧呈ｱｺ螳・
   const guardedPage = beforeNavigate(rawPage);
 
   if (guardedPage !== rawPage) {
-    // ハッシュを書き換えて早期リターン（実際の描画は次のnavigate呼び出しで行う）
+    // 繝上ャ繧ｷ繝･繧呈嶌縺肴鋤縺医※譌ｩ譛溘Μ繧ｿ繝ｼ繝ｳ・亥ｮ滄圀縺ｮ謠冗判縺ｯ谺｡縺ｮnavigate蜻ｼ縺ｳ蜃ｺ縺励〒陦後≧・・
     location.hash = `#/${guardedPage}`;
     return;
   }
@@ -292,10 +278,10 @@ function setupSidebarToggle() {
 
   const updateToggleLabel = () => {
     const collapsed = sidebar.classList.contains("sidebar-collapsed");
-    toggleBtn.textContent = collapsed ? "▶" : "◀";
+    toggleBtn.textContent = collapsed ? "笆ｶ" : "笳";
     toggleBtn.setAttribute(
       "aria-label",
-      collapsed ? "サイドバーを展開" : "サイドバーを折りたたみ"
+      collapsed ? "繧ｵ繧､繝峨ヰ繝ｼ繧貞ｱ暮幕" : "繧ｵ繧､繝峨ヰ繝ｼ繧呈釜繧翫◆縺溘∩"
     );
   };
 
@@ -310,7 +296,7 @@ function setupSidebarToggle() {
 export function boot() {
   // Initial navigation
   addEventListener("DOMContentLoaded", async () => {
-    // サーバー上のセッションからローカルセッションを復元
+    // 繧ｵ繝ｼ繝舌・荳翫・繧ｻ繝・す繝ｧ繝ｳ縺九ｉ繝ｭ繝ｼ繧ｫ繝ｫ繧ｻ繝・す繝ｧ繝ｳ繧貞ｾｩ蜈・
     await authRepo.me();
     await navigate();
     setupSidebarToggle();
