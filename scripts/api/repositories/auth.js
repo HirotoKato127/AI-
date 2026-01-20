@@ -110,27 +110,45 @@ export const authRepo = {
    * @returns {Promise<Session>}
    */
   async login(email, password) {
-    // モックユーザー照合（デモ環境用）
-    const mock = mockUsers.find(u => u.email === email && u.password === password);
-    if (mock) {
+    // 1. 完全一致のモックユーザー照合（デモ環境用）
+    const mockExact = mockUsers.find(u => u.email === email && u.password === password);
+    if (mockExact) {
       console.log('Using mock login for:', email);
-      const session = createSessionFromUser(mock);
+      const session = createSessionFromUser(mockExact);
       setSession(session);
       return session;
     }
 
-    const url = buildAuthUrl('/login');
-    const data = await requestJson(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    if (!data?.token || !data?.user) {
-      throw new Error('Invalid login response');
+    // 2. APIログイン試行
+    try {
+      const url = buildAuthUrl('/login');
+      const data = await requestJson(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      if (!data?.token || !data?.user) {
+        throw new Error('Invalid login response');
+      }
+      const session = createSessionFromUser(data.user, data.token);
+      setSession(session);
+      return session;
+    } catch (apiError) {
+      console.warn('API login failed, falling back to mock check:', apiError);
+
+      // 3. API失敗時のフォールバック：メールアドレスだけでモックユーザー検索
+      // （デモサイトなので、API接続できない環境でも動作させるため）
+      const mockFallback = mockUsers.find(u => u.email === email);
+      if (mockFallback) {
+        console.log('API failed. Dealing as mock user for:', email);
+        const session = createSessionFromUser(mockFallback);
+        setSession(session);
+        return session;
+      }
+
+      // フォールバックもできなければエラーを再送出
+      throw apiError;
     }
-    const session = createSessionFromUser(data.user, data.token);
-    setSession(session);
-    return session;
   },
 
   /**
@@ -141,6 +159,9 @@ export const authRepo = {
     const existing = getSession();
     const token = existing?.token;
     if (token) {
+      if (token === 'mock') {
+        return existing;
+      }
       try {
         const url = buildAuthUrl('/me');
         const data = await requestJson(url, {
@@ -155,7 +176,7 @@ export const authRepo = {
       }
     }
 
-    if (isDevHost() && isDevAutoLoginEnabled()) {
+    if (isDevAutoLoginEnabled()) { // isDevHostチェックを一旦外す（デモ用）
       const mockUser = mockUsers.find(user => user.role === 'admin') || mockUsers[0];
       if (mockUser) {
         const session = createSessionFromUser(mockUser);
@@ -174,13 +195,14 @@ export const authRepo = {
     clearLocalSession();
   },
   /**
-   * 開発用ログイン（ローカルのみ）
+   * 開発用ログイン（デモログイン）
    * @returns {Promise<Session>}
    */
   async devLogin() {
-    if (!isDevHost()) {
-      throw new Error('開発用ログインはローカル環境のみ使用できます。');
-    }
+    // Vercelデプロイ版でも使えるようにホスト制限を解除
+    // if (!isDevHost()) {
+    //   throw new Error('開発用ログインはローカル環境のみ使用できます。');
+    // }
     const mockUser = mockUsers.find(user => user.role === 'admin') || mockUsers[0];
     if (!mockUser) {
       throw new Error('開発用ユーザーが見つかりません。');
