@@ -110,6 +110,15 @@ export const authRepo = {
    * @returns {Promise<Session>}
    */
   async login(email, password) {
+    // モックユーザー照合（デモ環境用）
+    const mock = mockUsers.find(u => u.email === email && u.password === password);
+    if (mock) {
+      console.log('Using mock login for:', email);
+      const session = createSessionFromUser(mock);
+      setSession(session);
+      return session;
+    }
+
     const url = buildAuthUrl('/login');
     const data = await requestJson(url, {
       method: 'POST',
