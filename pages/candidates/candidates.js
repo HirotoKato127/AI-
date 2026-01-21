@@ -14,11 +14,14 @@ const candidatesApi = (path) => `${CANDIDATES_API_BASE}${path}`;
 // =========================
 // URLパラメータ（teleapo → candidates の遷移）
 // =========================
-const params = new URLSearchParams(window.location.search);
-const candidateIdFromUrl = params.get("candidateId");
-const shouldAutoOpenDetail = ["1", "true", "yes"].includes(
-  String(params.get("openDetail") || "").toLowerCase()
-);
+function getCandidateUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const candidateIdFromUrl = params.get("candidateId");
+  const shouldAutoOpenDetail = ["1", "true", "yes"].includes(
+    String(params.get("openDetail") || "").toLowerCase()
+  );
+  return { candidateIdFromUrl, shouldAutoOpenDetail };
+}
 
 // =========================
 // フィルタ定義
@@ -67,6 +70,7 @@ const CALENDAR_WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 let currentSortKey = "nextAction";
 let currentSortOrder = "asc";
+let candidateDetailCurrentTab = "main";
 
 const japaneseLevelOptions = [
   { value: "", label: "未設定" },
@@ -100,8 +104,16 @@ let screeningRulesLoaded = false;
 let screeningRulesLoading = false;
 let detailAutoSaveTimer = null;
 const nextActionCache = new Map();
+const contactPreferredTimeCache = new Map();
 let calendarViewDate = new Date();
 calendarViewDate.setDate(1);
+
+function normalizeContactPreferredTime(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (["-", "ー", "未設定", "未入力", "未登録", "未指定"].includes(text)) return "";
+  return text;
+}
 
 // =========================
 // 正規化
@@ -156,13 +168,13 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
   candidate.address = candidate.address ?? [candidate.addressPref, candidate.addressCity, candidate.addressDetail]
     .filter(Boolean)
     .join("");
-  candidate.contactPreferredTime =
+  candidate.contactPreferredTime = normalizeContactPreferredTime(
     candidate.contactPreferredTime ??
     candidate.contact_preferred_time ??
     candidate.contactTime ??
-    candidate.contact_time ??
-    "";
-  candidate.contactTime = candidate.contactTime ?? candidate.contact_time ?? candidate.contactPreferredTime ?? "";
+    candidate.contact_time
+  );
+  candidate.contactTime = candidate.contactPreferredTime;
   candidate.mandatoryInterviewItems = candidate.mandatoryInterviewItems ?? candidate.mandatory_interview_items ?? "";
   candidate.applyCompanyName = candidate.applyCompanyName ?? candidate.apply_company_name ?? "";
   candidate.companyName = candidate.companyName
@@ -284,6 +296,18 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
   if (candidate.nextActionDate && !candidate.actionInfo.nextActionDate) {
     candidate.actionInfo.nextActionDate = candidate.nextActionDate;
   }
+  const contactTimeCacheKey = candidate.id != null ? String(candidate.id) : "";
+  if (contactTimeCacheKey) {
+    if (candidate.contactPreferredTime) {
+      contactPreferredTimeCache.set(contactTimeCacheKey, candidate.contactPreferredTime);
+    } else if (contactPreferredTimeCache.has(contactTimeCacheKey)) {
+      const cached = contactPreferredTimeCache.get(contactTimeCacheKey);
+      if (cached) {
+        candidate.contactPreferredTime = cached;
+        candidate.contactTime = cached;
+      }
+    }
+  }
   candidate.csChecklist = candidate.csChecklist || {};
 
   // --- ★ここから追加したロジック（returnの前に行うこと！） ---
@@ -373,6 +397,7 @@ export function mount() {
   initializeDetailModal();
   initializeDetailContentListeners();
 
+  openedFromUrlOnce = false;
   loadScreeningRulesForCandidates();
   // まず一覧ロード
   loadCandidatesData();
@@ -494,6 +519,7 @@ async function loadCandidatesData(filtersOverride = {}) {
 
     refreshSelectionState();
 
+    const { candidateIdFromUrl, shouldAutoOpenDetail } = getCandidateUrlParams();
     // ★ teleapo → candidates で ?candidateId= が来ている場合の自動詳細は明示時のみ
     if (!openedFromUrlOnce && candidateIdFromUrl && shouldAutoOpenDetail) {
       openedFromUrlOnce = true;
@@ -1552,8 +1578,28 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
     return;
   }
 
+  const contactTimeCacheKey = candidate.id != null ? String(candidate.id) : "";
+  let resolvedContactTime = normalizeContactPreferredTime(
+    candidate.contactPreferredTime ??
+    candidate.contact_preferred_time ??
+    candidate.contactTime ??
+    candidate.contact_time
+  );
+  if (!resolvedContactTime && contactTimeCacheKey) {
+    const cached = contactPreferredTimeCache.get(contactTimeCacheKey);
+    if (cached) resolvedContactTime = cached;
+  }
+  if (resolvedContactTime !== undefined) {
+    candidate.contactPreferredTime = resolvedContactTime;
+    candidate.contactTime = resolvedContactTime;
+  }
+  if (contactTimeCacheKey && resolvedContactTime) {
+    contactPreferredTimeCache.set(contactTimeCacheKey, resolvedContactTime);
+  }
+
   if (!preserveEditState && String(candidate.id) !== String(currentDetailCandidateId)) {
     resetDetailEditState();
+    candidateDetailCurrentTab = "main"; // 新しい候補者ではメインタブにリセット
   }
   currentDetailCandidateId = String(candidate.id);
 
@@ -1587,21 +1633,94 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
     </div>
   `;
 
-  const sections = [
-    renderDetailSection("次回アクション", renderNextActionSection(candidate), "nextAction"),
-    renderDetailSection("選考進捗", renderSelectionProgressSection(candidate), "selection"),
-    renderDetailSection("求職者情報", renderApplicantInfoSection(candidate), "profile"),
-    renderDetailSection("担当者", renderAssigneeSection(candidate), "assignees"),
-    renderDetailSection("共有面談", renderHearingSection(candidate), "hearing"),
-    renderDetailSection("CS項目", renderCsSection(candidate), "cs"),
-    renderDetailSection("テレアポログ一覧", renderTeleapoLogsSection(candidate), "teleapoLogs", { editable: false }),
-    renderDetailSection("売上・返金", renderMoneySection(candidate), "money"),
-  ].join("");
+  // タブナビゲーション
+  const tabs = [
+    { key: "main", label: "🏠 メイン", icon: "" },
+    { key: "profile", label: "👤 基本情報", icon: "" },
+    { key: "hearing", label: "📝 面談メモ", icon: "" },
+    { key: "teleapo", label: "📞 架電結果", icon: "" },
+    { key: "money", label: "💰 売上・返金", icon: "" },
+  ];
+
+  const tabNav = `
+    <div class="candidate-detail-tabs flex flex-wrap gap-1 bg-slate-100 p-1 rounded-lg mt-4 mb-4">
+      ${tabs.map(tab => `
+        <button type="button" 
+          class="flex-1 px-3 py-2 text-sm font-medium rounded-md transition-all ${candidateDetailCurrentTab === tab.key
+      ? 'bg-white text-indigo-700 shadow-sm'
+      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}"
+          data-detail-tab="${tab.key}">
+          ${tab.label}
+        </button>
+      `).join('')}
+    </div>
+  `;
+
+  // 面談実施日・着座確認のコンパクト表示（メインタブ用）
+  const attendanceValue = candidate.attendanceConfirmed ?? false;
+  const meetingConfirmHtml = `
+    <div class="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+      <div class="flex items-center gap-6">
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-slate-600">面談実施日:</span>
+          <strong class="text-sm text-slate-900">${escapeHtml(formatDateJP(candidate.firstInterviewDate) || "-")}</strong>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-slate-600">着座確認:</span>
+          <span class="px-2 py-0.5 text-xs font-medium rounded-full ${attendanceValue ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}">
+            ${attendanceValue ? "✓ 確認済" : "未確認"}
+          </span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // タブ別コンテンツ
+  let tabContent = "";
+
+  switch (candidateDetailCurrentTab) {
+    case "main":
+      tabContent = `
+        ${meetingConfirmHtml}
+        ${renderDetailSection("次回アクション", renderNextActionSection(candidate), "nextAction")}
+        ${renderDetailSection("選考進捗", renderSelectionProgressSection(candidate), "selection")}
+      `;
+      break;
+    case "profile":
+      tabContent = `
+        ${renderDetailSection("求職者情報", renderApplicantInfoSection(candidate), "profile")}
+        ${renderDetailSection("担当者", renderAssigneeSection(candidate), "assignees")}
+      `;
+      break;
+    case "hearing":
+      tabContent = `
+        ${renderDetailSection("共有面談", renderHearingSection(candidate), "hearing")}
+      `;
+      break;
+    case "teleapo":
+      tabContent = `
+        ${renderDetailSection("CS項目", renderCsSection(candidate), "cs")}
+        ${renderDetailSection("テレアポログ一覧", renderTeleapoLogsSection(candidate), "teleapoLogs", { editable: false })}
+      `;
+      break;
+    case "money":
+      tabContent = `
+        ${renderDetailSection("売上・返金", renderMoneySection(candidate), "money")}
+      `;
+      break;
+    default:
+      tabContent = `
+        ${meetingConfirmHtml}
+        ${renderDetailSection("次回アクション", renderNextActionSection(candidate), "nextAction")}
+        ${renderDetailSection("選考進捗", renderSelectionProgressSection(candidate), "selection")}
+      `;
+  }
 
   container.innerHTML = `
     ${header}
+    ${tabNav}
     <div class="candidate-detail-sections">
-      ${sections}
+      ${tabContent}
     </div>
   `;
 
@@ -1952,7 +2071,6 @@ function buildCandidateDetailPayload(candidate) {
     contactPreferredTime: candidate.contactPreferredTime || contactTime,
     nextActionDate: candidate.nextActionDate || actionInfo.nextActionDate || null,
     nextActionNote: candidate.nextActionNote || null,
-    nextActionLogs: candidate.nextActionLogs || [],
     contactTime,
     firstContactPlannedAt: candidate.firstContactPlannedAt,
     scheduleConfirmedAt: candidate.scheduleConfirmedAt,
@@ -2175,9 +2293,22 @@ function openCandidateModal() {
   modal.setAttribute("aria-hidden", "false");
   document.body.classList.add("has-modal-open");
 }
-function closeCandidateModal({ clearSelection = true } = {}) {
+function closeCandidateModal({ clearSelection = true, force = false } = {}) {
   const modal = document.getElementById("candidateDetailModal");
   if (!modal) return;
+
+  // バリデーション（強制クローズでない場合）
+  if (!force) {
+    const candidate = getSelectedCandidate();
+    if (candidate) {
+      const hasIncompleteTasks = candidate.tasks && candidate.tasks.some(t => !t.isCompleted);
+      if (!hasIncompleteTasks) {
+        alert("⚠️ 次回アクションが未設定のため画面を閉じられません。\n\n・選考継続中：新規アクションを追加して保存してください。\n・選考終了：「選考完了」ボタンを押してください。");
+        return;
+      }
+    }
+  }
+
   const wasOpen = modal.classList.contains("is-open");
   modal.classList.remove("is-open");
   modal.setAttribute("aria-hidden", "true");
@@ -2199,12 +2330,13 @@ function resetDetailEditState() {
 // 後片付け
 // -----------------------
 function cleanupCandidatesEventListeners() {
-  closeCandidateModal({ clearSelection: false });
+  closeCandidateModal({ clearSelection: false, force: true });
 
   filterConfig.forEach(({ id, event }) => {
     const element = document.getElementById(id);
     if (element) element.removeEventListener(event, handleFilterChange);
   });
+
 
   const resetButton = document.getElementById("candidatesFilterReset");
   if (resetButton) resetButton.removeEventListener("click", handleFilterReset);
@@ -2264,6 +2396,18 @@ function cleanupCandidatesEventListeners() {
 // ====== Detail Content Handlers ======
 
 function handleDetailContentClick(event) {
+  // タブ切り替え
+  const tabBtn = event.target.closest("[data-detail-tab]");
+  if (tabBtn) {
+    const newTab = tabBtn.dataset.detailTab;
+    if (newTab && newTab !== candidateDetailCurrentTab) {
+      candidateDetailCurrentTab = newTab;
+      const candidate = getSelectedCandidate();
+      if (candidate) renderCandidateDetail(candidate, { preserveEditState: true });
+    }
+    return;
+  }
+
   const editBtn = event.target.closest("[data-section-edit]");
   if (editBtn) {
     toggleDetailSectionEdit(editBtn.dataset.sectionEdit);
@@ -2285,17 +2429,20 @@ function handleDetailContentClick(event) {
     return;
   }
 
-  // 完了登録ボタン
-  const completeBtn = event.target.closest("[data-complete-action]");
+  // 完了登録ボタン（新しいtaskId方式）
+  const completeBtn = event.target.closest("[data-complete-task-id]");
   if (completeBtn) {
-    handleCompleteAction();
+    const taskId = Number(completeBtn.dataset.completeTaskId);
+    handleCompleteTask(taskId);
     return;
   }
 
-  // ログ削除ボタン
-  const deleteLogBtn = event.target.closest("[data-delete-log]");
-  if (deleteLogBtn) {
-    handleDeleteActionLog(Number(deleteLogBtn.dataset.deleteLog));
+  // 選考完了ボタン（強制クローズ）
+  const selectionCompleteBtn = event.target.closest("[data-selection-complete]");
+  if (selectionCompleteBtn) {
+    if (confirm("選考を完了として画面を閉じますか？")) {
+      closeCandidateModal({ force: true });
+    }
     return;
   }
 }
@@ -2440,74 +2587,39 @@ function handleDetailRemoveRow(type, index) {
   if (current) renderCandidateDetail(current, { preserveEditState: true });
 }
 
-async function handleCompleteAction() {
+async function handleCompleteTask(taskId) {
   const candidate = getSelectedCandidate();
-  if (!candidate) return;
+  if (!candidate || !taskId) return;
 
-  // 次回アクション日と内容が両方設定されているか確認
-  if (!candidate.nextActionDate || !candidate.nextActionNote) {
-    alert('次回アクション日と内容の両方を入力してください。');
+  if (!confirm('このタスクを完了としてマークしますか？')) {
     return;
   }
 
   try {
-    // ログ配列を初期化（存在しない場合）
-    if (!candidate.nextActionLogs) {
-      candidate.nextActionLogs = [];
-    }
-
-    // 現在のアクションをログに追加
-    const log = {
-      date: candidate.nextActionDate,
-      note: candidate.nextActionNote,
-      completedAt: new Date().toISOString(),
+    // completeTaskIdをpayloadに含めて保存
+    const payload = {
+      id: candidate.id,
+      detailMode: true,
+      completeTaskId: taskId,
     };
 
-    // ログの先頭に追加（新しいものが上）
-    candidate.nextActionLogs.unshift(log);
+    const response = await fetch(candidatesApi(candidateDetailPath(candidate.id)), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-    // 次回アクションをクリア
-    candidate.nextActionDate = null;
-    candidate.nextActionNote = null;
-
-    // 保存してレンダリング
-    await saveCandidateRecord(candidate, { preserveDetailState: true, includeDetail: true });
-    renderCandidatesTable(filteredCandidates);
-    renderCandidateDetail(candidate, { preserveEditState: true });
-    highlightSelectedRow();
-
-  } catch (error) {
-    console.error('アクション完了登録に失敗しました:', error);
-    alert(`完了登録に失敗しました。\n${error.message}`);
-  }
-}
-
-async function handleDeleteActionLog(index) {
-  const candidate = getSelectedCandidate();
-  if (!candidate) return;
-
-  if (!confirm('このアクションログを削除してもよろしいですか？')) {
-    return;
-  }
-
-  try {
-    if (!candidate.nextActionLogs || !candidate.nextActionLogs[index]) {
-      alert('削除対象のログが見つかりません。');
-      return;
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status} ${response.statusText} - ${text.slice(0, 200)}`);
     }
 
-    // ログを削除
-    candidate.nextActionLogs.splice(index, 1);
-
-    // 保存してレンダリング
-    await saveCandidateRecord(candidate, { preserveDetailState: true, includeDetail: true });
-    renderCandidatesTable(filteredCandidates);
-    renderCandidateDetail(candidate, { preserveEditState: true });
-    highlightSelectedRow();
+    const updated = normalizeCandidate(await response.json());
+    applyCandidateUpdate(updated, { preserveDetailState: true });
 
   } catch (error) {
-    console.error('ログ削除に失敗しました:', error);
-    alert(`ログ削除に失敗しました。\n${error.message}`);
+    console.error('タスク完了登録に失敗しました:', error);
+    alert(`タスク完了登録に失敗しました。\n${error.message}`);
   }
 }
 
@@ -2573,7 +2685,14 @@ function handleDetailFieldChange(event) {
     candidate.partnerName = resolveUserName(candidate.partnerUserId);
   }
   if (fieldPath === "contactPreferredTime") {
-    candidate.contactTime = value;
+    const normalized = normalizeContactPreferredTime(value);
+    candidate.contactPreferredTime = normalized;
+    candidate.contactTime = normalized;
+    if (candidate.id != null) {
+      const cacheKey = String(candidate.id);
+      if (normalized) contactPreferredTimeCache.set(cacheKey, normalized);
+      else contactPreferredTimeCache.delete(cacheKey);
+    }
   }
   if (fieldPath === "applyCompanyName") {
     candidate.companyName = value;
@@ -3267,56 +3386,93 @@ function renderRefundSection(candidate) {
 }
 
 function renderNextActionSection(candidate) {
-  const nextAction = pickNextAction(candidate);
-  const editing = detailEditState.nextAction;
+  // タスクリストを取得（未完了/完了で分ける）
+  const allTasks = candidate.tasks || [];
+  const incompleteTasks = allTasks.filter(t => !t.isCompleted);
+  const completedTasks = allTasks.filter(t => t.isCompleted);
+
+  // 現在の次回アクション（未完了の最初のタスク）
+  const currentTask = incompleteTasks.length > 0 ? incompleteTasks[0] : null;
 
   // サマリー表示
-  const summaryHtml = nextAction
+  const summaryHtml = currentTask
     ? `
     <div class="next-action-card bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-lg p-4 mb-4">
       <div class="flex items-center justify-between">
         <div>
-          <span class="next-action-date text-lg font-bold text-indigo-900">次回アクション: ${escapeHtml(formatDateJP(nextAction.date))}</span>
-          <span class="next-action-label text-sm text-indigo-700 ml-2">(${escapeHtml(nextAction.label)})</span>
+          <span class="next-action-date text-lg font-bold text-indigo-900">次回アクション: ${escapeHtml(formatDateJP(currentTask.actionDate))}</span>
         </div>
-        ${candidate.nextActionDate && candidate.nextActionNote
-      ? `<button type="button" class="px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 font-medium" data-complete-action="true">✓ 完了登録</button>`
-      : ''}
+        <button type="button" class="px-3 py-1.5 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 font-medium shadow-sm transition-colors" data-complete-task-id="${currentTask.id}">
+          ✓ 完了登録
+        </button>
       </div>
-      ${nextAction.note ? `<div class="mt-2 text-sm text-slate-700">${escapeHtml(nextAction.note)}</div>` : ''}
+      <div class="mt-2 text-sm text-slate-700">${escapeHtml(currentTask.actionNote || '-')}</div>
     </div>
     `
     : `
-    <div class="next-action-card bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">
-      <span class="next-action-label text-slate-500">次回アクションは未設定です。</span>
+    <div class="next-action-card bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-amber-600 text-lg">⚠️</span>
+            <span class="text-amber-900 font-bold">次回アクションが未設定です</span>
+          </div>
+          <p class="text-xs text-amber-800">次回アクションを設定するか、選考終了の場合は「選考完了」を押してください。</p>
+        </div>
+        <button type="button" class="px-3 py-1.5 bg-slate-600 text-white rounded-md text-sm hover:bg-slate-700 font-medium shadow-sm transition-colors whitespace-nowrap" data-selection-complete="true">
+          🏁 選考完了
+        </button>
+      </div>
     </div>
     `;
 
+  // 新規アクション追加エリア
+  const addTaskHtml = `
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+      <p class="text-xs text-blue-800 mb-2">💡 新しいアクションを追加するには、以下を入力して「編集」→「完了して保存」してください。</p>
+    </div>
+  `;
+
   const fields = [
-    { label: "次回アクション日", value: candidate.nextActionDate, path: "nextActionDate", type: "date", displayFormatter: formatDateJP, span: 3 },
-    { label: "次回アクション内容", value: candidate.nextActionNote, path: "nextActionNote", span: 3 },
+    { label: "新規アクション日", value: "", path: "nextActionDate", type: "date", displayFormatter: formatDateJP, span: 3 },
+    { label: "新規アクション内容", value: "", path: "nextActionNote", span: 3 },
   ];
 
-  // アクションログ履歴
-  const logs = candidate.nextActionLogs || [];
-  const logsHtml = logs.length > 0
+  // 未完了タスク一覧（現在のもの以外）
+  const remainingTasks = incompleteTasks.slice(1);
+  const remainingTasksHtml = remainingTasks.length > 0
+    ? `
+    <div class="mt-4">
+      <h5 class="text-sm font-semibold text-slate-700 mb-2">📋 予定中のアクション</h5>
+      <div class="space-y-2">
+        ${remainingTasks.map((task) => `
+          <div class="bg-white border border-slate-200 rounded-lg p-3" data-task-id="${task.id}">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-sm font-medium text-slate-900">${escapeHtml(formatDateJP(task.actionDate))}</span>
+              <span class="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">予定</span>
+            </div>
+            <div class="text-sm text-slate-700">${escapeHtml(task.actionNote || '-')}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    `
+    : '';
+
+  // 完了済みタスク履歴
+  const completedTasksHtml = completedTasks.length > 0
     ? `
     <div class="mt-6">
-      <h5 class="text-sm font-semibold text-slate-700 mb-3">📜 アクション履歴</h5>
+      <h5 class="text-sm font-semibold text-slate-700 mb-3">✅ 完了したアクション (${completedTasks.length}件)</h5>
       <div class="space-y-2">
-        ${logs.map((log, index) => `
-          <div class="bg-white border border-slate-200 rounded-lg p-3 hover:shadow-sm transition-shadow" data-log-index="${index}">
-            <div class="flex items-start justify-between">
-              <div class="flex-1">
-                <div class="flex items-center gap-2 mb-1">
-                  <span class="text-sm font-medium text-slate-900">${escapeHtml(formatDateJP(log.date))}</span>
-                  <span class="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">完了</span>
-                </div>
-                <div class="text-sm text-slate-700">${escapeHtml(log.note || '-')}</div>
-                <div class="text-xs text-slate-400 mt-1">完了日時: ${escapeHtml(formatDateTimeJP(log.completedAt))}</div>
-              </div>
-              ${editing ? `<button type="button" class="text-red-500 hover:text-red-700 text-sm" data-delete-log="${index}">削除</button>` : ''}
+        ${completedTasks.map((task) => `
+          <div class="bg-white border border-slate-200 rounded-lg p-3 opacity-75" data-task-id="${task.id}">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-sm font-medium text-slate-900">${escapeHtml(formatDateJP(task.actionDate))}</span>
+              <span class="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">完了</span>
             </div>
+            <div class="text-sm text-slate-700">${escapeHtml(task.actionNote || '-')}</div>
+            <div class="text-xs text-slate-400 mt-1">完了日時: ${escapeHtml(formatDateTimeJP(task.completedAt))}</div>
           </div>
         `).join('')}
       </div>
@@ -3326,8 +3482,10 @@ function renderNextActionSection(candidate) {
 
   return `
     ${summaryHtml}
+    ${addTaskHtml}
     ${renderDetailGridFields(fields, "nextAction")}
-    ${logsHtml}
+    ${remainingTasksHtml}
+    ${completedTasksHtml}
   `;
 }
 
@@ -3468,7 +3626,9 @@ function renderDetailGridFields(fields, sectionKey, options = {}) {
       .map((field) => {
         const value = field.value;
         const spanClass = resolveDetailGridSpanClass(field);
-        if (editing && field.editable !== false && field.path) {
+
+        // 編集モードで編集可能なフィールド
+        if (editing && field.path) {
           return `
               <div class="detail-grid-item ${spanClass}">
                 <dt>${field.label}</dt>
@@ -3476,11 +3636,14 @@ function renderDetailGridFields(fields, sectionKey, options = {}) {
               </div>
             `;
         }
+
+        // 閲覧モード
         const displayValue = field.displayFormatter ? field.displayFormatter(value) : formatDisplayValue(value);
         const inner =
           field.link && value
             ? `<a href="${value}" target="_blank" rel="noreferrer">${escapeHtml(value)}</a>`
             : escapeHtml(displayValue);
+
         return `
             <div class="detail-grid-item ${spanClass}">
               <dt>${field.label}</dt>
