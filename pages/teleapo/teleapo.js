@@ -55,6 +55,21 @@ let teleapoRateMode = TELEAPO_RATE_MODE_CONTACT;
 let teleapoQuickEditState = { candidateId: null, detail: null, editMode: false, saving: false };
 const ATTENDANCE_FETCH_BATCH = 10;
 const ATTENDANCE_FETCH_DELAY_MS = 200;
+const CONTACT_TIME_PLACEHOLDERS = new Set([
+  "-",
+  "ー",
+  "未設定",
+  "未入力",
+  "未登録",
+  "未指定"
+]);
+
+function normalizeContactPreferredTime(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (CONTACT_TIME_PLACEHOLDERS.has(text)) return "";
+  return text;
+}
 
 function normalizeAttendanceValue(value) {
   if (value === true || value === false) return value;
@@ -149,7 +164,9 @@ function enqueueContactTimeFetch(candidateId) {
   if (candidateDetailRequests.has(idNum)) return;
   const cached = candidateDetailCache.get(idNum);
   if (cached) {
-    const cachedTime = String(cached.contactPreferredTime ?? cached.contact_preferred_time ?? "").trim();
+    const cachedTime = normalizeContactPreferredTime(
+      cached.contactPreferredTime ?? cached.contact_preferred_time ?? cached.contactTime ?? cached.contact_time
+    );
     if (cachedTime) return;
     if (cached.contactPreferredTimeFetched) return;
   }
@@ -222,10 +239,11 @@ function resolveCandidateInterviewDate(log) {
 function buildCandidateDetailUrl(candidateId) {
   const id = String(candidateId ?? '').trim();
   if (typeof window === 'undefined' || !window.location) {
-    return `#/candidates?${CANDIDATE_ID_PARAM}=${encodeURIComponent(id)}`;
+    return `#/candidates?${CANDIDATE_ID_PARAM}=${encodeURIComponent(id)}&openDetail=1`;
   }
   const url = new URL(window.location.href);
   url.searchParams.set(CANDIDATE_ID_PARAM, id);
+  url.searchParams.set("openDetail", "1");
   url.hash = '/candidates';
   return url.toString();
 }
@@ -245,6 +263,7 @@ window.navigateToCandidateDetail = function (candidateId, candidateName) {
   }
   const url = new URL(window.location.href);
   url.searchParams.set(CANDIDATE_ID_PARAM, resolvedIdText);
+  url.searchParams.set("openDetail", "1");
   history.replaceState({}, '', url.toString());
   window.location.hash = '/candidates';
 };
@@ -473,7 +492,12 @@ function fetchCandidateDetailInfo(candidateId) {
     })
     .then(data => {
       const prev = candidateDetailCache.get(idNum);
-      const prevContactTime = String(prev?.contactPreferredTime ?? prev?.contact_preferred_time ?? "").trim();
+      const prevContactTime = normalizeContactPreferredTime(
+        prev?.contactPreferredTime ??
+        prev?.contact_preferred_time ??
+        prev?.contactTime ??
+        prev?.contact_time
+      );
       const phone =
         data?.phone ??
         data?.phone_number ??
@@ -505,12 +529,14 @@ function fetchCandidateDetailInfo(candidateId) {
         data?.birthDate ??
         data?.birthdate ??
         "";
-      const contactPreferredTime =
+      const contactPreferredTime = normalizeContactPreferredTime(
         data?.contactPreferredTime ??
         data?.contact_preferred_time ??
+        data?.contactTime ??
+        data?.contact_time ??
         data?.preferredContactTime ??
-        data?.preferred_contact_time ??
-        "";
+        data?.preferred_contact_time
+      );
 
       console.log(`[teleapo] Fetched detail for ${idNum}:`, {
         contactPreferredTime,
@@ -540,7 +566,7 @@ function fetchCandidateDetailInfo(candidateId) {
       candidateDetailRequests.delete(idNum);
 
       // Refresh if we got a new contact preference
-      const newContactTime = String(contactPreferredTime).trim();
+      const newContactTime = normalizeContactPreferredTime(contactPreferredTime);
       if (newContactTime && newContactTime !== prevContactTime) {
         scheduleCandidateDetailRefresh();
       }
@@ -611,7 +637,12 @@ function normalizeCandidateDetail(raw) {
     applyCompanyName: raw.applyCompanyName ?? raw.apply_company_name ?? raw.companyName ?? raw.company_name ?? "",
     applyJobName: raw.applyJobName ?? raw.apply_job_name ?? raw.jobName ?? raw.job_name ?? "",
     applyRouteText: raw.applyRouteText ?? raw.apply_route_text ?? raw.source ?? "",
-    contactPreferredTime: raw.contactPreferredTime ?? raw.contact_preferred_time ?? "",
+    contactPreferredTime: normalizeContactPreferredTime(
+      raw.contactPreferredTime ??
+      raw.contact_preferred_time ??
+      raw.contactTime ??
+      raw.contact_time
+    ),
     address: raw.address ?? "",
     selectionProgress: Array.isArray(raw.selectionProgress ?? raw.selection_progress)
       ? (raw.selectionProgress ?? raw.selection_progress)
@@ -694,7 +725,12 @@ function syncCandidateCaches(candidateId, detail) {
   if (!Number.isFinite(idNum) || idNum <= 0) return;
   const phone = String(detail.phone ?? "").trim();
   const birthday = String(detail.birthday ?? "").trim();
-  const contactPreferredTime = String(detail.contactPreferredTime ?? "").trim();
+  const contactPreferredTime = normalizeContactPreferredTime(
+    detail.contactPreferredTime ??
+    detail.contact_preferred_time ??
+    detail.contactTime ??
+    detail.contact_time
+  );
   const ageRaw = detail.age ?? null;
   const ageValue = Number(ageRaw);
   const age = Number.isFinite(ageValue) && ageValue > 0 ? ageValue : calculateAgeFromBirthday(birthday);
@@ -1159,10 +1195,12 @@ function normalizeCandidateTask(candidate) {
     candidate.mobile ??
     candidate.mobilePhone ??
     "";
-  const contactPreferredTime =
+  const contactPreferredTime = normalizeContactPreferredTime(
     candidate.contactPreferredTime ??
     candidate.contact_preferred_time ??
-    "";
+    candidate.contactTime ??
+    candidate.contact_time
+  );
   const isUncontacted = teleapoSummary
     ? !(teleapoSummary.hasConnected || teleapoSummary.hasSms || teleapoSummary.callCount > 0)
     : (phaseList.includes("未接触") || phaseText === "未接触");
@@ -1273,7 +1311,9 @@ function renderCsTaskTable(list, state = {}) {
     const nameLabel = row.candidateName || "-";
     const candidateId = row.candidateId ?? findCandidateIdFromTarget(row.candidateName);
     const phoneValue = row.phone || resolveCandidatePhone(candidateId, row.candidateName);
-    const contactTimeValue = row.contactPreferredTime || resolveCandidateContactPreferredTime(candidateId, row.candidateName);
+    const contactTimeValue =
+      normalizeContactPreferredTime(row.contactPreferredTime ?? row.contact_preferred_time ?? row.contactTime ?? row.contact_time) ||
+      resolveCandidateContactPreferredTime(candidateId, row.candidateName);
     const contactTimeTextValue = String(contactTimeValue ?? "").trim();
     if (!contactTimeTextValue) enqueueContactTimeFetch(candidateId);
     const contactTimeText = escapeHtml(contactTimeTextValue || "-");
@@ -1700,20 +1740,24 @@ function resolveCandidateContactPreferredTime(candidateId, candidateName) {
   }
   if (Number.isFinite(idNum) && idNum > 0) {
     const cached = candidateDetailCache.get(idNum);
-    const cachedTime =
+    const cachedTime = normalizeContactPreferredTime(
       cached?.contactPreferredTime ??
       cached?.contact_preferred_time ??
-      "";
-    if (String(cachedTime ?? "").trim()) {
-      return String(cachedTime ?? "").trim();
+      cached?.contactTime ??
+      cached?.contact_time
+    );
+    if (cachedTime) {
+      return cachedTime;
     }
   }
   const candidate = findCandidateEntry(candidateId, candidateName);
-  const time =
+  const time = normalizeContactPreferredTime(
     candidate?.contactPreferredTime ??
     candidate?.contact_preferred_time ??
-    "";
-  return String(time ?? "").trim();
+    candidate?.contactTime ??
+    candidate?.contact_time
+  );
+  return time;
 }
 
 function buildPendingTeleapoLog({
@@ -1728,6 +1772,7 @@ function buildPendingTeleapoLog({
   callerUserId
 }) {
   const contact = resolveCandidateContact(candidateId, candidateName);
+  const contactPreferredTime = resolveCandidateContactPreferredTime(candidateId, candidateName);
   return normalizeLog({
     id: id != null && id !== "" ? String(id) : undefined,
     datetime: toDateTimeString(calledAt) || "",
@@ -1736,6 +1781,7 @@ function buildPendingTeleapoLog({
     target: candidateName || "",
     tel: contact.tel || "",
     email: contact.email || "",
+    contactPreferredTime,
     resultRaw: result || "",
     memo: memo || "",
     candidateId: Number.isFinite(candidateId) && candidateId > 0 ? candidateId : undefined,
@@ -1888,6 +1934,12 @@ function mapApiLog(log = {}) {
 
   const tel = log.candidate_phone || log.candidatePhone || log.phone || log.tel || '';
   const email = log.candidate_email || log.candidateEmail || log.email || '';
+  const contactPreferredTime = normalizeContactPreferredTime(
+    log.contactPreferredTime ??
+    log.contact_preferred_time ??
+    log.contactTime ??
+    log.contact_time
+  );
 
   const rawResult = log.result || log.result_code || log.status || log.outcome || '';
   const resultCode = normalizeResultCode(log.resultCode || rawResult);
@@ -1904,6 +1956,7 @@ function mapApiLog(log = {}) {
     target,
     tel,
     email,
+    contactPreferredTime,
     resultRaw: rawResult,
     resultCode,
     memo,
@@ -2561,7 +2614,9 @@ function renderLogTable() {
 
     // ★ 電話・メールは mapApiLog で candidates 由来が tel/email に入るので表示できる
     const telText = escapeHtml(row.tel || '');
-    const contactTimeValue = resolveCandidateContactPreferredTime(targetCandidateId || row.candidateId, targetLabel);
+    const contactTimeValue =
+      normalizeContactPreferredTime(row.contactPreferredTime ?? row.contact_preferred_time ?? row.contactTime ?? row.contact_time) ||
+      resolveCandidateContactPreferredTime(targetCandidateId || row.candidateId, targetLabel);
     const contactTimeTextValue = String(contactTimeValue ?? "").trim();
     if (!contactTimeTextValue) enqueueContactTimeFetch(targetCandidateId || row.candidateId);
     const contactTimeText = escapeHtml(contactTimeTextValue || "-");
@@ -3247,7 +3302,7 @@ function initLogTableActions() {
       event.stopPropagation();
       const candidateId = candidateBtn.dataset.candidateId;
       const candidateName = candidateBtn.dataset.candidateName;
-      openCandidateQuickView(candidateId, candidateName);
+      window.navigateToCandidateDetail?.(candidateId, candidateName);
       return;
     }
     const btn = event.target.closest('[data-action="delete-log"]');
@@ -3301,7 +3356,7 @@ function initCsTaskTableActions() {
     event.stopPropagation();
     const candidateId = candidateBtn.dataset.candidateId;
     const candidateName = candidateBtn.dataset.candidateName;
-    openCandidateQuickView(candidateId, candidateName);
+    window.navigateToCandidateDetail?.(candidateId, candidateName);
   });
 }
 
@@ -3346,7 +3401,7 @@ function initMissingInfoTableActions() {
     event.stopPropagation();
     const candidateId = candidateBtn.dataset.candidateId;
     const candidateName = candidateBtn.dataset.candidateName;
-    openCandidateQuickView(candidateId, candidateName);
+    window.navigateToCandidateDetail?.(candidateId, candidateName);
   });
 }
 
@@ -3518,7 +3573,12 @@ async function loadCandidates() {
           "";
         const phoneText = String(phone ?? "").trim();
         const birthday = String(c.birthday ?? c.birth_date ?? c.birthDate ?? c.birthdate ?? "").trim();
-        const contactPreferredTime = String(c.contactPreferredTime ?? c.contact_preferred_time ?? "").trim();
+        const contactPreferredTime = normalizeContactPreferredTime(
+          c.contactPreferredTime ??
+          c.contact_preferred_time ??
+          c.contactTime ??
+          c.contact_time
+        );
         const contactPreferredTimeFetched = Boolean(contactPreferredTime);
         const ageRaw = c.age ?? c.age_years ?? c.ageYears ?? null;
         const ageValue = Number(ageRaw);
@@ -3527,7 +3587,7 @@ async function loadCandidates() {
           phone: phoneText,
           birthday: String(birthday ?? "").trim(),
           age,
-          contactPreferredTime: String(contactPreferredTime ?? "").trim(),
+          contactPreferredTime: normalizeContactPreferredTime(contactPreferredTime),
           contactPreferredTimeFetched,
           attendanceConfirmed: normalizeAttendanceValue(
             c.attendanceConfirmed ?? c.first_interview_attended ?? c.attendance_confirmed ?? c.firstInterviewAttended
