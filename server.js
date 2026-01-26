@@ -263,6 +263,7 @@ function buildDetailSnapshot(payload = {}) {
     refundInfo: payload.refundInfo || {},
     actionInfo: payload.actionInfo || {},
     csChecklist: payload.csChecklist || {},
+    callLogs: payload.callLogs || [],
   };
 }
 
@@ -281,9 +282,9 @@ function mapCandidateUpdateColumns(payload = {}) {
     company_name: payload.companyName ?? null,
     job_name: payload.jobName ?? null,
     work_location: payload.workLocation ?? null,
-    advisor_name: payload.advisorName ?? null,
+    partner_name: payload.advisorName ?? null, // Map advisorName (frontend) to partner_name (db)
+    cs_name: payload.csName ?? null,           // Map csName (frontend) to cs_name (db)
     caller_name: payload.callerName ?? null,
-    partner_name: payload.partnerName ?? null,
     introduction_chance: payload.introductionChance ?? null,
     phase: payload.phase ?? null,
     registered_date: normalizeDate(payload.registeredDate),
@@ -325,7 +326,7 @@ function mapCandidateUpdateColumns(payload = {}) {
     attendance_confirmed: payload.attendanceConfirmed ?? false,
     next_action_date:
       normalizeDate(actionInfo.nextActionDate) ??
-      normalizeDate(payload.nextActionDate ?? payload.next_action_date),
+      normalizeDate(payload.nextActionDate),
     final_result: actionInfo.finalResult ?? payload.finalResult ?? null,
     order_amount: afterAcceptance.amount ?? null,
     after_acceptance_job_type: afterAcceptance.jobCategory ?? null,
@@ -465,9 +466,10 @@ function mapCandidate(row, extras = {}) {
     companyName: row.company_name,
     jobName: row.job_name,
     workLocation: row.work_location ?? detail.workLocation,
-    advisorName: row.advisor_name,
+    advisorName: row.partner_name, // 担当アドバイザーは partner_name に保存されている
+    csName: row.cs_name, // 担当CSは cs_name に保存されている
     callerName: row.caller_name,
-    partnerName: row.partner_name ?? detail.partnerName,
+    partnerName: row.partner_name ?? detail.partnerName, // 後方互換性のため維持
     introductionChance:
       row.introduction_chance ?? detail.introductionChance ?? "",
     phase: row.phase,
@@ -615,7 +617,7 @@ app.get("/api/candidates", async (req, res) => {
 
     if (advisor) {
       values.push(`%${advisor.toLowerCase()}%`);
-      whereClauses.push(`LOWER(advisor_name) LIKE $${values.length}`);
+      whereClauses.push(`LOWER(partner_name) LIKE $${values.length}`);
     }
 
     if (name) {
@@ -774,8 +776,7 @@ app.put("/api/candidates/:id", async (req, res) => {
     values.push(candidateId);
 
     await client.query(
-      `UPDATE candidates SET ${assignments.join(", ")} WHERE id = $${
-        values.length
+      `UPDATE candidates SET ${assignments.join(", ")} WHERE id = $${values.length
       }`,
       values
     );
