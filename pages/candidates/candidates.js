@@ -1,7 +1,7 @@
 ﻿// teleapo と同じAPI Gatewayの base
-const CANDIDATES_API_BASE = "https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev";
-const SETTINGS_API_BASE = "https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev";
-const SCREENING_RULES_ENDPOINT = `${SETTINGS_API_BASE}/settings-screening-rules`;
+const CANDIDATES_API_BASE = "/api";
+const SETTINGS_API_BASE = "/api";
+const SCREENING_RULES_ENDPOINT = `${SETTINGS_API_BASE}/settings/screening-rules`;
 
 // 一覧は「/candidates」（末尾スラッシュなし）
 const CANDIDATES_LIST_PATH = "/candidates";
@@ -194,9 +194,15 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
   candidate.attendanceConfirmed = candidate.attendanceConfirmed ?? candidate.first_interview_attended ?? null;
   candidate.advisorUserId = candidate.advisorUserId ?? candidate.advisor_user_id ?? null;
   candidate.partnerUserId = candidate.partnerUserId ?? candidate.partner_user_id ?? null;
-  candidate.advisorName = candidate.advisorName ?? candidate.advisor_name ?? "";
+
+  // サーバー側で advisorName = partner_name, csName = cs_name とマッピングされている
+  candidate.advisorName = candidate.advisorName ?? candidate.partner_name ?? "";
+  candidate.csName = candidate.csName ?? candidate.cs_name ?? "";
   candidate.partnerName = candidate.partnerName ?? candidate.partner_name ?? "";
 
+  // リスト表示時のスワップロジックは、サーバー側で正しいマッピングを行っているため削除
+  // advisorNameは server.js で partner_name カラムからマッピングされている
+  /*
   if (source === "list") {
     const listAdvisorName = candidate.advisorName;
     const listPartnerName = candidate.partnerName;
@@ -208,6 +214,7 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     candidate.advisorUserId = listPartnerUserId;
     candidate.partnerUserId = listAdvisorUserId;
   }
+  */
 
   candidate.meetingPlans = Array.isArray(candidate.meetingPlans) ? candidate.meetingPlans : [];
   candidate.resumeDocuments = Array.isArray(candidate.resumeDocuments) ? candidate.resumeDocuments : [];
@@ -274,6 +281,11 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     candidate.detail?.newActionDate ??
     candidate.detail?.new_action_date ??
     null;
+  candidate.nextActionNote =
+    candidate.nextActionNote ??
+    candidate.actionInfo?.nextActionNote ??
+    candidate.detail?.actionInfo?.nextActionNote ??
+    "";
   candidate.nextActionDate =
     candidate.nextActionDate ??
     candidate.next_action_date ??
@@ -1250,7 +1262,7 @@ function buildTableRow(candidate) {
 
       ${renderCheckboxCell(candidate, "validApplication", "有効応募")}
       ${renderTextCell(candidate, "candidateName", { strong: true, readOnly: true })}
-      ${renderTextCell(candidate, "partnerName", { readOnly: true })}
+      ${renderTextCell(candidate, "csName", { readOnly: true })}
       ${renderTextCell(candidate, "advisorName", { readOnly: true })}
       ${renderNextActionCell(candidate)}
     </tr>
@@ -1533,6 +1545,38 @@ function handleFilterReset() {
   handleFilterChange();
 }
 
+
+
+// クライアント一覧（オートコンプリート用）
+let clientList = [];
+
+// =========================
+// 初期化
+// =========================
+document.addEventListener("DOMContentLoaded", async () => {
+  await Promise.all([
+    fetchCandidates(),
+    fetchClients(), // クライアント一覧取得
+  ]);
+
+  // URLパラメータのチェック (id指定があれば詳細を開く)
+  const urlParams = new URLSearchParams(window.location.search);
+  const detailId = urlParams.get("id");
+  if (detailId) {
+    await openCandidateById(detailId);
+  }
+});
+
+async function fetchClients() {
+  try {
+    const res = await fetch("/api/clients");
+    if (!res.ok) throw new Error("Failed to fetch clients");
+    clientList = await res.json();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 // =========================
 // 選択状態の復元
 // =========================
@@ -1626,7 +1670,7 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
       </div>
       <div class="candidate-detail-header-right flex items-start gap-3">
         <div class="candidate-header-card bg-slate-50 border border-slate-100 shadow-sm rounded-lg px-4 py-3 text-xs">
-          <div><span>担当CS</span><strong>${escapeHtml(candidate.partnerName || "-")}</strong></div>
+          <div><span>担当CS</span><strong>${escapeHtml(candidate.csName || "-")}</strong></div>
           <div><span>担当パートナー</span><strong>${escapeHtml(candidate.advisorName || "-")}</strong></div>
         </div>
       </div>
@@ -2829,20 +2873,16 @@ function renderAssigneeSection(candidate) {
   const fields = [
     {
       label: "担当CS",
-      value: candidate.partnerUserId,
-      input: "select",
-      options: buildUserOptions(candidate.partnerUserId),
-      path: "partnerUserId",
-      displayFormatter: () => candidate.partnerName || "-",
+      value: candidate.csName,
+      input: "text",
+      path: "csName",
       span: 3,
     },
     {
       label: "担当パートナー",
-      value: candidate.advisorUserId,
-      input: "select",
-      options: buildUserOptions(candidate.advisorUserId),
-      path: "advisorUserId",
-      displayFormatter: () => candidate.advisorName || "-",
+      value: candidate.advisorName,
+      input: "text",
+      path: "advisorName",
       span: 3,
     },
   ];
@@ -2981,7 +3021,7 @@ function renderSelectionProgressSection(candidate) {
         const r = normalizeSelectionRow(row);
 
         const cells = [
-          `<td>${renderTableSelect(buildClientOptions(row.clientId, r.companyName), `${pathPrefix}.clientId`, "selection")}</td>`,
+          `<td>${renderTableInput(r.companyName, `${pathPrefix}.companyName`, "text", "selection", null, "client-list")}</td>`,
           `<td>${renderTableInput(r.route, `${pathPrefix}.route`, "text", "selection")}</td>`,
           `<td class="text-center nowrap-cell" data-selection-status>${renderStatusPill(row.status || "-", resolveSelectionStatusVariant(row.status))}</td>`,
           `<td>${renderTableInput(r.recommendationDate, `${pathPrefix}.recommendationDate`, "date", "selection")}</td>`,
@@ -3014,6 +3054,9 @@ function renderSelectionProgressSection(candidate) {
       ${addButton}
     </div>
     <div class="detail-table-wrapper">
+      <datalist id="client-list">
+        ${clientList.map(c => `<option value="${escapeHtml(c.name)}"></option>`).join("")}
+      </datalist>
       <table class="detail-table detail-table--wide">
         <thead>
           <tr>
@@ -3434,8 +3477,8 @@ function renderNextActionSection(candidate) {
   `;
 
   const fields = [
-    { label: "新規アクション日", value: "", path: "nextActionDate", type: "date", displayFormatter: formatDateJP, span: 3 },
-    { label: "新規アクション内容", value: "", path: "nextActionNote", span: 3 },
+    { label: "新規アクション日", value: candidate.nextActionDate || "", path: "nextActionDate", type: "date", displayFormatter: formatDateJP, span: 3 },
+    { label: "新規アクション内容", value: candidate.nextActionNote || "", path: "nextActionNote", span: 3 },
   ];
 
   // 未完了タスク一覧（現在のもの以外）

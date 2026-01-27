@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS candidates (
   company_name TEXT,
   job_name TEXT,
   work_location TEXT,
-  advisor_name TEXT,
+  cs_name TEXT,
   caller_name TEXT,
   partner_name TEXT,
   introduction_chance TEXT,
@@ -127,6 +127,141 @@ CREATE TABLE IF NOT EXISTS ats_settings (
   kintone_api_token TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email VARCHAR(255) NOT NULL,
+  name VARCHAR(255),
+  email_verified_at TIMESTAMPTZ,
+  image TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS user_profiles (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  department VARCHAR(255),
+  position VARCHAR(255),
+  period_start_date DATE,
+  period_end_date DATE,
+  created_by BIGINT,
+  updated_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS clients (
+  id BIGSERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  industry VARCHAR(255),
+  location VARCHAR(255),
+  employees_count INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS candidate_app_profile (
+  id BIGSERIAL PRIMARY KEY,
+  candidate_id BIGINT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  nationality VARCHAR(255),
+  japanese_level VARCHAR(255),
+  address_pref VARCHAR(255),
+  address_city VARCHAR(255),
+  address_detail VARCHAR(255),
+  final_education VARCHAR(255),
+  work_experience TEXT,
+  interview_memo_formatted TEXT,
+  current_income VARCHAR(255),
+  desired_income VARCHAR(255),
+  job_search_status TEXT,
+  desired_job_type TEXT,
+  desired_work_location TEXT,
+  reason_for_change TEXT,
+  strengths TEXT,
+  personality TEXT,
+  carrier_summary_sheet_url TEXT,
+  resume_url TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (candidate_id)
+);
+
+CREATE TABLE IF NOT EXISTS candidate_applications (
+  id BIGSERIAL PRIMARY KEY,
+  candidate_id BIGINT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  client_id BIGINT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  application_route TEXT,
+  job_title VARCHAR(255),
+  work_mode VARCHAR(255),
+  fee_rate VARCHAR(255),
+  selection_status VARCHAR(255),
+  recommendation_at TIMESTAMPTZ,
+  first_interview_set_at TIMESTAMPTZ,
+  first_interview_at TIMESTAMPTZ,
+  second_interview_set_at TIMESTAMPTZ,
+  second_interview_at TIMESTAMPTZ,
+  final_interview_set_at TIMESTAMPTZ,
+  final_interview_at TIMESTAMPTZ,
+  offer_at TIMESTAMPTZ,
+  offer_accepted_at TIMESTAMPTZ,
+  joined_at TIMESTAMPTZ,
+  pre_join_decline_at TIMESTAMPTZ,
+  post_join_quit_at TIMESTAMPTZ,
+  selection_note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS placements (
+  id BIGSERIAL PRIMARY KEY,
+  candidate_application_id BIGINT NOT NULL REFERENCES candidate_applications(id) ON DELETE CASCADE,
+  fee_amount NUMERIC,
+  refund_amount NUMERIC,
+  order_reported BOOLEAN DEFAULT FALSE,
+  refund_reported BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kintone_sync_cursors (
+  id BIGSERIAL PRIMARY KEY,
+  system_name VARCHAR(255) NOT NULL,
+  last_kintone_record_id_synced INTEGER,
+  last_sync_started_at TIMESTAMPTZ,
+  last_sync_finished_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kintone_sync_runs (
+  id BIGSERIAL PRIMARY KEY,
+  system_name VARCHAR(255) NOT NULL,
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  inserted_count INTEGER,
+  updated_count INTEGER,
+  skipped_count INTEGER,
+  error_count INTEGER,
+  error_summary TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS stamps (
+  id BIGSERIAL PRIMARY KEY,
+  user_id INTEGER,
+  sent_to_user_id UUID,
+  read_at TIMESTAMPTZ,
+  message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS stamp_reads (
+  id BIGSERIAL PRIMARY KEY,
+  stamp_id BIGINT NOT NULL REFERENCES stamps(id) ON DELETE CASCADE,
+  user_id INTEGER,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_cand_registered ON candidates (registered_date);

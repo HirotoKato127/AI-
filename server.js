@@ -7,6 +7,21 @@ const { Pool } = require("pg");
 dotenv.config();
 
 const app = express();
+app.get("/api/clients", async (_req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      "SELECT id, name FROM clients ORDER BY name ASC"
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Failed to fetch clients", error);
+    res.status(500).json({ error: "企業一覧の取得に失敗しました。" });
+  } finally {
+    client.release();
+  }
+});
+
 const port = process.env.PORT || 8080;
 const pool = new Pool({
   connectionString:
@@ -110,6 +125,7 @@ function buildActionInfo(row, detail) {
       getNestedValue(detail, "newActionDate") ??
       null,
     finalResult: row.final_result ?? legacy.finalResult ?? "",
+    nextActionNote: legacy.nextActionNote ?? null, // Add nextActionNote
   };
 }
 
@@ -165,8 +181,36 @@ function mapSelectionProgress(rows = []) {
   }));
 }
 
+function mapCandidateApplications(rows = []) {
+  return rows.map((row) => ({
+    id: row.id,
+    applicationId: row.id,
+    candidateId: row.candidate_id,
+    clientId: row.client_id,
+    companyName: row.company_name, // Joined column
+    route: row.application_route,
+    jobTitle: row.job_title,
+    workMode: row.work_mode,
+    feeRate: row.fee_rate,
+    status: row.selection_status,
+    recommendationDate: row.recommendation_at,
+    interviewSetupDate: row.first_interview_set_at,
+    interviewDate: row.first_interview_at,
+    secondInterviewSetupDate: row.second_interview_set_at,
+    secondInterviewDate: row.second_interview_at,
+    finalInterviewSetupDate: row.final_interview_set_at,
+    finalInterviewDate: row.final_interview_at,
+    offerDate: row.offer_at,
+    acceptanceDate: row.offer_accepted_at,
+    onboardingDate: row.joined_at,
+    preJoinDeclineDate: row.pre_join_decline_at,
+    postJoinQuitDate: row.post_join_quit_at,
+    selectionNote: row.selection_note,
+  }));
+}
+
 async function fetchCandidateRelations(client, candidateId) {
-  const [meetingResult, resumeResult, selectionResult] = await Promise.all([
+  const [meetingResult, resumeResult, selectionResult, profileResult] = await Promise.all([
     client.query(
       `
         SELECT sequence, planned_date, attendance
@@ -187,22 +231,19 @@ async function fetchCandidateRelations(client, candidateId) {
     ),
     client.query(
       `
-        SELECT company_name,
-               application_route,
-               recommendation_date,
-               interview_schedule_date,
-               interview_date,
-               offer_date,
-               closing_plan_date,
-               offer_accept_date,
-               joining_date,
-               pre_join_quit_date,
-               introduction_fee,
-               status,
-               note
-        FROM selection_progress
+        SELECT ca.*, c.name as company_name
+        FROM candidate_applications ca
+        LEFT JOIN clients c ON ca.client_id = c.id
+        WHERE ca.candidate_id = $1
+        ORDER BY ca.id ASC
+      `,
+      [candidateId]
+    ),
+    client.query(
+      `
+        SELECT *
+        FROM candidate_app_profile
         WHERE candidate_id = $1
-        ORDER BY id ASC
       `,
       [candidateId]
     ),
@@ -211,7 +252,8 @@ async function fetchCandidateRelations(client, candidateId) {
   return {
     meetingPlans: mapMeetingPlans(meetingResult.rows),
     resumeDocuments: mapResumeDocuments(resumeResult.rows),
-    selectionProgress: mapSelectionProgress(selectionResult.rows),
+    selectionProgress: mapCandidateApplications(selectionResult.rows),
+    appProfile: profileResult.rows[0] || {},
   };
 }
 
@@ -261,7 +303,10 @@ function buildDetailSnapshot(payload = {}) {
     hearing: payload.hearing || {},
     afterAcceptance: payload.afterAcceptance || {},
     refundInfo: payload.refundInfo || {},
-    actionInfo: payload.actionInfo || {},
+    actionInfo: {
+      ...(payload.actionInfo || {}),
+      nextActionNote: payload.nextActionNote || null, // Persist nextActionNote in actionInfo
+    },
     csChecklist: payload.csChecklist || {},
     callLogs: payload.callLogs || [],
   };
@@ -294,7 +339,9 @@ function mapCandidateUpdateColumns(payload = {}) {
     source: payload.source ?? null,
     phone: payload.phone ?? null,
     email: payload.email ?? null,
-    birthday: normalizeDate(payload.birthday),
+    phone: payload.phone ?? null,
+    email: payload.email ?? null,
+    birthday: normalizeDate(payload.birthday || payload.birthDate), // 修正: birthDateも受け付ける
     age:
       payload.age === undefined || payload.age === null
         ? null
@@ -377,47 +424,91 @@ async function replaceResumeDocuments(client, candidateId, documents = []) {
   }
 }
 
-async function replaceSelectionProgress(client, candidateId, rows = []) {
-  await client.query("DELETE FROM selection_progress WHERE candidate_id = $1", [
+async function findOrCreateClient(client, name) {
+  if (!name) return null;
+  const normalized = name.trim();
+  if (!normalized) return null;
+
+  // Check existence
+  const { rows } = await client.query("SELECT id FROM clients WHERE name = $1", [
+    normalized,
+  ]);
+  if (rows.length > 0) {
+    return rows[0].id;
+  }
+
+  // Create
+  const { rows: newRows } = await client.query(
+    "INSERT INTO clients (name, created_at, updated_at) VALUES ($1, NOW(), NOW()) RETURNING id",
+    [normalized]
+  );
+  return newRows[0].id;
+}
+
+async function replaceCandidateApplications(client, candidateId, rows = []) {
+  // Clear old entries (Strategy: Delete all and recreate for simplicity, same as before)
+  // Note: This loses placement references if they cascade delete.
+  // schema says ON DELETE CASCADE so placements will be deleted if we delete application.
+  // Ideally we should upsert or diff, but for now we follow the existing pattern.
+  // Assuming ID is not sent securely back or we accept ID churn.
+  await client.query("DELETE FROM candidate_applications WHERE candidate_id = $1", [
     candidateId,
   ]);
+
   for (const row of rows) {
+    const companyName = row.companyName || row.company_name;
+    const clientId = row.clientId || (await findOrCreateClient(client, companyName));
+
+    if (!clientId) continue; // Skip if no client info
+
     await client.query(
       `
-        INSERT INTO selection_progress (
+        INSERT INTO candidate_applications (
           candidate_id,
-          company_name,
+          client_id,
           application_route,
-          recommendation_date,
-          interview_schedule_date,
-          interview_date,
-          offer_date,
-          closing_plan_date,
-          offer_accept_date,
-          joining_date,
-          pre_join_quit_date,
-          introduction_fee,
-          status,
-          note
+          job_title,
+          work_mode,
+          fee_rate,
+          selection_status,
+          recommendation_at,
+          first_interview_set_at,
+          first_interview_at,
+          second_interview_set_at,
+          second_interview_at,
+          final_interview_set_at,
+          final_interview_at,
+          offer_at,
+          offer_accepted_at,
+          joined_at,
+          pre_join_decline_at,
+          post_join_quit_at,
+          selection_note
         ) VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
         )
       `,
       [
         candidateId,
-        row.companyName || null,
+        clientId,
         row.route || row.applicationRoute || null,
-        normalizeDate(row.recommendationDate),
-        normalizeDate(row.interviewSetupDate),
-        normalizeDate(row.interviewDate),
-        normalizeDate(row.offerDate),
-        normalizeDate(row.closingDate),
-        normalizeDate(row.acceptanceDate),
-        normalizeDate(row.onboardingDate),
-        normalizeDate(row.preJoinDeclineDate),
-        row.fee || null,
-        row.status || null,
-        row.notes || row.note || null,
+        row.jobTitle || null,
+        row.workMode || null,
+        row.feeRate || null,
+        row.status || null, // selection_status
+        normalizeDateTime(row.recommendationDate),
+        normalizeDateTime(row.interviewSetupDate),
+        normalizeDateTime(row.interviewDate),
+        normalizeDateTime(row.secondInterviewSetupDate),
+        normalizeDateTime(row.secondInterviewDate),
+        normalizeDateTime(row.finalInterviewSetupDate),
+        normalizeDateTime(row.finalInterviewDate),
+        normalizeDateTime(row.offerDate),
+        normalizeDateTime(row.acceptanceDate),
+        normalizeDateTime(row.onboardingDate),
+        normalizeDateTime(row.preJoinDeclineDate),
+        normalizeDateTime(row.postJoinQuitDate),
+        row.selectionNote || row.note || null,
       ]
     );
   }
@@ -427,11 +518,12 @@ async function persistCandidateRelations(client, candidateId, payload) {
   await Promise.all([
     replaceMeetingPlans(client, candidateId, payload.meetingPlans || []),
     replaceResumeDocuments(client, candidateId, payload.resumeDocuments || []),
-    replaceSelectionProgress(
+    replaceCandidateApplications( // Switch to new table
       client,
       candidateId,
       payload.selectionProgress || []
     ),
+    replaceCandidateAppProfile(client, candidateId, payload),
   ]);
 }
 
@@ -457,6 +549,8 @@ function mapCandidate(row, extras = {}) {
     getNestedValue(detail, "selectionProgress") ||
     detail.selectionProgress ||
     [];
+  const appProfile = extras.appProfile || {};
+
   return {
     id: row.id,
     kintoneId: row.kintone_record_id,
@@ -482,14 +576,29 @@ function mapCandidate(row, extras = {}) {
     birthday: row.birthday,
     age: row.age,
     gender: row.gender ?? detail.gender,
-    education: row.education ?? detail.education,
+    education: appProfile.final_education ?? row.education ?? detail.education,
     postalCode: row.postal_code ?? detail.postalCode,
     address: row.address ?? detail.address,
-    city: row.city ?? detail.city,
+    city: appProfile.address_city ?? row.city ?? detail.city,
+    addressPref: appProfile.address_pref ?? row.address_pref,
+    addressCity: appProfile.address_city ?? row.address_city,
+    addressDetail: appProfile.address_detail ?? row.address_detail,
+    nationality: appProfile.nationality ?? row.nationality,
+    japaneseLevel: appProfile.japanese_level ?? row.japanese_level,
     contactTime: row.contact_time ?? detail.contactTime,
     remarks: row.remarks ?? detail.remarks,
     memo: row.memo,
     memoDetail: row.memo_detail ?? detail.memoDetail,
+    // Add additional profile fields to detail or as top-level if needed (frontend seems to map keys directly)
+    // Need to ensure mapCandidate sends these if they exist in appProfile
+    workExperience: appProfile.work_experience,
+    currentIncome: appProfile.current_income,
+    desiredIncome: appProfile.desired_income,
+    desiredJobType: appProfile.desired_job_type,
+    desiredLocation: appProfile.desired_work_location,
+    careerReason: appProfile.reason_for_change,
+    skills: appProfile.strengths,
+    personality: appProfile.personality,
     hearing: buildHearing(row, detail),
     hearingMemo: row.hearing_memo,
     resumeStatus: row.resume_status,
