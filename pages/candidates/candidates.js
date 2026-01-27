@@ -2083,8 +2083,13 @@ function buildCandidateDetailPayload(candidate) {
     personality: candidate.personality,
     workExperience: candidate.workExperience,
     otherSelectionStatus: candidate.otherSelectionStatus,
-    interviewPreferredDate: candidate.interviewPreferredDate,
+    desiredInterviewDates: candidate.desiredInterviewDates,
     recommendationText: candidate.recommendationText,
+    jobChangeAxis: candidate.jobChangeAxis,
+    jobChangeTiming: candidate.jobChangeTiming,
+    futureVision: candidate.futureVision,
+    mandatoryInterviewItems: candidate.mandatoryInterviewItems,
+    sharedInterviewDate: candidate.sharedInterviewDate,
   };
   const actionInfo = {
     ...(candidate.actionInfo || {}),
@@ -2139,7 +2144,15 @@ function buildCandidateDetailPayload(candidate) {
     applyRouteText: candidate.applyRouteText || source,
     applicationNote: candidate.applicationNote || remarks,
     firstInterviewNote: candidate.firstInterviewNote || hearingMemo,
+    firstInterviewNote: candidate.firstInterviewNote || hearingMemo,
     recommendationText: candidate.recommendationText,
+    jobChangeAxis: candidate.jobChangeAxis,
+    jobChangeTiming: candidate.jobChangeTiming,
+    futureVision: candidate.futureVision,
+    otherSelectionStatus: candidate.otherSelectionStatus,
+    desiredInterviewDates: candidate.desiredInterviewDates,
+    mandatoryInterviewItems: candidate.mandatoryInterviewItems,
+    sharedInterviewDate: candidate.sharedInterviewDate,
     advisorUserId: candidate.advisorUserId,
     partnerUserId: candidate.partnerUserId,
 
@@ -2930,9 +2943,9 @@ function renderHearingSection(candidate) {
   const confirmationFields = [
     {
       label: "共有面談実施日",
-      value: candidate.firstInterviewDate,
+      value: candidate.sharedInterviewDate,
       type: "date",
-      path: "firstInterviewDate",
+      path: "sharedInterviewDate",
       displayFormatter: formatDateJP,
       span: 1,
     },
@@ -2955,12 +2968,13 @@ function renderHearingSection(candidate) {
     { label: "希望年収", value: candidate.desiredIncome, path: "desiredIncome", span: 1, displayFormatter: formatMoneyToMan },
     { label: "就業ステータス", value: candidate.employmentStatus, input: "select", options: employmentStatusOptions, path: "employmentStatus", span: 2 },
     { label: "転職理由", value: candidate.careerReason, input: "textarea", path: "careerReason", span: "full" },
-    { label: "転職軸", value: candidate.careerMotivation, input: "textarea", path: "careerMotivation", span: "full" },
-    { label: "転職時期", value: candidate.transferTiming, path: "transferTiming", span: 2 },
+    { label: "転職軸", value: candidate.jobChangeAxis, input: "textarea", path: "jobChangeAxis", span: "full" },
+    { label: "転職時期", value: candidate.jobChangeTiming, path: "jobChangeTiming", span: 2 },
+    { label: "将来のビジョン・叶えたいこと", value: candidate.futureVision, input: "textarea", path: "futureVision", span: "full" },
     { label: "資格・スキル", value: candidate.skills, input: "textarea", path: "skills", span: "full" },
     { label: "人物像・性格", value: candidate.personality, input: "textarea", path: "personality", span: "full" },
     { label: "実務経験", value: candidate.workExperience, input: "textarea", path: "workExperience", span: "full" },
-    { label: "推薦文", value: candidate.recommendationText || "-", editable: false, span: "full" },
+    { label: "推薦文", value: candidate.recommendationText, input: "textarea", path: "recommendationText", span: "full" },
     { label: "他社選考状態", value: candidate.otherSelectionStatus, input: "textarea", path: "otherSelectionStatus", span: "full" },
     {
       label: "面談メモ",
@@ -2969,7 +2983,7 @@ function renderHearingSection(candidate) {
       path: "firstInterviewNote",
       span: "full",
     },
-    { label: "面接希望日", value: candidate.interviewPreferredDate, type: "date", path: "interviewPreferredDate", displayFormatter: formatDateJP, span: 1 },
+    { label: "面接希望日", value: candidate.desiredInterviewDates, input: "textarea", path: "desiredInterviewDates", span: "full" },
   ];
 
   return [
@@ -3008,71 +3022,156 @@ function renderSelectionProgressSection(candidate) {
   // ---------------------------------------------------------
   // 編集モード (Table Input)
   // ---------------------------------------------------------
-  const headerAction = "<th>操作</th>";
+  // ---------------------------------------------------------
+  // 編集モード (Card Layout)
+  // ---------------------------------------------------------
+  const cardsHtml = rows.map((row, index) => {
+    const pathPrefix = `selectionProgress.${index}`;
+    const r = normalizeSelectionRow(row);
+    const deleteBtn = `<button type="button" class="text-red-600 hover:text-red-800 text-sm font-medium" data-remove-row="selectionProgress" data-index="${index}">削除</button>`;
 
-  let bodyHtml;
-  if (rows.length === 0) {
-    bodyHtml = `<tr><td colspan="20" class="detail-empty-row text-center py-3">企業の進捗は登録されていません。</td></tr>`;
-  } else {
-    bodyHtml = rows
-      .map((row, index) => {
-        const pathPrefix = `selectionProgress.${index}`;
-        // キー名をLambdaの返却/期待値に合わせる (編集モード用Normalization)
-        const r = normalizeSelectionRow(row);
+    return `
+      <div class="selection-card bg-white rounded-lg border border-slate-200 shadow-sm p-4 mb-4 relative">
+        <div class="flex justify-between items-start mb-4 border-b border-slate-100 pb-2">
+          <h4 class="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs">申込 ${index + 1}</span>
+            ${escapeHtml(r.companyName || "企業未設定")}
+          </h4>
+          ${deleteBtn}
+        </div>
 
-        const cells = [
-          `<td>${renderTableInput(r.companyName, `${pathPrefix}.companyName`, "text", "selection", null, "client-list")}</td>`,
-          `<td>${renderTableInput(r.route, `${pathPrefix}.route`, "text", "selection")}</td>`,
-          `<td class="text-center nowrap-cell" data-selection-status>${renderStatusPill(row.status || "-", resolveSelectionStatusVariant(row.status))}</td>`,
-          `<td>${renderTableInput(r.recommendationDate, `${pathPrefix}.recommendationDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.firstInterviewAdjustDate, `${pathPrefix}.firstInterviewAdjustDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.firstInterviewDate, `${pathPrefix}.firstInterviewDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.secondInterviewAdjustDate, `${pathPrefix}.secondInterviewAdjustDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.secondInterviewDate, `${pathPrefix}.secondInterviewDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.finalInterviewAdjustDate, `${pathPrefix}.finalInterviewAdjustDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.finalInterviewDate, `${pathPrefix}.finalInterviewDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.offerDate, `${pathPrefix}.offerDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.offerAcceptedDate, `${pathPrefix}.offerAcceptedDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.joinedDate, `${pathPrefix}.joinedDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.declinedDate, `${pathPrefix}.declinedDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.declinedReason, `${pathPrefix}.declinedReason`, "text", "selection")}</td>`,
-          `<td>${renderTableInput(r.earlyTurnoverDate, `${pathPrefix}.earlyTurnoverDate`, "date", "selection")}</td>`,
-          `<td>${renderTableInput(r.earlyTurnoverReason, `${pathPrefix}.earlyTurnoverReason`, "text", "selection")}</td>`,
-          `<td>${renderTableInput(r.closingForecastDate, `${pathPrefix}.closingForecastDate`, "date", "selection")}</td>`,
-          `<td><span class="detail-value">${escapeHtml(formatMoneyToMan(r.fee))}</span></td>`,
-          `<td>${renderTableTextarea(r.note, `${pathPrefix}.note`, "selection")}</td>`,
-        ].join("");
-        const action = `<td class="detail-table-actions text-center"><button type="button" class="repeatable-remove-btn" data-remove-row="selectionProgress" data-index="${index}">削除</button></td>`;
-        return `<tr data-selection-row="${index}">${cells}${action}</tr>`;
-      })
-      .join("");
-  }
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4">
+          <!-- 基本情報 (3 cols) -->
+          <div class="lg:col-span-3 space-y-3">
+            <div class="form-group">
+              <label class="block text-xs font-medium text-slate-500 mb-1">企業名</label>
+              ${renderTableInput(r.companyName, `${pathPrefix}.companyName`, "text", "selection", null, "client-list")}
+            </div>
+            <div class="form-group">
+              <label class="block text-xs font-medium text-slate-500 mb-1">応募経路</label>
+              ${renderTableInput(r.route, `${pathPrefix}.route`, "text", "selection")}
+            </div>
+            <div class="form-group">
+              <label class="block text-xs font-medium text-slate-500 mb-1">選考状況</label>
+              <div class="flex items-center gap-2">
+                 ${renderTableInput(row.status, `${pathPrefix}.status`, "text", "selection")}
+                 <!-- Note: Status might be better as select, but keeping text to match existing input type behavior (or maybe it was free text?) -->
+                 <!-- Original used row.status, normalizing function uses row.status as well. -->
+              </div>
+            </div>
+          </div>
+
+          <!-- スケジュール (7 cols) -->
+          <div class="lg:col-span-7 grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-3 rounded">
+             <div class="col-span-2 md:col-span-1">
+                <label class="block text-xs font-medium text-slate-500 mb-1">推薦日</label>
+                ${renderTableInput(r.recommendationDate, `${pathPrefix}.recommendationDate`, "date", "selection")}
+             </div>
+             <div class="col-span-2 md:col-span-1"></div> <!-- Spacer -->
+             <div class="col-span-2 md:col-span-1"></div> <!-- Spacer -->
+             <div class="col-span-2 md:col-span-1"></div> <!-- Spacer -->
+
+             <!-- 1次 -->
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">一次面接調整日時</label>
+                ${renderTableInput(r.firstInterviewAdjustDate, `${pathPrefix}.firstInterviewAdjustDate`, "date", "selection")}
+             </div>
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">一次面接日時</label>
+                ${renderTableInput(r.firstInterviewDate, `${pathPrefix}.firstInterviewDate`, "date", "selection")}
+             </div>
+
+             <!-- 2次 -->
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">二次面接調整日時</label>
+                ${renderTableInput(r.secondInterviewAdjustDate, `${pathPrefix}.secondInterviewAdjustDate`, "date", "selection")}
+             </div>
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">二次面接日時</label>
+                ${renderTableInput(r.secondInterviewDate, `${pathPrefix}.secondInterviewDate`, "date", "selection")}
+             </div>
+
+             <!-- 最終 -->
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">最終面接調整日時</label>
+                ${renderTableInput(r.finalInterviewAdjustDate, `${pathPrefix}.finalInterviewAdjustDate`, "date", "selection")}
+             </div>
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">最終面接日時</label>
+                ${renderTableInput(r.finalInterviewDate, `${pathPrefix}.finalInterviewDate`, "date", "selection")}
+             </div>
+             <div class="col-span-2"></div>
+          </div>
+
+          <!-- 成果 (2 cols) -->
+          <div class="lg:col-span-2 space-y-3">
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">FEE (万円)</label>
+                <div class="relative">
+                  ${renderTableInput(r.fee, `${pathPrefix}.fee`, "number", "selection")}
+                  <span class="absolute right-2 top-1.5 text-xs text-slate-400">万</span>
+                </div>
+             </div>
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">Closing予定</label>
+                ${renderTableInput(r.closingForecastDate, `${pathPrefix}.closingForecastDate`, "date", "selection")}
+             </div>
+          </div>
+          
+          <!-- Outcome Row (Full Width in Grid) -->
+          <div class="lg:col-span-12 grid grid-cols-2 md:grid-cols-6 gap-3 border-t border-slate-100 pt-3 mt-1">
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">内定</label>
+                ${renderTableInput(r.offerDate, `${pathPrefix}.offerDate`, "date", "selection")}
+             </div>
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">承諾</label>
+                ${renderTableInput(r.offerAcceptedDate, `${pathPrefix}.offerAcceptedDate`, "date", "selection")}
+             </div>
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">入社</label>
+                ${renderTableInput(r.joinedDate, `${pathPrefix}.joinedDate`, "date", "selection")}
+             </div>
+             <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">辞退日</label>
+                ${renderTableInput(r.declinedDate, `${pathPrefix}.declinedDate`, "date", "selection")}
+             </div>
+             <div class="md:col-span-2">
+                <label class="block text-xs font-medium text-slate-500 mb-1">辞退理由</label>
+                ${renderTableInput(r.declinedReason, `${pathPrefix}.declinedReason`, "text", "selection")}
+             </div>
+          </div>
+
+           <!-- Turnover -->
+          <div class="lg:col-span-12 grid grid-cols-2 md:grid-cols-6 gap-3 border-t border-slate-100 pt-3">
+             <div>
+                <label class="block text-xs font-medium text-red-400 mb-1">短期離職</label>
+                ${renderTableInput(r.earlyTurnoverDate, `${pathPrefix}.earlyTurnoverDate`, "date", "selection")}
+             </div>
+             <div class="md:col-span-2">
+                <label class="block text-xs font-medium text-red-400 mb-1">離職理由</label>
+                ${renderTableInput(r.earlyTurnoverReason, `${pathPrefix}.earlyTurnoverReason`, "text", "selection")}
+             </div>
+             <div class="md:col-span-3">
+                <label class="block text-xs font-medium text-slate-500 mb-1">備考</label>
+                ${renderTableTextarea(r.note, `${pathPrefix}.note`, "selection")}
+             </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
 
   return `
-    <div class="repeatable-header">
-      <h5>企業ごとの進捗 (編集モード)</h5>
+    <div class="repeatable-header flex justify-between items-center mb-4">
+      <h5 class="text-lg font-bold text-slate-800">企業ごとの進捗 (編集モード)</h5>
       ${addButton}
     </div>
-    <div class="detail-table-wrapper">
+    <div class="selection-card-container">
       <datalist id="client-list">
         ${clientList.map(c => `<option value="${escapeHtml(c.name)}"></option>`).join("")}
       </datalist>
-      <table class="detail-table detail-table--wide">
-        <thead>
-          <tr>
-            <th>受験企業名</th><th>応募経路</th><th>選考状況</th><th>推薦日</th>
-            <th>一次面接調整日</th><th>一次面接日</th>
-            <th>二次面接調整日</th><th>二次面接日</th>
-            <th>最終面接調整日</th><th>最終面接日</th>
-            <th>内定日</th><th>内定承諾日</th><th>入社日</th>
-            <th>内定後辞退日</th><th>内定後辞退理由</th>
-            <th>入社後辞退日</th><th>入社後辞退理由</th>
-            <th>クロージング予定日</th><th>FEE</th><th>備考</th>
-            ${headerAction}
-          </tr>
-        </thead>
-        <tbody>${bodyHtml}</tbody>
-      </table>
+      ${cardsHtml || `<div class="p-8 text-center text-slate-400 bg-slate-50 rounded border border-dashed border-slate-300">企業進捗が登録されていません。<br>「追加」ボタンから登録してください。</div>`}
     </div>
   `;
 }
@@ -3548,6 +3647,7 @@ function renderCsSection(candidate) {
     { label: "設定日", value: candidate.scheduleConfirmedAt, path: "scheduleConfirmedAt", type: "date" },
     { label: "新規接触予定日", value: candidate.firstContactPlannedAt, path: "firstContactPlannedAt", type: "date" },
     { label: "次回アクション日", value: candidate.nextActionDate, path: "nextActionDate", type: "date" },
+    { label: "次回アクション内容", value: candidate.nextActionContent, path: "nextActionContent", type: "text", span: 2 },
   ];
 
   return `
@@ -3690,7 +3790,12 @@ function renderDetailGridFields(fields, sectionKey, options = {}) {
         return `
             <div class="detail-grid-item ${spanClass}">
               <dt>${field.label}</dt>
-              <dd><span class="detail-value">${inner}</span></dd>
+              <dd>
+                <div class="group relative cursor-pointer hover:bg-slate-100 -mx-2 px-2 py-1 rounded transition-colors" data-section-edit="${sectionKey}" title="クリックして編集">
+                  <span class="detail-value">${inner}</span>
+                  <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 opacity-0 group-hover:opacity-100 text-xs">✎</span>
+                </div>
+              </dd>
             </div>
           `;
       })
@@ -3736,12 +3841,13 @@ function renderDetailFieldInput(field, value, sectionKey) {
   return `<input type="${type}" class="detail-inline-input" value="${escapeHtmlAttr(formatInputValue(value, type))}" ${dataset}${valueType}>`;
 }
 
-function renderTableInput(value, path, type = "text", sectionKey, valueType) {
+function renderTableInput(value, path, type = "text", sectionKey, valueType, listId) {
   const dataset = path ? `data-detail-field="${path}" data-detail-section="${sectionKey}"` : "";
   const valueTypeAttr = valueType ? ` data-value-type="${valueType}"` : "";
+  const listAttr = listId ? ` list="${listId}"` : "";
   const inputType = type === "datetime" ? "datetime-local" : type;
   const inputValue = value === 0 ? "0" : formatInputValue(value, inputType);
-  return `<input type="${inputType}" class="detail-table-input" value="${escapeHtmlAttr(inputValue)}" ${dataset}${valueTypeAttr}>`;
+  return `<input type="${inputType}" class="detail-table-input" value="${escapeHtmlAttr(inputValue)}" ${dataset}${valueTypeAttr}${listAttr}>`;
 }
 
 function renderTableTextarea(value, path, sectionKey) {

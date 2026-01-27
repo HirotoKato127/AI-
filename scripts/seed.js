@@ -1,4 +1,5 @@
 const { Pool } = require("pg");
+require("dotenv").config();
 const mockCandidates = require("./mockCandidates");
 
 const pool = new Pool({

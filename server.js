@@ -6,6 +6,13 @@ const { Pool } = require("pg");
 
 dotenv.config();
 
+const pool = new Pool({
+  connectionString:
+    process.env.DATABASE_URL ||
+    "postgres://postgres:devpass@localhost:5432/ats",
+});
+const PORT = process.env.PORT || 8080;
+
 const app = express();
 app.get("/api/clients", async (_req, res) => {
   const client = await pool.connect();
@@ -22,12 +29,31 @@ app.get("/api/clients", async (_req, res) => {
   }
 });
 
-const port = process.env.PORT || 8080;
-const pool = new Pool({
-  connectionString:
-    process.env.DATABASE_URL ||
-    "postgres://postgres:devpass@localhost:5432/ats",
-});
+// Ensure DB migration on startup
+(async () => {
+  try {
+    const client = await pool.connect();
+    await client.query("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS next_action_content TEXT;");
+
+    // Add new columns to candidate_app_profile
+    await client.query(`
+      ALTER TABLE candidate_app_profile 
+      ADD COLUMN IF NOT EXISTS job_change_axis TEXT,
+      ADD COLUMN IF NOT EXISTS job_change_timing TEXT,
+      ADD COLUMN IF NOT EXISTS recommendation_text TEXT,
+      ADD COLUMN IF NOT EXISTS other_selection_status TEXT,
+      ADD COLUMN IF NOT EXISTS desired_interview_dates TEXT,
+      ADD COLUMN IF NOT EXISTS future_vision TEXT,
+      ADD COLUMN IF NOT EXISTS mandatory_interview_items TEXT,
+      ADD COLUMN IF NOT EXISTS shared_interview_date TEXT;
+    `);
+
+    client.release();
+    console.log("Migration check complete: next_action_content & profile columns");
+  } catch (e) {
+    console.error("Migration failed", e);
+  }
+})();
 
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 50;
@@ -374,6 +400,8 @@ function mapCandidateUpdateColumns(payload = {}) {
     next_action_date:
       normalizeDate(actionInfo.nextActionDate) ??
       normalizeDate(payload.nextActionDate),
+    next_action_content:
+      actionInfo.nextActionContent ?? payload.nextActionContent ?? null,
     final_result: actionInfo.finalResult ?? payload.finalResult ?? null,
     order_amount: afterAcceptance.amount ?? null,
     after_acceptance_job_type: afterAcceptance.jobCategory ?? null,
@@ -514,6 +542,53 @@ async function replaceCandidateApplications(client, candidateId, rows = []) {
   }
 }
 
+async function replaceCandidateAppProfile(client, candidateId, payload = {}) {
+  // education is mapped to final_education in this table
+  const fields = {
+    nationality: payload.nationality || null,
+    japanese_level: payload.japaneseLevel || null,
+    address_pref: payload.addressPref || null,
+    address_city: payload.addressCity || null,
+    address_detail: payload.addressDetail || null,
+    final_education: payload.education || null,
+    work_experience: payload.workExperience || null,
+    current_income: payload.currentIncome || null,
+    desired_income: payload.desiredIncome || null,
+    desired_job_type: payload.desiredJobType || null,
+    desired_work_location: payload.desiredLocation || null, // payload.desiredLocation -> desired_work_location
+    reason_for_change: payload.careerReason || null, // payload.careerReason -> reason_for_change
+    strengths: payload.skills || null, // payload.skills -> strengths (仮マッピング)
+    personality: payload.personality || null,
+    job_change_axis: payload.jobChangeAxis || null,
+    job_change_timing: payload.jobChangeTiming || null,
+    recommendation_text: payload.recommendationText || null,
+    other_selection_status: payload.otherSelectionStatus || null,
+    desired_interview_dates: payload.desiredInterviewDates || null,
+    future_vision: payload.futureVision || null,
+    mandatory_interview_items: payload.mandatoryInterviewItems || null,
+    shared_interview_date: payload.sharedInterviewDate || null,
+  };
+
+  const columns = Object.keys(fields);
+  const values = Object.values(fields);
+  const assignments = columns.map(
+    (col, i) => `${col} = EXCLUDED.${col}`
+  );
+
+  const sql = `
+    INSERT INTO candidate_app_profile (
+      candidate_id, ${columns.join(", ")}, created_at, updated_at
+    ) VALUES (
+      $1, ${columns.map((_, i) => `$${i + 2}`).join(", ")}, NOW(), NOW()
+    )
+    ON CONFLICT (candidate_id) DO UPDATE SET
+      ${assignments.join(", ")},
+      updated_at = NOW()
+  `;
+
+  await client.query(sql, [candidateId, ...values]);
+}
+
 async function persistCandidateRelations(client, candidateId, payload) {
   await Promise.all([
     replaceMeetingPlans(client, candidateId, payload.meetingPlans || []),
@@ -599,6 +674,14 @@ function mapCandidate(row, extras = {}) {
     careerReason: appProfile.reason_for_change,
     skills: appProfile.strengths,
     personality: appProfile.personality,
+    jobChangeAxis: appProfile.job_change_axis,
+    jobChangeTiming: appProfile.job_change_timing,
+    recommendationText: appProfile.recommendation_text,
+    otherSelectionStatus: appProfile.other_selection_status,
+    desiredInterviewDates: appProfile.desired_interview_dates,
+    futureVision: appProfile.future_vision,
+    mandatoryInterviewItems: appProfile.mandatory_interview_items,
+    sharedInterviewDate: appProfile.shared_interview_date,
     hearing: buildHearing(row, detail),
     hearingMemo: row.hearing_memo,
     resumeStatus: row.resume_status,
@@ -611,6 +694,8 @@ function mapCandidate(row, extras = {}) {
       getNestedValue(detail, "hearing.employmentStatus"),
     firstContactPlannedAt: row.first_contact_planned_at,
     firstContactAt: row.first_contact_at,
+    nextActionDate: row.next_action_date,
+    nextActionContent: row.next_action_content,
     callDate: row.call_date,
     scheduleConfirmedAt: row.schedule_confirmed_at,
     recommendationDate: row.recommendation_date,
@@ -983,6 +1068,6 @@ app.put("/api/settings/kintone", async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server started at http://localhost:${port}`);
+app.listen(PORT, () => {
+  console.log(`Server started at http://localhost:${PORT}`);
 });

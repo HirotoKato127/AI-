@@ -2641,9 +2641,9 @@ const mockCallLogs = [
 
 // 候補者管理の状態
 const candidatesState = {
-  allCandidates: mockCandidatesData,
-  filteredCandidates: mockCandidatesData,
-  currentSort: { field: 'appliedAt', order: 'desc' },
+  allCandidates: [],
+  filteredCandidates: [],
+  currentSort: { field: 'registeredDate', order: 'desc' },
   filters: {
     dateFrom: '',
     dateTo: '',
@@ -2651,7 +2651,49 @@ const candidatesState = {
     name: '',
     jobTitle: ''
   },
-  searchDebounce: null
+  searchDebounce: null,
+  loading: false
+};
+
+// 候補者データの取得
+const fetchCandidates = async () => {
+  try {
+    candidatesState.loading = true;
+    renderCandidatesTable(); // 加載中表示のため
+
+    const response = await fetch('/api/candidates?limit=1000');
+    if (!response.ok) {
+      throw new Error('データの取得に失敗しました');
+    }
+    const data = await response.json();
+
+    // DBのカラム名とフロントエンドのプロパティ名のマッピング
+    // APIはすでに camelCase に変換して返してくれているはずだが、
+    // 必要に応じてここで調整する
+    candidatesState.allCandidates = data.items.map(item => ({
+      id: item.id,
+      kintoneId: item.kintoneId,
+      name: item.candidateName,
+      source: item.source,
+      phone: item.phone,
+      email: item.email,
+      jobTitle: item.jobName,
+      companyName: item.companyName,
+      address: item.address,
+      appliedAt: item.registeredDate, // フロントエンドでは appliedAt として扱っている箇所があるため
+      ...item
+    }));
+
+    candidatesState.filteredCandidates = [...candidatesState.allCandidates];
+
+    filterCandidates(); // フィルタとソートを適用して再描画
+  } catch (error) {
+    console.error('候補者データの取得エラー:', error);
+    alert('候補者データの取得に失敗しました。');
+  } finally {
+    candidatesState.loading = false;
+    renderCandidatesTable();
+  }
 };
 
 // 候補者テーブルの描画
@@ -2662,6 +2704,17 @@ const renderCandidatesTable = () => {
   if (!tableBody) return;
 
   tableBody.innerHTML = '';
+
+  if (candidatesState.loading) {
+    tableBody.innerHTML = '<tr><td colspan="8" class="text-center py-4">読み込み中...</td></tr>';
+    return;
+  }
+
+  if (candidatesState.filteredCandidates.length === 0) {
+    tableBody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-slate-500">データがありません</td></tr>';
+    if (countEl) countEl.textContent = '0件';
+    return;
+  }
 
   candidatesState.filteredCandidates.forEach(candidate => {
     const row = document.createElement('tr');
@@ -2746,6 +2799,11 @@ const updateCallLogSection = (candidateId) => {
   const drawerTimeline = document.getElementById('drawerTimeline');
   if (!drawerTimeline) return;
 
+  // 候補者データからログを取得
+  // IDは文字列か数値か混在する可能性があるため == で比較
+  const candidate = candidatesState.allCandidates.find(c => c.id == candidateId);
+  const candidateCallLogs = candidate?.detail?.callLogs || [];
+
   // 既存の架電履歴セクションをクリア
   let callLogSection = document.querySelector('.call-log-section');
   if (callLogSection) {
@@ -2824,8 +2882,6 @@ const updateCallLogSection = (candidateId) => {
     drawerContent.appendChild(callLogSection);
   }
 
-  // 該当候補者の架電履歴を表示
-  const candidateCallLogs = mockCallLogs.filter(log => log.candidateId === candidateId);
   const callLogHistoryEl = document.getElementById('callLogHistory');
 
   if (callLogHistoryEl) {
@@ -2836,7 +2892,9 @@ const updateCallLogSection = (candidateId) => {
         .sort((a, b) => new Date(b.calledAt) - new Date(a.calledAt))
         .map(log => {
           const callDate = new Date(log.calledAt);
-          const formattedDate = `${callDate.getFullYear()}/${String(callDate.getMonth() + 1).padStart(2, '0')}/${String(callDate.getDate()).padStart(2, '0')} ${String(callDate.getHours()).padStart(2, '0')}:${String(callDate.getMinutes()).padStart(2, '0')}`;
+          const formattedDate = !isNaN(callDate)
+            ? `${callDate.getFullYear()}/${String(callDate.getMonth() + 1).padStart(2, '0')}/${String(callDate.getDate()).padStart(2, '0')} ${String(callDate.getHours()).padStart(2, '0')}:${String(callDate.getMinutes()).padStart(2, '0')}`
+            : log.calledAt;
 
           return `
             <div class="call-log-item">
@@ -2879,7 +2937,7 @@ window.clearCallLogForm = () => {
 };
 
 // 架電ログの保存
-window.saveCallLog = () => {
+window.saveCallLog = async () => {
   const drawer = document.getElementById('candidateDrawer');
   const candidateId = drawer?.dataset.currentCandidateId;
 
@@ -2910,18 +2968,73 @@ window.saveCallLog = () => {
     appointmentStatus: newCallResult === '通電' && newCallNextAction.includes('面接') ? 'scheduled' : 'pending'
   };
 
-  mockCallLogs.push(newCallLog);
+  // サーバーへ送信（既存のデータに追記する形）
+  // まず現在の候補者データを取得（詳細データが必要なため）
+  try {
+    const candidate = candidatesState.allCandidates.find(c => c.id == candidateId);
+    if (!candidate) throw new Error('Candidate not found');
 
-  // TODO: ここで実際のAPIに保存
-  console.log('架電ログ保存:', newCallLog);
+    // 既存のログを取得（detail.callLogsに保存されていると仮定）
+    const currentLogs = candidate.detail?.callLogs || [];
+    const updatedLogs = [...currentLogs, newCallLog];
+    const updatedDetail = { ...candidate.detail, callLogs: updatedLogs };
 
-  // フォームをクリア
-  clearCallLogForm();
+    const payload = {
+      ...candidate,
+      detail: updatedDetail,
+      // callLogsをトップレベルでも送っておく（サーバー側の実装によるが、detail内に入れる方針）
+      callLogs: updatedLogs
+    };
 
-  // 履歴を更新
-  updateCallLogSection(candidateId);
+    const response = await fetch(`/api/candidates/${candidateId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
 
-  alert('架電ログを保存しました。');
+    if (!response.ok) {
+      throw new Error('Failed to save call log');
+    }
+
+    const updatedCandidate = await response.json();
+
+    // ローカルの状態を更新
+    const idx = candidatesState.allCandidates.findIndex(c => c.id == candidateId);
+    if (idx !== -1) {
+      // detailだけでなく、展開されたプロパティも更新
+      candidatesState.allCandidates[idx] = {
+        ...candidatesState.allCandidates[idx],
+        ...updatedCandidate,
+        detail: updatedCandidate.detail // 明示的に更新
+      };
+      // フィルタ済みリストも更新（参照が同じなら不要だが一応）
+      filterCandidates();
+    }
+
+    // フォームをクリア
+    clearCallLogForm();
+
+    // 履歴セクションを再描画のために、あえてローカルのmockCallLogsではなく
+    // 更新された候補者データからログを表示するように updateCallLogSection を修正する必要があるが、
+    // ここでは簡易的に mockCallLogs (グローバル変数) も更新しておくことで既存の描画ロジックを維持するか、
+    // 描画ロジック自体を変えるか。
+    // updateCallLogSection は mockCallLogs を見ている。
+    // これを直さないといけない。
+
+    // 一旦 mockCallLogs にも入れておく（過渡期対応）
+    mockCallLogs.push(newCallLog);
+
+    // 本来的には updateCallLogSection(candidateId) で candidate.detail.callLogs を見るべき
+    updateCallLogSection(candidateId);
+
+    alert('架電ログを保存しました。');
+
+  } catch (error) {
+    console.error('保存エラー:', error);
+    alert('保存に失敗しました。');
+  }
 };
 
 // 候補者フィルタリング
@@ -3020,6 +3133,9 @@ const setupCandidatesEventListeners = () => {
   const nameInput = document.getElementById('candidatesFilterName');
   const jobTitleInput = document.getElementById('candidatesFilterJobTitle');
   const resetButton = document.getElementById('candidatesFilterReset');
+
+  // 初期データロード
+  fetchCandidates();
 
   // 日付フィルタ
   if (dateFromInput) {
