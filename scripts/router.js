@@ -12,7 +12,7 @@ const routes = {
   login: () => import("../pages/login/login.js"),
   mypage: () => import("../pages/mypage/mypage.js"),
   members: () => import("../pages/members/members.js"),
-  yield: () => import("../pages/yield/yield.js?v=20260322_09"),
+  yield: () => import("../pages/yield/yield.js?v=20260127_01"),
   "yield-personal": () => import("../pages/yield-personal/yield-personal.js"),
   "yield-company": () => import("../pages/yield-company/yield-company.js"),
   "yield-admin": () => import("../pages/yield-admin/yield-admin.js"),
@@ -424,5 +424,4 @@ function updateUserBadgeText(badge) {
     badge.setAttribute("aria-label", "ログインページへ移動");
   }
 }
-
 
