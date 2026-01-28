@@ -1,5 +1,4 @@
 // Yield Page JavaScript Module (simplified)
-import { RepositoryFactory } from '../../scripts/api/index.js';
 import { getSession } from '../../scripts/auth.js';
 // 例: 実際のパスに合わせてください
 import { getMockCandidates } from '../../scripts/mock/candidates.js';
@@ -8,9 +7,6 @@ import {
   buildPersonalKpiFromCandidates,
   buildCompanyKpiFromCandidates
 } from './yield-metrics-from-candidates.js';
-
-const repositories = RepositoryFactory.create();
-const kpiRepository = repositories.kpi;
 
 // API接続設定
 const KPI_API_BASE = 'https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev/kpi';
@@ -1121,6 +1117,14 @@ const state = {
       target: 0
     }
   },
+  msRateModes: {
+    personalDaily: 'daily',
+    companyMs: 'daily'
+  },
+  personalDailyMs: {
+    metricKeys: {},
+    targets: {}
+  },
   // 個人別MSデータ
   personalMs: {
     marketing: { members: [], msTargets: {}, msActuals: {}, dates: [], metricKeys: {} },
@@ -1402,6 +1406,38 @@ function initializeRateModeControls() {
   });
 }
 
+function updateMsRateToggleButton(button, mode) {
+  if (!button) return;
+  const label = mode === 'overall' ? '全体' : '毎日';
+  button.textContent = label;
+  button.setAttribute('aria-pressed', mode === 'overall' ? 'true' : 'false');
+}
+
+function initializeMsRateToggles() {
+  document.querySelectorAll('[data-ms-rate-toggle]').forEach(button => {
+    const scope = button.dataset.msRateScope;
+    if (!scope) return;
+    const current = state.msRateModes?.[scope] || 'daily';
+    updateMsRateToggleButton(button, current);
+    if (button.dataset.bound) return;
+    button.addEventListener('click', () => {
+      if (!state.msRateModes) state.msRateModes = {};
+      const next = state.msRateModes[scope] === 'overall' ? 'daily' : 'overall';
+      state.msRateModes[scope] = next;
+      updateMsRateToggleButton(button, next);
+      if (scope === 'personalDaily') {
+        const periodId = state.personalDailyPeriodId;
+        const dailyData = state.personalDailyData[periodId] || {};
+        renderPersonalDailyTable(periodId, dailyData);
+      }
+      if (scope === 'companyMs') {
+        renderCompanyMsTable();
+      }
+    });
+    button.dataset.bound = 'true';
+  });
+}
+
 export async function mount(root) {
   state.yieldScope = resolveYieldScope(root);
   syncAccessRole();
@@ -1422,6 +1458,7 @@ export async function mount(root) {
   safe('initializeEvaluationPeriods', initializeEvaluationPeriods);
   safe('initializeCalcModeControls', initializeCalcModeControls);
   safe('initializeRateModeControls', initializeRateModeControls);
+  safe('initializeMsRateToggles', initializeMsRateToggles);
   safe('loadYieldData', loadYieldData);
 }
 
@@ -2584,6 +2621,15 @@ function calcCumulativeValue(total, index, length) {
   return Math.round((totalNumber * (index + 1)) / length);
 }
 
+function buildDailyTargetsFromTotal(total, length) {
+  if (!Number.isFinite(total) || length <= 0) return [];
+  const cumulative = buildCumulativeSeries(total, length);
+  return cumulative.map((value, index) => {
+    if (index === 0) return value;
+    return value - cumulative[index - 1];
+  });
+}
+
 function renderPersonalDailyTable(periodId, dailyData = {}) {
   const body = document.getElementById('personalDailyTableBody');
   const headerRow = document.getElementById('personalDailyHeaderRow');
@@ -2599,35 +2645,179 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
   const dates = enumeratePeriodDates(period);
   const advisorName = getAdvisorName();
   const periodTarget = goalSettingsService.getPersonalPeriodTarget(periodId, advisorName) || {};
-  const savedTargets = goalSettingsService.getPersonalDailyTargets(periodId, advisorName) || {};
-  const cumulativeFallback = DAILY_FIELDS.reduce((acc, field) => {
-    const rawTotal = periodTarget[field.targetKey];
-    if (rawTotal === undefined || rawTotal === null) return acc;
-    const total = num(rawTotal);
-    acc[field.targetKey] = buildCumulativeSeries(total, dates.length);
-    return acc;
-  }, {});
-  if (labelEl) labelEl.textContent = `評価期間：${period.startDate}〜${period.endDate}`;
-
-  renderDailyMatrix({
-    headerRow,
-    body,
-    dates,
-    dailyData,
-    resolveValues: (field, date, dateIndex) => {
-      const actual = dailyData[date] || {};
-      const target = savedTargets[date] || {};
-      const rawTarget = target[field.targetKey];
-      const expected = rawTarget !== undefined && rawTarget !== null
-        ? num(rawTarget)
-        : cumulativeFallback[field.targetKey] !== undefined
-          ? cumulativeFallback[field.targetKey][dateIndex]
-          : null;
-      return { actual: actual[field.dataKey], target: expected };
-    },
-    simpleMode: true
-  });
   if (labelEl) labelEl.textContent = `評価期間：${formatPeriodMonthLabel(period) || '--'}`;
+
+  const role = getSession()?.user?.role || '';
+  const deptKey = getDepartmentFromRole(role);
+  const targetDepts = [];
+  if (deptKey) targetDepts.push(deptKey);
+  if (!targetDepts.includes('revenue')) targetDepts.push('revenue');
+
+  const dateCells = dates.map(date => `<th scope="col" class="ms-date-header">${formatDayLabel(date)}</th>`).join('');
+  headerRow.innerHTML = `
+    <th scope="col" class="kpi-v2-sticky-label">事業部</th>
+    <th scope="col" class="kpi-v2-sticky-label kpi-v2-ms-metric">指標</th>
+    <th scope="col" class="daily-type">区分</th>
+    ${dateCells}
+  `;
+
+  if (!state.personalDailyMs) state.personalDailyMs = { metricKeys: {}, targets: {} };
+
+  const rows = [];
+  targetDepts.forEach((dept, index) => {
+    const isRevenue = dept === 'revenue';
+    const metrics = isRevenue
+      ? [{ key: 'revenue', label: '売上', targetKey: 'revenue' }]
+      : getMetricsForDept(dept);
+
+    if (!metrics.length) return;
+    let metricKey = state.personalDailyMs.metricKeys?.[dept];
+    if (!metricKey) {
+      metricKey = metrics[0].key;
+      state.personalDailyMs.metricKeys[dept] = metricKey;
+    }
+    const metricOption = metrics.find(m => m.key === metricKey) || metrics[0];
+    const metricLabel = metricOption?.label || '';
+
+    const optionsHtml = isRevenue
+      ? ''
+      : metrics.map(option =>
+        `<option value="${option.key}" ${option.key === metricKey ? 'selected' : ''}>${option.label}</option>`
+      ).join('');
+
+    const metricCell = isRevenue
+      ? `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="3">${metricLabel}</th>`
+      : `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="3">
+           <select class="kpi-v2-sort-select personal-daily-metric-select" data-dept="${dept}">
+             ${optionsHtml}
+           </select>
+         </th>`;
+
+    const field = DAILY_FIELDS.find(f => f.dataKey === metricOption.targetKey);
+    const periodTargetKey = field?.targetKey || null;
+    const totalTarget = periodTargetKey ? num(periodTarget?.[periodTargetKey]) : 0;
+
+    const activeDates = dates.filter(date => {
+      const disabled = isDateBeforePersonalDeptStart(date, dept) || isDateAfterPersonalDeptEnd(date, dept);
+      return !disabled;
+    });
+    const fallbackDaily = totalTarget > 0 ? buildDailyTargetsFromTotal(totalTarget, activeDates.length) : [];
+
+    let activeIndex = 0;
+    const dailyTargets = dates.map(date => {
+      const isDisabled = isDateBeforePersonalDeptStart(date, dept) || isDateAfterPersonalDeptEnd(date, dept);
+      if (isDisabled) return null;
+      const saved = state.personalDailyMs.targets?.[dept]?.[metricKey]?.[date];
+      if (saved !== undefined && saved !== null && saved !== '') return num(saved);
+      const fallback = fallbackDaily[activeIndex] ?? null;
+      activeIndex += 1;
+      return fallback;
+    });
+
+    const dailyActuals = dates.map(date => {
+      const isDisabled = isDateBeforePersonalDeptStart(date, dept) || isDateAfterPersonalDeptEnd(date, dept);
+      if (isDisabled) return null;
+      const dayCounts = dailyData?.[date] || {};
+      return getDailyMetricValue(dayCounts, metricOption, metricKey);
+    });
+
+    const cumulativeActuals = buildCumulativeFromDaily(
+      dailyActuals.map(value => (value === null ? 0 : value))
+    );
+    const totalTargetValue = dailyTargets.reduce((sum, value) => sum + (Number.isFinite(value) ? num(value) : 0), 0);
+
+    const msCells = dates.map((date, idx) => {
+      const isDisabled = isDateBeforePersonalDeptStart(date, dept) || isDateAfterPersonalDeptEnd(date, dept);
+      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
+      const value = dailyTargets[idx];
+      const displayValue = Number.isFinite(value) ? value : '';
+      return `
+        <td class="ms-target-cell">
+          <input type="number" class="ms-target-input personal-daily-ms-input"
+                 data-dept="${dept}"
+                 data-date="${date}"
+                 data-metric="${metricKey}"
+                 value="${displayValue}"
+                 min="0" />
+        </td>
+      `;
+    }).join('');
+
+    const rateCells = dates.map((date, idx) => {
+      const isDisabled = isDateBeforePersonalDeptStart(date, dept) || isDateAfterPersonalDeptEnd(date, dept);
+      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
+      const dailyTarget = dailyTargets[idx];
+      const dailyActual = dailyActuals[idx] ?? 0;
+      const cumulativeActual = cumulativeActuals[idx] ?? 0;
+      const useOverall = state.msRateModes?.personalDaily === 'overall';
+      const numerator = useOverall ? cumulativeActual : dailyActual;
+      const denominator = useOverall ? totalTargetValue : dailyTarget;
+      let rateDisplay = '-';
+      let rateClass = '';
+      if (denominator && Number(denominator) > 0) {
+        const rate = Math.round((numerator / Number(denominator)) * 100);
+        rateDisplay = `${rate}%`;
+        rateClass = rate >= 100 ? 'ms-rate-good' : rate >= 80 ? 'ms-rate-warn' : 'ms-rate-bad';
+      }
+      return `<td class="ms-rate-cell ${rateClass}">${rateDisplay}</td>`;
+    }).join('');
+
+    const actualCells = dates.map((date, idx) => {
+      const isDisabled = isDateBeforePersonalDeptStart(date, dept) || isDateAfterPersonalDeptEnd(date, dept);
+      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
+      return `<td class="ms-actual-cell">${formatNumberCell(cumulativeActuals[idx])}</td>`;
+    }).join('');
+
+    const tripletAlt = index % 2 === 1 ? 'daily-triplet-alt' : '';
+    rows.push(`
+      <tr class="${tripletAlt}">
+        <th scope="row" class="kpi-v2-sticky-label" rowspan="3">${dept === 'marketing' ? 'マーケ' : dept === 'cs' ? 'CS' : dept === 'sales' ? '営業' : '売上'}</th>
+        ${metricCell}
+        <td class="daily-type">MS</td>
+        ${msCells}
+      </tr>
+    `);
+    rows.push(`
+      <tr class="${tripletAlt}">
+        <td class="daily-type">進捗率</td>
+        ${rateCells}
+      </tr>
+    `);
+    rows.push(`
+      <tr class="${tripletAlt}">
+        <td class="daily-type">実績</td>
+        ${actualCells}
+      </tr>
+    `);
+  });
+
+  body.innerHTML = rows.join('');
+
+  body.querySelectorAll('.personal-daily-metric-select').forEach(select => {
+    if (select.dataset.bound) return;
+    select.addEventListener('change', (event) => {
+      const dept = event.target.dataset.dept;
+      if (!dept) return;
+      state.personalDailyMs.metricKeys[dept] = event.target.value;
+      renderPersonalDailyTable(periodId, dailyData);
+    });
+    select.dataset.bound = 'true';
+  });
+
+  body.querySelectorAll('.personal-daily-ms-input').forEach(input => {
+    if (input.dataset.bound) return;
+    input.addEventListener('change', (event) => {
+      const el = event.target;
+      const { dept, metric, date } = el.dataset;
+      if (!dept || !metric || !date) return;
+      if (!state.personalDailyMs.targets) state.personalDailyMs.targets = {};
+      if (!state.personalDailyMs.targets[dept]) state.personalDailyMs.targets[dept] = {};
+      if (!state.personalDailyMs.targets[dept][metric]) state.personalDailyMs.targets[dept][metric] = {};
+      state.personalDailyMs.targets[dept][metric][date] = num(el.value);
+      renderPersonalDailyTable(periodId, dailyData);
+    });
+    input.dataset.bound = 'true';
+  });
 }
 
 async function loadAndRenderCompanyDaily() {
@@ -2851,26 +3041,18 @@ function buildCompanyMsDailyTotalsFromEmployees(employees, employeeIds) {
 
 function buildCompanyMsHeaderRow(headerRow, dates) {
   if (!headerRow) return;
-  // スプレッドシート形式: 日付ごとに2列（MS/進捗率 と 実績）
+  // 日付ごとに1列（MS/進捗率/実績は行で分ける）
   const dateCells = dates.map(date => {
     const dayLabel = formatDayLabel(date);
-    return `<th scope="col" colspan="2" class="ms-date-header">${dayLabel}</th>`;
+    return `<th scope="col" class="ms-date-header">${dayLabel}</th>`;
   }).join('');
-  const subHeaderCells = dates.map(() => `
-    <th scope="col" class="ms-sub-header">MS</th>
-    <th scope="col" class="ms-sub-header">進捗率</th>
-  `).join('');
 
   headerRow.innerHTML = `
-    <th scope="col" class="kpi-v2-sticky-label" rowspan="2">事業部</th>
-    <th scope="col" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="2">指標</th>
-    <th scope="col" class="daily-type" rowspan="2">区分</th>
+    <th scope="col" class="kpi-v2-sticky-label">事業部</th>
+    <th scope="col" class="kpi-v2-sticky-label kpi-v2-ms-metric">指標</th>
+    <th scope="col" class="daily-type">区分</th>
     ${dateCells}
   `;
-  // サブヘッダー行を追加
-  const subHeaderRow = document.createElement('tr');
-  subHeaderRow.innerHTML = subHeaderCells;
-  headerRow.parentElement?.appendChild(subHeaderRow);
 }
 
 // 日付が部門の開始日より前かどうかを判定
@@ -2944,8 +3126,8 @@ function handleMsTargetInput(event) {
   if (!state.companyMs.msTargets[dept]) state.companyMs.msTargets[dept] = {};
   state.companyMs.msTargets[dept][date] = value;
 
-  // 進捗率を再計算
-  updateMsProgressRate(dept, date);
+  // 進捗率は全体に影響するため再描画
+  renderCompanyMsTable();
 }
 
 // 進捗率を更新
@@ -2981,6 +3163,30 @@ function handleMsActualInput(event) {
   updateMsProgressRate(dept, date);
 }
 
+function resolveMetricDataKey(metricOption, fallbackKey = '') {
+  return metricOption?.targetKey || metricOption?.key || fallbackKey || '';
+}
+
+function getDailyMetricValue(dailyCounts, metricOption, fallbackKey = '') {
+  if (!dailyCounts) return 0;
+  const dataKey = resolveMetricDataKey(metricOption, fallbackKey);
+  if (!dataKey) return 0;
+  if (dailyCounts[dataKey] !== undefined) return num(dailyCounts[dataKey]);
+  const snakeKey = dataKey.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+  if (dailyCounts[snakeKey] !== undefined) return num(dailyCounts[snakeKey]);
+  return 0;
+}
+
+function buildCumulativeFromDaily(values) {
+  const result = [];
+  let sum = 0;
+  values.forEach(value => {
+    sum += num(value);
+    result.push(sum);
+  });
+  return result;
+}
+
 function renderCompanyMsTable() {
   const headerRow = document.getElementById('companyMsHeaderRow');
   const body = document.getElementById('companyMsTableBody');
@@ -2993,9 +3199,13 @@ function renderCompanyMsTable() {
     return;
   }
 
-  // サブヘッダー行を削除（再レンダリング時）
-  const existingSubHeader = headerRow.parentElement?.querySelector('tr:not(:first-child)');
-  if (existingSubHeader) existingSubHeader.remove();
+  // サブヘッダー行が残っていたら削除
+  const thead = headerRow.parentElement;
+  if (thead) {
+    while (thead.rows.length > 1) {
+      thead.deleteRow(1);
+    }
+  }
 
   buildCompanyMsHeaderRow(headerRow, dates);
 
@@ -3025,83 +3235,99 @@ function renderCompanyMsTable() {
 
     // 指標セル（セレクトボックスまたはラベル）
     const metricCell = isRevenue
-      ? `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="2">${metricLabel}</th>`
-      : `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="2">
+      ? `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="3">${metricLabel}</th>`
+      : `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="3">
            <select class="kpi-v2-sort-select company-ms-metric-select" data-dept="${dept.key}">
              ${optionsHtml}
            </select>
          </th>`;
 
-    // 各日付のセルを生成
-    const msAndRateCells = dates.map(date => {
+    const dailyTargets = [];
+    const dailyActuals = [];
+    dates.forEach(date => {
       const isDisabled = isDateBeforeDeptStart(date, dept.key) || isDateAfterDeptEnd(date, dept.key);
-      const disabledClass = isDisabled ? 'ms-cell-disabled' : '';
-
       if (isDisabled) {
-        return `<td class="${disabledClass}"></td><td class="${disabledClass}"></td>`;
+        dailyTargets.push(null);
+        dailyActuals.push(null);
+        return;
       }
+      const savedMs = state.companyMs.msTargets?.[dept.key]?.[date];
+      dailyTargets.push(savedMs !== undefined && savedMs !== null ? num(savedMs) : null);
+      const dailyCount = isRevenue
+        ? getDailyMetricValue(state.companyMs.dailyTotals?.[date], null, 'revenue')
+        : getDailyMetricValue(state.companyMs.dailyTotals?.[date], metricOption, metricKey || '');
+      dailyActuals.push(dailyCount);
+    });
 
-      const savedMs = state.companyMs.msTargets?.[dept.key]?.[date] || '';
-      const actual = isRevenue
-        ? state.companyMs.revenue?.actual || 0
-        : (state.companyMs.dailyTotals?.[date]?.[metricOption?.key] || 0);
+    const cumulativeActuals = buildCumulativeFromDaily(dailyActuals.map(value => (value === null ? 0 : value)));
+    const totalTarget = dailyTargets.reduce((sum, value) => sum + (Number.isFinite(value) ? num(value) : 0), 0);
 
-      // 進捗率計算
-      let rateDisplay = '-';
-      let rateClass = '';
-      if (savedMs && Number(savedMs) > 0) {
-        const rate = Math.round((actual / Number(savedMs)) * 100);
-        rateDisplay = `${rate}%`;
-        rateClass = rate >= 100 ? 'ms-rate-good' : rate >= 80 ? 'ms-rate-warn' : 'ms-rate-bad';
-      }
-
+    const msCells = dates.map((date, idx) => {
+      const isDisabled = isDateBeforeDeptStart(date, dept.key) || isDateAfterDeptEnd(date, dept.key);
+      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
+      const savedMs = dailyTargets[idx];
+      const displayValue = Number.isFinite(savedMs) ? savedMs : '';
       return `
         <td class="ms-target-cell">
           <input type="number" class="ms-target-input" 
                  data-dept="${dept.key}" 
                  data-date="${date}" 
                  data-metric="${metricKey || ''}"
-                 value="${savedMs}" 
+                 value="${displayValue}" 
                  min="0" />
-        </td>
-        <td class="ms-rate-cell ${rateClass}" data-progress-rate data-dept="${dept.key}" data-date="${date}">
-          ${rateDisplay}
         </td>
       `;
     }).join('');
 
-    const actualCells = dates.map(date => {
+    const rateCells = dates.map((date, idx) => {
       const isDisabled = isDateBeforeDeptStart(date, dept.key) || isDateAfterDeptEnd(date, dept.key);
-      const disabledClass = isDisabled ? 'ms-cell-disabled' : '';
+      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
 
-      if (isDisabled) {
-        return `<td class="${disabledClass}" colspan="2"></td>`;
+      const dailyTarget = dailyTargets[idx];
+      const dailyActual = dailyActuals[idx] ?? 0;
+      const cumulativeActual = cumulativeActuals[idx] ?? 0;
+
+      // 進捗率: デフォルトは「毎日」。全体は累計/期間合計
+      const useOverall = state.msRateModes?.companyMs === 'overall';
+      const numerator = useOverall ? cumulativeActual : dailyActual;
+      const denominator = useOverall ? totalTarget : dailyTarget;
+
+      let rateDisplay = '-';
+      let rateClass = '';
+      if (denominator && Number(denominator) > 0) {
+        const rate = Math.round((numerator / Number(denominator)) * 100);
+        rateDisplay = `${rate}%`;
+        rateClass = rate >= 100 ? 'ms-rate-good' : rate >= 80 ? 'ms-rate-warn' : 'ms-rate-bad';
       }
+      return `<td class="ms-rate-cell ${rateClass}" data-progress-rate data-dept="${dept.key}" data-date="${date}">
+        ${rateDisplay}
+      </td>`;
+    }).join('');
 
-      // 保存された実績値を取得
-      const savedActual = state.companyMs.msActuals?.[dept.key]?.[date] ?? '';
-
-      return `
-        <td class="ms-actual-cell" colspan="2">
-          <input type="number" class="ms-actual-input" 
-                 data-dept="${dept.key}" 
-                 data-date="${date}" 
-                 value="${savedActual}" 
-                 min="0" 
-                 placeholder="実績" />
-        </td>
-      `;
+    const actualCells = dates.map((date, idx) => {
+      const isDisabled = isDateBeforeDeptStart(date, dept.key) || isDateAfterDeptEnd(date, dept.key);
+      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
+      const displayValue = cumulativeActuals[idx] ?? 0;
+      return `<td class="ms-actual-cell">${formatNumberCell(displayValue)}</td>`;
     }).join('');
 
     const tripletAlt = index % 2 === 1 ? 'daily-triplet-alt' : '';
 
-    // MS/進捗率行
+    // MS行
     rows.push(`
       <tr class="${tripletAlt}">
-        <th scope="row" class="kpi-v2-sticky-label" rowspan="2">${dept.label}</th>
+        <th scope="row" class="kpi-v2-sticky-label" rowspan="3">${dept.label}</th>
         ${metricCell}
-        <td class="daily-type">MS/進捗率</td>
-        ${msAndRateCells}
+        <td class="daily-type">MS</td>
+        ${msCells}
+      </tr>
+    `);
+
+    // 進捗率行
+    rows.push(`
+      <tr class="${tripletAlt}">
+        <td class="daily-type">進捗率</td>
+        ${rateCells}
       </tr>
     `);
 
@@ -3133,12 +3359,6 @@ function renderCompanyMsTable() {
     input.dataset.bound = 'true';
   });
 
-  // MS実績入力のイベントバインド
-  body.querySelectorAll('.ms-actual-input').forEach(input => {
-    if (input.dataset.bound) return;
-    input.addEventListener('change', handleMsActualInput);
-    input.dataset.bound = 'true';
-  });
 }
 
 // ==================== 個人別MSテーブル ====================
