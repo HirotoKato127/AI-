@@ -1603,3 +1603,16 @@
   border-color: #3b82f6;
   outline: none;
 }
+
+.ms-metric-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.ms-distribute-btn {
+  font-size: 12px;
+  padding: 2px 8px;
+  line-height: 1.4;
+}
