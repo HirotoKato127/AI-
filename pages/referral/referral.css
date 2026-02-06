@@ -327,6 +327,100 @@ textarea.referral-input {
   /* Brand Color Accent */
 }
 
+/* =========================================
+   Candidate Quick View Modal
+   ========================================= */
+.referral-candidate-open {
+  overflow: hidden;
+}
+
+.referral-candidate-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 1100;
+}
+
+.referral-candidate-modal.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.referral-candidate-panel {
+  width: min(880px, 94vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px -20px rgba(15, 23, 42, 0.35);
+  overflow: hidden;
+  transform: translateY(12px) scale(0.98);
+  transition: transform 0.2s ease;
+}
+
+.referral-candidate-modal.is-open .referral-candidate-panel {
+  transform: translateY(0) scale(1);
+}
+
+.referral-candidate-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.referral-candidate-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.08em;
+}
+
+.referral-candidate-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-top: 2px;
+}
+
+.referral-candidate-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 18px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.referral-candidate-close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.referral-candidate-body {
+  flex: 1;
+  overflow: hidden;
+  background: #ffffff;
+}
+
 
 /* Grid Layout for Details */
 .referral-detail-grid {

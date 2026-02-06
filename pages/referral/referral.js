@@ -1290,7 +1290,9 @@ function buildReferralCandidateQuickViewHtml(candidate, state = {}) {
           </div>
         </div>
         <button 
-          onclick="navigateToCandidate('${candidate.id}')" 
+          type="button"
+          data-action="open-candidate-detail"
+          data-candidate-id="${candidate.id}"
           class="flex items-center gap-1 px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-bold hover:bg-indigo-700 shadow-sm transition-colors cursor-pointer ml-4">
           <span>詳細画面へ</span>
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
@@ -1390,6 +1392,14 @@ function closeReferralCandidateModal() {
   document.body.classList.remove('referral-candidate-open');
 }
 
+// Close modal then navigate to candidate detail page
+window.navigateToCandidateFromReferral = function (candidateId) {
+  closeReferralCandidateModal();
+  const id = String(candidateId ?? '').trim();
+  if (!id) return;
+  window.location.hash = `#/candidate-detail?id=${encodeURIComponent(id)}`;
+};
+
 function initReferralCandidateModal() {
   const modal = document.getElementById('referralCandidateModal');
   const closeBtn = document.getElementById('referralCandidateClose');
@@ -1397,6 +1407,13 @@ function initReferralCandidateModal() {
   modal.dataset.bound = 'true';
   closeBtn?.addEventListener('click', () => closeReferralCandidateModal());
   modal.addEventListener('click', (event) => {
+    const openBtn = event.target.closest('[data-action="open-candidate-detail"]');
+    if (openBtn) {
+      event.preventDefault();
+      const candidateId = openBtn.dataset.candidateId || '';
+      window.navigateToCandidateFromReferral?.(candidateId);
+      return;
+    }
     if (event.target === modal) closeReferralCandidateModal();
   });
 }
@@ -1405,6 +1422,14 @@ function renderReferralCandidateQuickView(candidate, state = {}) {
   const container = document.getElementById('referralCandidateModalBody');
   if (!container) return;
   container.innerHTML = buildReferralCandidateQuickViewHtml(candidate, state);
+  const openBtn = container.querySelector('[data-action="open-candidate-detail"]');
+  if (openBtn) {
+    openBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const candidateId = openBtn.dataset.candidateId || '';
+      window.navigateToCandidateFromReferral?.(candidateId);
+    });
+  }
   const titleEl = document.getElementById('referralCandidateModalTitle');
   if (titleEl) {
     const name = candidate?.name ? String(candidate.name).trim() : '';

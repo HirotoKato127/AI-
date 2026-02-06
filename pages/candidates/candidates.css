@@ -1595,6 +1595,57 @@ body.has-modal-open {
 }
 
 /* -----------------------------------------
+   Detail Tabs (Next Action / Selection / Profile)
+   ----------------------------------------- */
+.detail-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.detail-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.detail-tab:hover {
+  color: #334155;
+  background-color: #f1f5f9;
+}
+
+.detail-tab.is-active {
+  color: #4f46e5;
+  background-color: #eef2ff;
+}
+
+.detail-tab-panels {
+  padding-top: 12px;
+}
+
+.detail-tab-panel {
+  display: none;
+}
+
+.detail-tab-panel.is-active {
+  display: block;
+}
+
+/* -----------------------------------------
    Unified Card Design
    ----------------------------------------- */
 .detail-card {

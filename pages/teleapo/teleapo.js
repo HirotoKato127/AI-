@@ -397,34 +397,21 @@ function resolveCandidateInterviewDate(log) {
 
 function buildCandidateDetailUrl(candidateId) {
   const id = String(candidateId ?? '').trim();
-  if (typeof window === 'undefined' || !window.location) {
-    return `#/candidates?${CANDIDATE_ID_PARAM}=${encodeURIComponent(id)}&openDetail=1`;
-  }
-  const url = new URL(window.location.href);
-  url.searchParams.set(CANDIDATE_ID_PARAM, id);
-  url.searchParams.set("openDetail", "1");
-  url.hash = '/candidates';
-  return url.toString();
+  return `#/candidate-detail?id=${encodeURIComponent(id)}`;
 }
 
-window.navigateToCandidateDetail = function (candidateId, candidateName) {
+function navigateToCandidateDetailPage(candidateId, candidateName) {
   const resolvedId = candidateId || findCandidateIdFromTarget(candidateName);
   if (!resolvedId) {
     console.warn('candidate not found:', candidateName);
     return;
   }
-  if (typeof window === 'undefined' || !window.location) return;
   const resolvedIdText = String(resolvedId);
-  try {
-    sessionStorage.setItem(TARGET_CANDIDATE_STORAGE_KEY, resolvedIdText);
-  } catch {
-    // ignore storage errors
-  }
-  const url = new URL(window.location.href);
-  url.searchParams.set(CANDIDATE_ID_PARAM, resolvedIdText);
-  url.searchParams.set("openDetail", "1");
-  history.replaceState({}, '', url.toString());
-  window.location.hash = '/candidates';
+  window.location.hash = `/candidate-detail?id=${encodeURIComponent(resolvedIdText)}`;
+}
+
+window.navigateToCandidateDetail = function (candidateId, candidateName) {
+  openCandidateQuickView(candidateId, candidateName);
 };
 
 
@@ -1324,7 +1311,9 @@ function renderCandidateQuickView(detail) {
         </div>
       </div>
       <button 
-        onclick="window.location.href = window.location.pathname + '?candidateId=${candidate.id}&openDetail=1#/candidates'" 
+        type="button"
+        data-candidate-action="open-detail"
+        data-candidate-id="${escapeHtml(String(candidateId || ''))}"
         class="px-3 py-2 bg-indigo-600 text-white rounded-md text-xs font-semibold hover:bg-indigo-500 shadow-sm whitespace-nowrap">
         詳細画面へ
       </button>
@@ -1464,6 +1453,13 @@ function handleCandidateQuickAction(event) {
   if (!action) return;
   if (!teleapoQuickEditState.detail) return;
 
+  if (action === "open-detail") {
+    const candidateId = btn.dataset.candidateId || teleapoQuickEditState.detail?.candidateId || teleapoQuickEditState.detail?.id;
+    const candidateName = teleapoQuickEditState.detail?.candidateName || teleapoQuickEditState.detail?.name;
+    closeTeleapoCandidateModal();
+    navigateToCandidateDetailPage(candidateId, candidateName);
+    return;
+  }
   if (action === "edit") {
     teleapoQuickEditState.editMode = true;
     renderCandidateQuickView(teleapoQuickEditState.detail);
@@ -1972,6 +1968,7 @@ let teleapoHighlightFingerprint = null;
 let employeeNameToUserId = new Map();
 let teleapoRangeTouched = false;
 let teleapoAutoFallbackDone = false;
+let teleapoActivePreset = 'thisMonth'; // 現在アクティブなプリセット（今日/今週/今月/null）
 
 function rebuildEmployeeMap() {
   employeeNameToUserId = new Map();
@@ -2444,7 +2441,18 @@ function formatRate(rate) {
 }
 
 function formatRangeLabel(startStr, endStr) {
-  if (!startStr && !endStr) return '';
+  // アクティブなプリセットがある場合はそのラベルを表示
+  if (teleapoActivePreset) {
+    const presetLabels = {
+      today: '今日',
+      thisWeek: '今週',
+      thisMonth: '今月'
+    };
+    if (presetLabels[teleapoActivePreset]) {
+      return presetLabels[teleapoActivePreset];
+    }
+  }
+  if (!startStr && !endStr) return '全期間';
   if (startStr && endStr) return `${startStr.replace(/-/g, '/')} ～ ${endStr.replace(/-/g, '/')}`;
   if (startStr) return `${startStr.replace(/-/g, '/')} ～`;
   return `～ ${endStr.replace(/-/g, '/')}`;
@@ -3618,7 +3626,10 @@ function setRangePreset(preset) {
   if (preset === 'today') {
     // start/end already today
   } else if (preset === 'thisWeek') {
-    start.setDate(today.getDate() - 6);
+    // 月曜起算: getDay()は日曜=0, 月曜=1, ..., 土曜=6
+    const day = today.getDay();
+    const daysToMonday = day === 0 ? 6 : day - 1;
+    start.setDate(today.getDate() - daysToMonday);
   } else if (preset === 'thisMonth') {
     start = new Date(today.getFullYear(), today.getMonth(), 1);
   } else if (preset === 'last30') {
@@ -3662,12 +3673,23 @@ function isTeleapoButtonActive(button) {
 
 function setTeleapoButtonActive(button, isActive) {
   if (!button) return;
-  if (button.classList.contains('kpi-v2-range-btn')) {
-    button.classList.toggle('kpi-v2-range-btn-active', isActive);
+  if (isActive) {
+    if (button.classList.contains('kpi-v2-range-btn')) button.classList.add('kpi-v2-range-btn-active');
+    button.classList.add('active', 'is-active');
+    button.setAttribute('aria-pressed', 'true');
+    button.style.setProperty('background-color', '#0077c7', 'important');
+    button.style.setProperty('color', '#ffffff', 'important');
+    button.style.setProperty('font-weight', '600', 'important');
+    button.style.setProperty('box-shadow', '0 2px 8px rgba(0, 119, 199, 0.4)', 'important');
+  } else {
+    if (button.classList.contains('kpi-v2-range-btn')) button.classList.remove('kpi-v2-range-btn-active');
+    button.classList.remove('active', 'is-active');
+    button.setAttribute('aria-pressed', 'false');
+    button.style.removeProperty('background-color');
+    button.style.removeProperty('color');
+    button.style.removeProperty('font-weight');
+    button.style.removeProperty('box-shadow');
   }
-  button.classList.toggle('active', isActive);
-  button.classList.toggle('is-active', isActive);
-  button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
 }
 
 function syncTeleapoButtonGroup(buttons, activeButton) {
@@ -3682,14 +3704,20 @@ function clearCompanyRangePresetSelection() {
 
 function initDateInputs() {
   const buttons = getCompanyPresetButtons();
-  const activePreset = buttons.find(btn => isTeleapoButtonActive(btn))?.dataset?.preset;
-  if (activePreset) {
-    setRangePreset(activePreset);
-    return;
-  }
-  // デフォルトは直近180日で広めのモックデータが拾えるようにする
-  setRangePreset('last180');
-  clearCompanyRangePresetSelection();
+  // 全ボタン非アクティブ化（デフォルトは全期間）
+  buttons.forEach(btn => setTeleapoButtonActive(btn, false));
+
+  // プリセットなし
+  teleapoActivePreset = null;
+
+  // 日付フィールドクリア
+  ['teleapoLogRangeStart', 'teleapoLogRangeEnd', 'teleapoCompanyRangeStart', 'teleapoCompanyRangeEnd'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+
+  // 初期表示ラベル更新（全期間）
+  refreshForRangeChange();
 }
 
 function initFilters() {
@@ -3752,26 +3780,98 @@ function initEmployeeSort() {
   select.addEventListener('change', () => applyFilters());
 }
 
-function initCompanyRangePresets() {
-  const buttons = getCompanyPresetButtons();
-  if (!buttons.length) return;
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      teleapoRangeTouched = true;
-      const preset = btn.dataset.preset || 'thisMonth';
-      const isActive = isTeleapoButtonActive(btn);
-      syncTeleapoButtonGroup(buttons, null);
-      if (isActive) {
-        // 同じボタンを再クリック→プリセット解除＆日付クリアで全期間表示
-        clearDateFilters();
-        refreshForRangeChange();
-        return;
-      }
-      setRangePreset(preset);
-      setTeleapoButtonActive(btn, true);
-      refreshForRangeChange();
+
+// clearDateFilters definition removed to fix SyntaxError
+
+function initResetButton() {
+  const resetBtn = document.getElementById('teleapoSummaryResetBtn');
+  if (!resetBtn) return;
+
+  resetBtn.addEventListener('click', () => {
+    // プリセット解除
+    const buttons = getCompanyPresetButtons();
+    buttons.forEach(btn => setTeleapoButtonActive(btn, false));
+    teleapoActivePreset = null;
+
+    // 日付クリア
+    ['teleapoLogRangeStart', 'teleapoLogRangeEnd', 'teleapoCompanyRangeStart', 'teleapoCompanyRangeEnd'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
     });
+
+    // 再描画
+    refreshForRangeChange();
   });
+}
+
+function initCompanyRangePresets() {
+  setTimeout(() => {
+    const buttons = getCompanyPresetButtons();
+    if (!buttons.length) return;
+
+    buttons.forEach(btn => {
+      if (btn.dataset.listenerAttached === 'true') return;
+
+      btn.addEventListener('click', () => {
+        teleapoRangeTouched = true;
+        const preset = btn.dataset.preset || 'thisMonth';
+        const isActive = isTeleapoButtonActive(btn);
+
+        syncTeleapoButtonGroup(buttons, null);
+        if (isActive) {
+          teleapoActivePreset = null;
+          ['teleapoLogRangeStart', 'teleapoLogRangeEnd', 'teleapoCompanyRangeStart', 'teleapoCompanyRangeEnd'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+          });
+          refreshForRangeChange();
+          return;
+        }
+        teleapoActivePreset = preset;
+        setRangePreset(preset);
+        setTeleapoButtonActive(btn, true);
+        refreshForRangeChange();
+      });
+
+      btn.dataset.listenerAttached = 'true';
+    });
+  }, 50);
+}
+function initCompanyRangePresets_DISABLED() {
+  console.log('[DEBUG] initCompanyRangePresets: Start');
+  // DOMの確実な読み込みを待つために遅延実行
+  setTimeout(() => {
+    console.log('[DEBUG] initCompanyRangePresets: Timeout callback start');
+    const buttons = getCompanyPresetButtons();
+    console.log('[DEBUG] initCompanyRangePresets: buttons found', buttons.length);
+    if (!buttons.length) return;
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        console.log('[DEBUG] Clicked preset:', btn.dataset.preset);
+        teleapoRangeTouched = true;
+        const preset = btn.dataset.preset || 'thisMonth';
+        const isActive = isTeleapoButtonActive(btn);
+        console.log('[DEBUG] Clicked preset is active?', isActive);
+
+        syncTeleapoButtonGroup(buttons, null);
+        if (isActive) {
+          // 同じボタンを再クリック→プリセット解除＆日付クリアで全期間表示
+          console.log('[DEBUG] Deselecting preset (Total Range)');
+          teleapoActivePreset = null;
+          clearDateFilters();
+          refreshForRangeChange();
+          return;
+        }
+        console.log('[DEBUG] Selecting preset:', preset);
+        teleapoActivePreset = preset;
+        setRangePreset(preset);
+        setTeleapoButtonActive(btn, true);
+        refreshForRangeChange();
+      });
+    });
+    console.log('[DEBUG] initCompanyRangePresets: Timeout callback end');
+  }, 50); // 50ms delay
 }
 
 function updateLogSortIndicators() {
@@ -4033,24 +4133,27 @@ async function fetchTeleapoApi() {
     || document.getElementById('teleapoCompanyRangeEnd')?.value
     || '';
 
-  // Default to last 30 days when date inputs are empty.
-  // (keeps API queries bounded)
+  // プリセットがアクティブな場合は日付フィールドの値を使用（上書きしない）
+  // 日付が空の場合のみデフォルトを適用
   if (!startStr || !endStr) {
-    const today = new Date();
-    const from = new Date(today);
-    from.setDate(today.getDate() - 30);
-    startStr = from.toISOString().slice(0, 10);
-    endStr = today.toISOString().slice(0, 10);
+    // プリセットがアクティブなら、そのプリセットの日付を再計算
+    if (teleapoActivePreset) {
+      setRangePreset(teleapoActivePreset);
+      startStr = document.getElementById('teleapoCompanyRangeStart')?.value || '';
+      endStr = document.getElementById('teleapoCompanyRangeEnd')?.value || '';
+    }
 
-    // Sync defaults back to both date ranges when present.
-    const s1 = document.getElementById('teleapoLogRangeStart');
-    const e1 = document.getElementById('teleapoLogRangeEnd');
-    const s2 = document.getElementById('teleapoCompanyRangeStart');
-    const e2 = document.getElementById('teleapoCompanyRangeEnd');
-    if (s1) s1.value = startStr;
-    if (e1) e1.value = endStr;
-    if (s2) s2.value = startStr;
-    if (e2) e2.value = endStr;
+    // まだ空なら「全期間」として1年分を取得（APIは日付範囲が必要なため）
+    if (!startStr || !endStr) {
+      const today = new Date();
+      const from = new Date(today);
+      from.setFullYear(today.getFullYear() - 1); // 1年前から
+      startStr = from.toISOString().slice(0, 10);
+      endStr = today.toISOString().slice(0, 10);
+
+      // 日付フィールドは空のままにして「全期間」表示を維持
+      // （UIには表示しないがAPIリクエストには使用）
+    }
   }
 
   const params = new URLSearchParams();
@@ -4243,6 +4346,7 @@ export function mount() {
   initDateInputs();
   initFilters();
   initCompanyRangePresets();
+  initResetButton();
   initHeatmapControls();
   initEmployeeSort();
   initEmployeeSortHeaders();
@@ -4265,6 +4369,7 @@ export function mount() {
   // 目標値をロード
   loadTeleapoRateTargets().then(() => {
     // データロード後に目標値があれば再描画されるが、ここでもロードしておく
+    refreshForRangeChange();
   });
   loadScreeningRulesForTeleapo();
   // 1. 候補者マスタ取得 (datalist用)
@@ -4622,7 +4727,3 @@ function initDialForm() {
   bindDialForm();
 }
 
-// Override navigation to open modal instead of page transition
-window.navigateToCandidateDetail = function (candidateId, candidateName) {
-  openCandidateQuickView(candidateId, candidateName);
-};
