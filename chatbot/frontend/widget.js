@@ -156,8 +156,10 @@
         isOpen = true;
         requestAnimationFrame(positionDrawer);
 
-        // 初回 or 画面変更 or セッション切れの場合は開始
-        await startSession();
+        // Display "coming soon" message directly
+        if (elements.messages) elements.messages.innerHTML = '';
+        renderMessage("coming soon", 'bot');
+        updateInputMode({ free_text: false }); // Hide input
     }
 
     function close() {
