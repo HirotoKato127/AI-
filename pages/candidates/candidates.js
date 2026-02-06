@@ -1,6 +1,6 @@
 ﻿// teleapo ???API Gateway? base
 
-const CANDIDATES_API_BASE = window.API_BASE_URL || "https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev";
+const CANDIDATES_API_BASE = "https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod";
 const SCREENING_RULES_ENDPOINT = `${CANDIDATES_API_BASE}/settings-screening-rules`;
 const SCREENING_RULES_FALLBACK_ENDPOINT = `${CANDIDATES_API_BASE}/settings/screening-rules`;
 

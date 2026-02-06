@@ -23,8 +23,7 @@
 export class ApiClient {
   constructor(baseUrl = '', options = {}) {
     // APIサーバーのベースURL（例: http://localhost:3000）
-    // window.API_BASE_URL が定義されていればそれをデフォルトとして使用
-    this.baseUrl = (baseUrl || window.API_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
+    this.baseUrl = (baseUrl || 'http://localhost:3000').replace(/\/$/, '');
     this.defaultHeaders = {
       'Content-Type': 'application/json',
       ...options.headers
