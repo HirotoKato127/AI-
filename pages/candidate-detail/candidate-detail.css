@@ -21,6 +21,9 @@
     display: flex;
     align-items: center;
     gap: 24px;
+    width: min(1400px, calc(100% - 3rem));
+    margin: 16px auto 0;
+    border-radius: 12px;
 }
 
 .cd-back-btn {
@@ -48,9 +51,9 @@
 
 /* ===== Content Wrapper ===== */
 .cd-content-wrapper {
-    /* padding: 24px 32px; */
-    max-width: 1400px;
+    width: min(1400px, calc(100% - 3rem));
     margin: 0 auto;
+    padding-top: 16px;
 }
 
 /* ===== 既存のモーダルスタイルとの互換性 ===== */
@@ -82,6 +85,19 @@
     top: 80px;
     z-index: 9;
     background: #f1f5f9;
+}
+
+/* Detail tab alignment (page view) */
+.cd-page .sticky-nav-wrapper {
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.cd-page .detail-tabs {
+    padding-left: 24px;
+    padding-right: 24px;
 }
 
 /* 編集ボタンのスタイル強調 */

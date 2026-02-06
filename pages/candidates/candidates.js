@@ -59,21 +59,35 @@ const detailSectionKeys = [
 const employmentStatusOptions = ["未回答", "就業中", "離職中"];
 const PHASE_ORDER = [
   "未接触",
-  "通電",
   "架電中",
   "SMS送信",
+  "通電",
   "面談設定",
+  "初回面談設定",
   "実施",
+  "書類選考",
+  "書類選考中",
+  "一次面接調整",
+  "一次面接",
+  "二次面接調整",
+  "二次面接",
+  "最終面接",
+  "内定承諾待ち",
+  "内定承諾済み",
   "内定",
   "成約",
-  "失注"
+  "入社",
+  "失注",
+  "辞退",
+  "内定後辞退",
+  "入社後辞退"
 ];
 const CALENDAR_WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const AUTO_OPEN_DETAIL_FROM_URL = false;
 
 let currentSortKey = "nextAction";
 let currentSortOrder = "asc";
-let candidateDetailCurrentTab = "main";
+let candidateDetailCurrentTab = "nextAction";
 
 const japaneseLevelOptions = [
   { value: "", label: "未設定" },
@@ -1198,10 +1212,8 @@ function parseFilterDate(value, { isEnd } = {}) {
 }
 
 function getCandidatePhaseList(candidate) {
-  const list = resolvePhaseValues(candidate);
-  const unique = Array.from(new Set(list.map((value) => String(value).trim()).filter(Boolean)));
-  if (unique.length > 0) return unique;
-  return [resolvePhaseDisplay(candidate)];
+  const list = resolveCurrentPhases(candidate);
+  return Array.from(new Set(list.map((value) => String(value).trim()).filter(Boolean)));
 }
 
 function applyCandidatesFilters(list, filters) {
@@ -1282,9 +1294,16 @@ function updateFilterSelectOptions(list) {
     if (Array.isArray(phaseList)) phases.push(...phaseList);
   });
 
+  const uniquePhases = buildUniqueValues(phases);
+  const orderedPhases = [
+    ...PHASE_ORDER.filter((phase) => uniquePhases.includes(phase)),
+    ...uniquePhases.filter((phase) => !PHASE_ORDER.includes(phase)),
+  ];
+
   setFilterSelectOptions("candidatesFilterSource", buildUniqueValues(sources));
   setFilterSelectOptions("candidatesFilterCompany", buildUniqueValues(companies));
   setFilterSelectOptions("candidatesFilterAdvisor", buildUniqueValues(advisors));
+  setFilterSelectOptions("candidatesFilterPhase", orderedPhases);
 }
 
 function getElementValue(id) {
@@ -1856,17 +1875,20 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
   const validBadgeClass = resolvedValid ? "status-badge--valid" : "status-badge--invalid";
   const validBadgeText = resolvedValid ? "有効応募" : "無効応募";
 
-  // 1. シンプルな戻るボタン (Page Top)
-  const backButtonHtml = `
-    <div class="mb-4">
-      <button type="button" class="detail-back-btn" onclick="closeCandidateModal()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-          <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
-        </svg>
-        候補者一覧に戻る
-      </button>
-    </div>
-  `;
+  // 1. シンプルな戻るボタン (Modal only)
+  const showInlineBackButton = Boolean(document.getElementById("candidateDetailModal"));
+  const backButtonHtml = showInlineBackButton
+    ? `
+      <div class="mb-4">
+        <button type="button" class="detail-back-btn" onclick="closeCandidateModal()">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+            <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+          </svg>
+          候補者一覧に戻る
+        </button>
+      </div>
+    `
+    : "";
 
   // 2. 統合サマリーカード (Candidate Info + Meeting Info)
   // 面談実施日・着座確認の値を準備
@@ -1917,7 +1939,7 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
   `;
 
   // アンカーナビゲーション（絵文字なし）
-  const navItems = [
+  const tabItems = [
     { key: "nextAction", label: "次回アクション" },
     { key: "selection", label: "選考進捗" },
     { key: "profile", label: "基本情報" },
@@ -1927,27 +1949,43 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
     { key: "documents", label: "書類作成" },
   ];
 
-  const navHtml = `
-    <nav class="detail-nav">
-      ${navItems.map(item => `
-        <button type="button" class="detail-nav-link" data-scroll-to="section-${item.key}">
+  const activeTabKey = tabItems.some(item => item.key === candidateDetailCurrentTab)
+    ? candidateDetailCurrentTab
+    : "nextAction";
+
+  const tabsHtml = `
+    <div class="detail-tabs candidate-detail-tabs">
+      ${tabItems.map((item, index) => `
+        <button type="button" class="detail-tab ${item.key === activeTabKey ? "is-active" : ""}" data-detail-tab="${item.key}">
           ${item.label}
         </button>
-      `).join('')}
-    </nav>
+      `).join("")}
+    </div>
   `;
 
-  // 全セクションを縦一列に配置 (面談情報はサマリーカードに統合したため削除)
-  const allSections = `
-    ${renderDetailCard("次回アクション", renderNextActionSection(candidate), "nextAction")}
-    ${renderDetailCard("選考進捗", renderSelectionProgressSection(candidate), "selection")}
-    ${renderDetailCard("基本情報", renderApplicantInfoSection(candidate), "profile")}
+  const tabContentMap = {
+    nextAction: renderDetailCard("次回アクション", renderNextActionSection(candidate), "nextAction"),
+    selection: renderDetailCard("選考進捗", renderSelectionProgressSection(candidate), "selection"),
+    profile: renderDetailCard("基本情報", renderApplicantInfoSection(candidate), "profile"),
+    hearing: renderDetailCard("面談メモ", renderHearingSection(candidate), "hearing"),
+    cs: renderDetailCard("架電結果", renderCsSection(candidate), "cs"),
+    money: renderDetailCard("売上・返金", renderMoneySection(candidate), "money"),
+    documents: renderDetailCard("書類作成", renderDocumentsSection(candidate), "documents"),
+  };
+
+  const tabPanelsHtml = `
+    <div class="detail-tab-panels">
+      ${tabItems.map((item) => `
+        <div class="detail-tab-panel ${item.key === activeTabKey ? "is-active" : ""}" data-detail-panel="${item.key}">
+          ${tabContentMap[item.key] || ""}
+        </div>
+      `).join("")}
+    </div>
+  `;
+
+  const otherSections = `
     ${renderDetailCard("担当者", renderAssigneeSection(candidate), "assignees")}
-    ${renderDetailCard("面談メモ", renderHearingSection(candidate), "hearing")}
-    ${renderDetailCard("CS項目", renderCsSection(candidate), "cs")}
     ${renderDetailCard("テレアポログ一覧", renderTeleapoLogsSection(candidate), "teleapoLogs", { editable: false })}
-    ${renderDetailCard("売上・返金", renderMoneySection(candidate), "money")}
-    ${renderDetailCard("書類作成", renderDocumentsSection(candidate), "documents")}
   `;
 
   container.innerHTML = `
@@ -1955,35 +1993,45 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
       ${backButtonHtml}
       ${summaryCardHtml}
       <div class="sticky-nav-wrapper">
-        ${navHtml}
+        ${tabsHtml}
       </div>
+      ${tabPanelsHtml}
       <div class="detail-sections-scroll">
-        ${allSections}
+        ${otherSections}
       </div>
     </div>
   `;
 
   initializeDetailContentListeners();
-  initializeDetailScrollNavigation(); // ナビゲーションリスナー初期化
+  initializeDetailTabs(activeTabKey); // タブリスナー初期化
 }
 
-// スクロールナビゲーションの初期化
-function initializeDetailScrollNavigation() {
-  document.querySelectorAll('.detail-nav-link[data-scroll-to]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      const targetId = btn.dataset.scrollTo;
-      const target = document.getElementById(targetId);
-      if (target) {
-        // コンテナ内でのスクロール調整（必要であれば）または単純にscrollIntoView
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+// タブナビゲーションの初期化
+function initializeDetailTabs(defaultKey = "nextAction") {
+  const tabs = Array.from(document.querySelectorAll('[data-detail-tab]'));
+  const panels = Array.from(document.querySelectorAll('[data-detail-panel]'));
+  if (!tabs.length || !panels.length) return;
 
-        // アクティブ状態の更新
-        document.querySelectorAll('.detail-nav-link').forEach(b => b.classList.remove('is-active'));
-        btn.classList.add('is-active');
-      }
+  const activate = (key) => {
+    candidateDetailCurrentTab = key;
+    tabs.forEach((tab) => {
+      tab.classList.toggle('is-active', tab.dataset.detailTab === key);
+    });
+    panels.forEach((panel) => {
+      panel.classList.toggle('is-active', panel.dataset.detailPanel === key);
+    });
+  };
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', (e) => {
+      e.preventDefault();
+      const key = tab.dataset.detailTab;
+      if (key) activate(key);
     });
   });
+
+  const initial = tabs.find(tab => tab.dataset.detailTab === defaultKey) || tabs[0];
+  if (initial?.dataset.detailTab) activate(initial.dataset.detailTab);
 }
 
 // 新しいカードレンダー関数（絵文字なし、統一デザイン）
@@ -2740,18 +2788,6 @@ function cleanupCandidatesEventListeners() {
 // ====== Detail Content Handlers ======
 
 function handleDetailContentClick(event) {
-  // タブ切り替え
-  const tabBtn = event.target.closest("[data-detail-tab]");
-  if (tabBtn) {
-    const newTab = tabBtn.dataset.detailTab;
-    if (newTab && newTab !== candidateDetailCurrentTab) {
-      candidateDetailCurrentTab = newTab;
-      const candidate = getSelectedCandidate();
-      if (candidate) renderCandidateDetail(candidate, { preserveEditState: true });
-    }
-    return;
-  }
-
   const editBtn = event.target.closest("[data-section-edit]");
   if (editBtn) {
     toggleDetailSectionEdit(editBtn.dataset.sectionEdit);
