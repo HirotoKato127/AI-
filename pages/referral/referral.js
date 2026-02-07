@@ -2059,10 +2059,19 @@ function getFlowCandidates(company) {
 }
 
 function renderCompanyDetail() {
-  if (!selectedCompanyId) return;
+  const detail = document.getElementById('referralCompanyDetail');
+  if (!detail) return;
+
+  if (!selectedCompanyId) {
+    detail.classList.add('hidden');
+    return;
+  }
 
   const company = filteredData.find(c => c.id === selectedCompanyId);
-  if (!company) return;
+  if (!company) {
+    detail.classList.add('hidden');
+    return;
+  }
 
   console.log("Debug: renderCompanyDetail", {
     companyName: company.company,
@@ -2074,8 +2083,6 @@ function renderCompanyDetail() {
   const badge = (text, classes = '', size = 'px-3 py-1 text-xs') =>
     `<span class="${size} rounded-full ${classes} font-semibold inline-flex items-center justify-center">${text}</span>`;
 
-  const detail = document.getElementById('referralCompanyDetail');
-  if (!detail) return;
   // Show detail section
   detail.classList.remove('hidden');
 
@@ -2132,7 +2139,12 @@ function renderCompanyDetail() {
         <button type="button" id="referralDetailCancelBtn" class="referral-secondary-btn text-xs px-3 py-1.5">キャンセル</button>
       </div>
     `
-    : `<button type="button" id="referralDetailEditBtn" class="referral-secondary-btn text-xs px-3 py-1.5">編集</button>`;
+    : `
+      <div class="flex items-center gap-2">
+        <button type="button" id="referralDetailEditBtn" class="referral-secondary-btn text-xs px-3 py-1.5">編集</button>
+        <button type="button" id="referralDetailDeleteBtn" class="referral-secondary-btn text-xs px-3 py-1.5 text-red-600 border-red-200 hover:bg-red-50">削除</button>
+      </div>
+    `;
 
   const desiredContent = editing
     ? `
@@ -2448,6 +2460,13 @@ function attachDetailEditHandlers(company) {
 
   }
 
+  const deleteBtn = document.getElementById('referralDetailDeleteBtn');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', () => {
+      handleDetailDelete(company);
+    });
+  }
+
   // Contract information edit handlers
   attachContractInfoEditHandlers(company);
   attachContactInfoEditHandlers(company);
@@ -2759,6 +2778,81 @@ async function saveClientUpdate(payload) {
   }
 
   return res.json().catch(() => ({}));
+}
+
+async function deleteReferralCompanyApi(companyId) {
+  const id = String(companyId ?? '').trim();
+  if (!id) {
+    throw new Error('企業IDが不正です。');
+  }
+
+  const tryDelete = async (url, options = {}) => {
+    const res = await fetch(url, {
+      method: 'DELETE',
+      headers: { Accept: 'application/json', ...(options.headers || {}) },
+      body: options.body
+    });
+    if (!res.ok) {
+      const errorBody = await res.text().catch(() => '');
+      throw new Error(`HTTP Error: ${res.status} ${errorBody}`);
+    }
+    return res.json().catch(() => ({}));
+  };
+
+  // 1) RESTful path style: /clients/:id
+  try {
+    return await tryDelete(`${CLIENTS_PROFILE_API_URL}/${encodeURIComponent(id)}`);
+  } catch (pathErr) {
+    // 2) Query style: /clients?id=...
+    try {
+      return await tryDelete(`${CLIENTS_PROFILE_API_URL}?id=${encodeURIComponent(id)}`);
+    } catch (queryErr) {
+      // 3) Body style: DELETE /clients { id }
+      return await tryDelete(CLIENTS_PROFILE_API_URL, {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+    }
+  }
+}
+
+function removeCompanyFromState(companyId) {
+  const id = String(companyId ?? '');
+  allData = allData.filter((item) => String(item.id) !== id);
+  filteredData = filteredData.filter((item) => String(item.id) !== id);
+  flowCandidateCache.delete(id);
+  flowCandidateInFlight.delete(id);
+}
+
+async function handleDetailDelete(company) {
+  if (!company?.id) return;
+  const companyId = String(company.id);
+  const companyName = company.company || company.companyName || '';
+  const ok = confirm(`「${companyName || companyId}」を削除します。よろしいですか？`);
+  if (!ok) return;
+
+  const deleteBtn = document.getElementById('referralDetailDeleteBtn');
+  if (deleteBtn) {
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '削除中...';
+  }
+
+  try {
+    await deleteReferralCompanyApi(companyId);
+    removeCompanyFromState(companyId);
+    if (String(selectedCompanyId) === companyId) selectedCompanyId = null;
+    detailEditMode = false;
+    applyFilters();
+    alert('企業を削除しました。');
+  } catch (error) {
+    console.error('企業削除に失敗しました:', error);
+    alert('企業の削除に失敗しました。時間をおいて再度お試しください。');
+  } finally {
+    if (deleteBtn) {
+      deleteBtn.disabled = false;
+      deleteBtn.textContent = '削除';
+    }
+  }
 }
 
 function applyClientProfileEdits(companyId, updates = {}) {

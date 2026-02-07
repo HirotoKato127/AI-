@@ -965,6 +965,7 @@ function resolveCandidateAgeValue(candidate) {
 function normalizeNationality(value) {
   const text = String(value || "").trim();
   if (!text) return "";
+  if (["-", "ー", "未設定", "未入力", "未登録", "未指定"].includes(text)) return "";
   const normalized = text.toLowerCase();
   if (normalized === "japan" || normalized === "jpn" || normalized === "jp" || normalized === "japanese") {
     return "日本";
@@ -999,7 +1000,8 @@ function computeValidApplication(candidate, rules) {
     if (!matched) return false;
   }
 
-  const jlpt = String(candidate.japaneseLevel || "").trim();
+  const jlptRaw = String(candidate.japaneseLevel || "").trim();
+  const jlpt = ["-", "ー", "未設定", "未入力", "未登録", "未指定"].includes(jlptRaw) ? "" : jlptRaw;
   if (!jlpt) return null;
   const allowedJlptLevels = rules.allowedJlptLevels || [];
   if (!allowedJlptLevels.length) return null;

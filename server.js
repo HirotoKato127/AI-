@@ -255,6 +255,38 @@ app.post("/api/clients", async (req, res) => {
   }
 });
 
+const deleteClientHandler = async (req, res) => {
+  const id = req.params?.id || req.query?.id || req.body?.id;
+  if (!id) {
+    res.status(400).json({ error: "IDが必要です。" });
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    const { rowCount } = await client.query(
+      "DELETE FROM clients WHERE id = $1",
+      [id]
+    );
+
+    if (rowCount === 0) {
+      res.status(404).json({ error: "指定された企業が見つかりません。" });
+    } else {
+      res.json({ success: true, message: "企業を削除しました。" });
+    }
+  } catch (error) {
+    console.error("Failed to delete client", error);
+    res.status(500).json({ error: "企業の削除に失敗しました。" });
+  } finally {
+    client.release();
+  }
+};
+
+app.delete("/api/clients/:id", deleteClientHandler);
+app.delete("/api/clients", deleteClientHandler);
+app.delete("/clients/:id", deleteClientHandler);
+app.delete("/clients", deleteClientHandler);
+
 app.put("/api/clients", async (req, res) => {
   const payload = req.body || {};
   const id = payload.id;
