@@ -5092,14 +5092,14 @@ function escapeHtml(str) {
    EVENT HANDLERS & STATE MANAGEMENT (ADDED FOR DETAIL INTERACTIVITY)
    ========================================================================== */
 
-function setupDetailEventHandlers() {
+function setupCandidateDetailEventHandlers() {
   // Use document level delegation for better reliability with dynamic content
-  document.addEventListener("click", handleDetailClick);
-  document.addEventListener("input", handleDetailFieldChange);
-  document.addEventListener("change", handleDetailFieldChange);
+  document.addEventListener("click", handleCandidateDetailClick);
+  document.addEventListener("input", handleCandidateDetailFieldChange);
+  document.addEventListener("change", handleCandidateDetailFieldChange);
 }
 
-async function handleDetailClick(e) {
+async function handleCandidateDetailClick(e) {
   // 1. Tab Switching
   const tabBtn = e.target.closest("[data-detail-tab]");
   if (tabBtn) {
@@ -5168,7 +5168,7 @@ async function handleDetailClick(e) {
   }
 }
 
-function handleDetailFieldChange(e) {
+function handleCandidateDetailFieldChange(e) {
   const target = e.target;
   const fieldPath = target.dataset.detailField;
   if (!fieldPath) return;
@@ -5184,10 +5184,10 @@ function handleDetailFieldChange(e) {
 
   // Date/Time handling if needed, but value is usually string
 
-  updateCandidateFieldValue(candidate, fieldPath, value);
+  updateCandidateDetailFieldValue(candidate, fieldPath, value);
 }
 
-function updateCandidateFieldValue(candidate, path, value) {
+function updateCandidateDetailFieldValue(candidate, path, value) {
   const parts = path.split(".");
   let current = candidate;
   for (let i = 0; i < parts.length - 1; i++) {
@@ -5205,4 +5205,4 @@ function updateCandidateFieldValue(candidate, path, value) {
 }
 
 // Initialize listeners
-document.addEventListener("DOMContentLoaded", setupDetailEventHandlers);
+document.addEventListener("DOMContentLoaded", setupCandidateDetailEventHandlers);
