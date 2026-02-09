@@ -5087,3 +5087,122 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+/* ==========================================================================
+   EVENT HANDLERS & STATE MANAGEMENT (ADDED FOR DETAIL INTERACTIVITY)
+   ========================================================================== */
+
+function setupDetailEventHandlers() {
+  // Use document level delegation for better reliability with dynamic content
+  document.addEventListener("click", handleDetailClick);
+  document.addEventListener("input", handleDetailFieldChange);
+  document.addEventListener("change", handleDetailFieldChange);
+}
+
+async function handleDetailClick(e) {
+  // 1. Tab Switching
+  const tabBtn = e.target.closest("[data-detail-tab]");
+  if (tabBtn) {
+    const key = tabBtn.dataset.detailTab;
+    if (key) {
+      candidateDetailCurrentTab = key;
+      const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+      if (candidate) renderCandidateDetail(candidate, { preserveEditState: true });
+    }
+    return;
+  }
+
+  // 2. Edit Toggle
+  const editBtn = e.target.closest("[data-section-edit]");
+  if (editBtn) {
+    const key = editBtn.dataset.sectionEdit;
+    if (key && detailEditState.hasOwnProperty(key)) {
+      if (detailEditState[key]) {
+        // Save logic: "完了して保存" or "保存" clicked
+        const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+        if (candidate) {
+          // Persist changes
+          try {
+            await saveCandidateRecord(candidate);
+          } catch (err) {
+            console.error("Save failed", err);
+            alert("保存に失敗しました");
+            return; // Don't toggle off input if failed
+          }
+        }
+      }
+
+      // Toggle state
+      detailEditState[key] = !detailEditState[key];
+      const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+      if (candidate) renderCandidateDetail(candidate, { preserveEditState: true });
+    }
+    return;
+  }
+
+  // 3. Add Selection Row
+  if (e.target.closest("[data-add-selection-row]")) {
+    const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+    if (candidate) {
+      if (!candidate.selectionProgress) candidate.selectionProgress = [];
+      candidate.selectionProgress.unshift({}); // Add to top
+      renderCandidateDetail(candidate, { preserveEditState: true });
+    }
+    return;
+  }
+
+  // 4. Remove Selection Row
+  const removeBtn = e.target.closest("[data-remove-row]");
+  if (removeBtn) {
+    const field = removeBtn.dataset.removeRow; // e.g. "selectionProgress"
+    const index = parseInt(removeBtn.dataset.index, 10);
+    const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+
+    if (candidate && field === "selectionProgress" && candidate.selectionProgress) {
+      if (confirm("この選考プロセスを削除しますか？")) {
+        candidate.selectionProgress.splice(index, 1);
+        renderCandidateDetail(candidate, { preserveEditState: true });
+      }
+    }
+    return;
+  }
+}
+
+function handleDetailFieldChange(e) {
+  const target = e.target;
+  const fieldPath = target.dataset.detailField;
+  if (!fieldPath) return;
+
+  const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+  if (!candidate) return;
+
+  const valueType = target.dataset.valueType;
+  let value = target.type === "checkbox" ? target.checked : target.value;
+
+  if (valueType === "number") value = value === "" ? null : Number(value);
+  if (valueType === "boolean") value = value === "true" || value === true;
+
+  // Date/Time handling if needed, but value is usually string
+
+  updateCandidateFieldValue(candidate, fieldPath, value);
+}
+
+function updateCandidateFieldValue(candidate, path, value) {
+  const parts = path.split(".");
+  let current = candidate;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const key = parts[i];
+    const nextKey = parts[i + 1];
+
+    // Auto-create object or array if missing
+    if (!current[key]) {
+      current[key] = isNaN(Number(nextKey)) ? {} : [];
+    }
+    current = current[key];
+  }
+  const lastKey = parts[parts.length - 1];
+  current[lastKey] = value;
+}
+
+// Initialize listeners
+document.addEventListener("DOMContentLoaded", setupDetailEventHandlers);
