@@ -1,6 +1,8 @@
-﻿// teleapo ???API Gateway? base
+﻿import { PRIMARY_API_BASE } from "../../scripts/api/endpoints.js";
 
-const CANDIDATES_API_BASE = "https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod";
+// teleapo ???API Gateway? base
+
+const CANDIDATES_API_BASE = PRIMARY_API_BASE;
 const SCREENING_RULES_ENDPOINT = `${CANDIDATES_API_BASE}/settings-screening-rules`;
 const SCREENING_RULES_FALLBACK_ENDPOINT = `${CANDIDATES_API_BASE}/settings/screening-rules`;
 
@@ -218,7 +220,18 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
   candidate.otherSelectionStatus = candidate.otherSelectionStatus ?? candidate.other_selection_status ?? "";
   candidate.attendanceConfirmed = candidate.attendanceConfirmed ?? candidate.first_interview_attended ?? null;
   candidate.advisorUserId = candidate.advisorUserId ?? candidate.advisor_user_id ?? null;
-  candidate.partnerUserId = candidate.partnerUserId ?? candidate.partner_user_id ?? null;
+  candidate.csUserId =
+    candidate.csUserId ??
+    candidate.cs_user_id ??
+    candidate.partnerUserId ??
+    candidate.partner_user_id ??
+    null;
+  candidate.partnerUserId =
+    candidate.partnerUserId ??
+    candidate.partner_user_id ??
+    candidate.csUserId ??
+    candidate.cs_user_id ??
+    null;
 
   // サーバー側で advisorName = partner_name, csName = cs_name とマッピングされている
   candidate.advisorName = candidate.advisorName ?? candidate.partner_name ?? "";
@@ -229,6 +242,7 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     candidate.caller_name ??
     "";
   candidate.partnerName = candidate.partnerName ?? candidate.partner_name ?? "";
+  syncCandidateAssignees(candidate);
 
   // リスト表示時のスワップロジックは、サーバー側で正しいマッピングを行っているため削除
   // advisorNameは server.js で partner_name カラムからマッピングされている
@@ -457,13 +471,55 @@ function updateMastersFromDetail(detail) {
   const masters = detail?.masters;
   if (!masters) return;
   if (Array.isArray(masters.clients)) masterClients = masters.clients;
-  if (Array.isArray(masters.users)) masterUsers = masters.users;
+  if (Array.isArray(masters.users)) {
+    masterUsers = masters.users;
+    allCandidates.forEach((candidate) => syncCandidateAssignees(candidate));
+    filteredCandidates.forEach((candidate) => syncCandidateAssignees(candidate));
+  }
 }
 
 function resolveUserName(userId) {
   if (!userId) return "";
   const found = (masterUsers || []).find((user) => String(user.id) === String(userId));
   return found?.name ?? "";
+}
+
+function resolveUserIdByName(userName) {
+  const text = String(userName || "").trim();
+  if (!text) return null;
+  const candidates = (masterUsers || []).filter(
+    (user) => String(user?.name || "").trim() === text
+  );
+  if (candidates.length !== 1) return null;
+  return candidates[0]?.id ?? null;
+}
+
+function syncCandidateAssignees(candidate) {
+  if (!candidate) return;
+
+  if (!candidate.csUserId) {
+    candidate.csUserId = resolveUserIdByName(candidate.csName);
+  }
+  if (!candidate.advisorUserId) {
+    candidate.advisorUserId = resolveUserIdByName(candidate.advisorName);
+  }
+  if (!candidate.partnerUserId && candidate.csUserId) {
+    candidate.partnerUserId = candidate.csUserId;
+  }
+
+  if (candidate.csUserId) {
+    const resolved = resolveUserName(candidate.csUserId);
+    if (resolved) {
+      candidate.csName = resolved;
+    }
+  }
+  if (candidate.advisorUserId) {
+    const resolved = resolveUserName(candidate.advisorUserId);
+    if (resolved) {
+      candidate.advisorName = resolved;
+      candidate.partnerName = resolved;
+    }
+  }
 }
 
 function resolveClientName(clientId) {
@@ -495,8 +551,12 @@ function buildClientOptions(selectedId, selectedName) {
   return buildSelectOptions(fallback, selectedId, { blankLabel: "企業を選択" });
 }
 
-function buildUserOptions(selectedId) {
-  return buildSelectOptions(masterUsers || [], selectedId, { blankLabel: "担当者を選択" });
+function buildUserOptions(selectedId, selectedName = "") {
+  const users = Array.isArray(masterUsers) ? [...masterUsers] : [];
+  if (selectedId && !users.some((user) => String(user.id) === String(selectedId))) {
+    users.push({ id: selectedId, name: selectedName || String(selectedId) });
+  }
+  return buildSelectOptions(users, selectedId, { blankLabel: "担当者を選択" });
 }
 
 function buildBooleanOptions(value, { trueLabel = "報告済み", falseLabel = "未報告", blankLabel = "-" } = {}) {
@@ -1780,10 +1840,11 @@ async function fetchCandidateDetailById(id, { includeMaster = true } = {}) {
     const text = await res.text().catch(() => "");
     throw new Error(`Candidate detail HTTP ${res.status}: ${text}`);
   }
-  const detail = normalizeCandidate(await res.json());
+  const raw = await res.json();
   if (includeMaster) {
-    updateMastersFromDetail(detail);
+    updateMastersFromDetail(raw);
   }
+  const detail = normalizeCandidate(raw);
   if (detail?.masters) delete detail.masters;
   return detail;
 }
@@ -2059,10 +2120,10 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
     nextAction: renderDetailCard("次回アクション", renderNextActionSection(candidate), "nextAction"),
     selection: renderDetailCard("選考進捗", renderSelectionProgressSection(candidate), "selection"),
     profile: renderDetailCard("基本情報", renderApplicantInfoSection(candidate), "profile") +
-      renderDetailCard("担当者", renderAssigneeSection(candidate), "assignees"),
+             renderDetailCard("担当者", renderAssigneeSection(candidate), "assignees"),
     hearing: renderDetailCard("面談メモ", renderHearingSection(candidate), "hearing"),
     cs: renderDetailCard("架電結果", renderCsSection(candidate), "cs") +
-      renderDetailCard("テレアポログ一覧", renderTeleapoLogsSection(candidate), "teleapoLogs", { editable: false }),
+        renderDetailCard("テレアポログ一覧", renderTeleapoLogsSection(candidate), "teleapoLogs", { editable: false }),
     money: renderDetailCard("売上・返金", renderMoneySection(candidate), "money"),
     documents: renderDetailCard("書類作成", renderDocumentsSection(candidate), "documents"),
   };
@@ -2550,7 +2611,8 @@ function buildCandidateDetailPayload(candidate) {
     mandatoryInterviewItems: candidate.mandatoryInterviewItems,
     sharedInterviewDate: candidate.sharedInterviewDate,
     advisorUserId: candidate.advisorUserId,
-    partnerUserId: candidate.partnerUserId,
+    csUserId: candidate.csUserId,
+    partnerUserId: candidate.partnerUserId ?? candidate.csUserId ?? null,
 
     // その他（後方互換性のため残すものもあるが、Lambdaが使うものだけで良い）
     advisorName: candidate.advisorName,
@@ -2572,8 +2634,9 @@ function buildCandidateDetailPayload(candidate) {
     csChecklist: candidate.csChecklist,
   };
 
-  payload.advisor_user_id = candidate.advisorUserId;
-  payload.partner_user_id = candidate.partnerUserId;
+  payload.advisor_user_id = candidate.advisorUserId ?? null;
+  payload.cs_user_id = candidate.csUserId ?? null;
+  payload.partner_user_id = candidate.partnerUserId ?? candidate.csUserId ?? null;
   payload.japanese_level = candidate.japaneseLevel;
   payload.next_action_date = payload.nextActionDate;
 
@@ -3233,6 +3296,11 @@ function handleDetailFieldChange(event) {
 
   if (fieldPath === "advisorUserId") {
     candidate.advisorName = resolveUserName(candidate.advisorUserId);
+    candidate.partnerName = candidate.advisorName;
+  }
+  if (fieldPath === "csUserId") {
+    candidate.csName = resolveUserName(candidate.csUserId);
+    candidate.partnerUserId = candidate.csUserId;
   }
   if (fieldPath === "partnerUserId") {
     candidate.partnerName = resolveUserName(candidate.partnerUserId);
@@ -3382,16 +3450,20 @@ function renderAssigneeSection(candidate) {
   const fields = [
     {
       label: "担当CS",
-      value: candidate.csName,
-      input: "text",
-      path: "csName",
+      value: candidate.csUserId ?? "",
+      input: "select",
+      options: buildUserOptions(candidate.csUserId, candidate.csName),
+      path: "csUserId",
+      displayFormatter: () => candidate.csName || "-",
       span: 3,
     },
     {
-      label: "担当パートナー",
-      value: candidate.advisorName,
-      input: "text",
-      path: "advisorName",
+      label: "担当アドバイザー",
+      value: candidate.advisorUserId ?? "",
+      input: "select",
+      options: buildUserOptions(candidate.advisorUserId, candidate.advisorName),
+      path: "advisorUserId",
+      displayFormatter: () => candidate.advisorName || "-",
       span: 3,
     },
   ];
