@@ -136,6 +136,9 @@ const validityHydrationInFlight = new Set();
 let calendarViewDate = new Date();
 calendarViewDate.setDate(1);
 
+// Deduplicate /clients create requests when multiple saves run quickly.
+const clientCreateInFlight = new Map();
+
 function normalizeContactPreferredTime(value) {
   const text = String(value ?? "").trim();
   if (!text) return "";
@@ -535,6 +538,139 @@ function resolveClientName(clientId) {
   if (!clientId) return "";
   const found = (masterClients || []).find((client) => String(client.id) === String(clientId));
   return found?.name ?? "";
+}
+
+function normalizeClientNameKey(name) {
+  return String(name ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function findClientByName(name) {
+  const key = normalizeClientNameKey(name);
+  if (!key) return null;
+
+  const lists = [];
+  if (Array.isArray(clientList) && clientList.length) lists.push(clientList);
+  if (Array.isArray(masterClients) && masterClients.length) lists.push(masterClients);
+
+  for (const list of lists) {
+    const found = list.find((client) => {
+      const clientName = client?.name ?? client?.companyName ?? client?.company_name ?? "";
+      return normalizeClientNameKey(clientName) === key;
+    });
+    if (found?.id) return found;
+  }
+  return null;
+}
+
+function findClientById(id) {
+  if (id === null || id === undefined || id === "") return null;
+  const needle = String(id);
+
+  const lists = [];
+  if (Array.isArray(clientList) && clientList.length) lists.push(clientList);
+  if (Array.isArray(masterClients) && masterClients.length) lists.push(masterClients);
+
+  for (const list of lists) {
+    const found = list.find((client) => String(client?.id) === needle);
+    if (found?.id) return found;
+  }
+  return null;
+}
+
+async function ensureClientIdByName(name) {
+  const rawName = String(name ?? "").trim();
+  if (!rawName) return null;
+
+  const existing = findClientByName(rawName);
+  if (existing?.id) return existing.id;
+
+  const key = normalizeClientNameKey(rawName);
+  if (!key) return null;
+
+  if (clientCreateInFlight.has(key)) {
+    return clientCreateInFlight.get(key);
+  }
+
+  const createPromise = (async () => {
+    const res = await fetch(candidatesApi("/clients"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ companyName: rawName }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`clients create failed (HTTP ${res.status}): ${text.slice(0, 200)}`);
+    }
+
+    const json = await res.json().catch(() => ({}));
+    const id = json?.id ?? json?.item?.id ?? json?.item?.clientId ?? json?.item?.client_id ?? null;
+    const createdName = json?.item?.name ?? json?.item?.companyName ?? rawName;
+
+    if (!id) {
+      throw new Error("clients create returned no id");
+    }
+
+    if (Array.isArray(clientList)) {
+      const exists = clientList.some((c) => String(c?.id) === String(id));
+      if (!exists) clientList.push({ id, name: createdName });
+    }
+
+    return id;
+  })();
+
+  clientCreateInFlight.set(key, createPromise);
+  try {
+    return await createPromise;
+  } finally {
+    clientCreateInFlight.delete(key);
+  }
+}
+
+async function ensureSelectionProgressClientIds(candidate) {
+  if (!candidate || !Array.isArray(candidate.selectionProgress)) return;
+
+  for (const row of candidate.selectionProgress) {
+    const companyName = String(row?.companyName ?? row?.company_name ?? "").trim();
+    const clientId = row?.clientId ?? row?.client_id ?? null;
+
+    // If we have no company name, we cannot resolve. Keep clientId if present.
+    if (!companyName) continue;
+
+    // Backend (Lambda) requires clientId to INSERT new rows.
+    // For existing rows, keep clientId unless we can confidently detect a name change.
+    let resolvedId = null;
+    if (clientId) {
+      const current = findClientById(clientId);
+      const currentName = current?.name ?? current?.companyName ?? current?.company_name ?? "";
+      if (currentName && normalizeClientNameKey(currentName) === normalizeClientNameKey(companyName)) {
+        resolvedId = clientId;
+      } else if (current) {
+        // Name differs from the current clientId mapping; treat companyName as authoritative.
+        resolvedId = await ensureClientIdByName(companyName);
+      } else {
+        // Client list not loaded or missing this id: do not risk auto-creating duplicates.
+        resolvedId = clientId;
+      }
+    } else {
+      resolvedId = await ensureClientIdByName(companyName);
+    }
+
+    if (!resolvedId) {
+      throw new Error(`企業名「${companyName}」に対応する企業ID(clientId)を解決できませんでした。`);
+    }
+
+    // Set both camelCase and snake_case to satisfy different backends.
+    row.clientId = resolvedId;
+    row.client_id = resolvedId;
+
+    // Keep company name fields consistent for downstream mappers.
+    row.companyName = companyName;
+    row.company_name = companyName;
+  }
 }
 
 function buildSelectOptions(list, selectedValue, { blankLabel = "選択" } = {}) {
@@ -2681,6 +2817,12 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
   }
 
   normalizeCandidate(candidate);
+
+  // Ensure selection progress rows include clientId (Lambda requires it for INSERT).
+  // This also supports free-text companyName input by resolving/creating clients.
+  if (includeDetail) {
+    await ensureSelectionProgressClientIds(candidate);
+  }
 
   const payload = includeDetail
     ? buildCandidateDetailPayload(candidate)
