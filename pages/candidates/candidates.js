@@ -1515,6 +1515,7 @@ function sortCandidates(list, key, order) {
         bVal = resolveValidApplication(b) === true ? 1 : 0;
         break;
       case "candidateName":
+      case "csName":
       case "advisorName":
       case "partnerName":
       case "source":

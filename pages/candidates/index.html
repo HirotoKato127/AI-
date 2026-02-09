@@ -10,42 +10,42 @@
           class="px-3 py-1.5 border border-slate-300 rounded-md text-xs hover:bg-white">
           条件をクリア
         </button>
-        <span class="text-xs text-slate-500">自動で候補者一覧を更新</span>
+        <span class="text-xs text-slate-500">自動で候補老E��覧を更新</span>
       </div>
     </div>
 
     <div class="candidates-filter-grid">
       <label class="filter-field">
-        <span>登録期間（開始）</span>
+        <span>登録期間�E�開始！E/span>
         <input id="candidatesFilterStartDate" type="date" class="filter-input" />
       </label>
 
       <label class="filter-field">
-        <span>登録期間（終了）</span>
+        <span>登録期間�E�終亁E��E/span>
         <input id="candidatesFilterEndDate" type="date" class="filter-input" />
       </label>
 
       <label class="filter-field">
-        <span>応募媒体</span>
+        <span>応募媒佁E/span>
         <select id="candidatesFilterSource" class="filter-input">
           <option value="">すべて</option>
         </select>
       </label>
 
       <label class="filter-field">
-        <span>求職者名</span>
-        <input id="candidatesFilterName" type="search" class="filter-input" placeholder="例：田中太郎" />
+        <span>求�E老E��</span>
+        <input id="candidatesFilterName" type="search" class="filter-input" placeholder="例：田中太郁E />
       </label>
 
       <label class="filter-field">
-        <span>応募企業名</span>
+        <span>応募企業吁E/span>
         <select id="candidatesFilterCompany" class="filter-input">
           <option value="">すべて</option>
         </select>
       </label>
 
       <label class="filter-field">
-        <span>担当アドバイザー名</span>
+        <span>拁E��アドバイザー吁E/span>
         <select id="candidatesFilterAdvisor" class="filter-input">
           <option value="">すべて</option>
         </select>
@@ -78,19 +78,19 @@
       <div class="candidates-table-toolbar">
         <div class="text-sm text-slate-600">
           <span class="font-semibold text-slate-900" id="candidatesResultCount">0件</span>
-          の候補者を表示
+          の候補老E��表示
         </div>
         <div class="flex items-center gap-3 flex-wrap">
-          <span id="candidatesLastSynced" class="text-xs text-slate-500 whitespace-nowrap">最終同期: -</span>
+          <span id="candidatesLastSynced" class="text-xs text-slate-500 whitespace-nowrap">最終同朁E -</span>
           <label class="flex items-center gap-2 text-xs text-slate-500">
-            並び替え
+            並び替ぁE
             <select id="candidatesSortOrder" class="filter-input w-36">
-              <option value="desc">新しい順</option>
-              <option value="asc">古い順</option>
+              <option value="desc">新しい頁E/option>
+              <option value="asc">古ぁE��E/option>
             </select>
           </label>
           <button id="candidatesToggleEdit" type="button" class="table-action-btn">
-            編集
+            編雁E
           </button>
         </div>
       </div>
@@ -114,17 +114,17 @@
                 data-sort-key="registeredAt" style="position: sticky; left: 0; top: 0; z-index: 60;">登録日
               </th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="phase">フェーズ</th>
-              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="source">媒体</th>
+              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="source">媒佁E/th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="validApplication">
                 有効応募</th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="candidateName">
-                求職者名</th>
+                求�E老E��</th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="nextAction">
                 次回アクション</th>
-              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="partnerName">担当CS
+              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="csName">拁E��CS
               </th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="advisorName">
-                担当アドバイザー</th>
+                拁E��アドバイザー</th>
             </tr>
           </thead>
           <tbody id="candidatesTableBody"></tbody>
@@ -156,18 +156,19 @@
 
   <div class="candidate-detail-modal" id="candidateDetailModal" aria-hidden="true">
     <div class="candidate-detail-card" role="dialog" aria-modal="true" aria-labelledby="candidateDetailModalHeading">
-      <h2 id="candidateDetailModalHeading" class="sr-only">候補者詳細</h2>
-      <button type="button" class="candidate-detail-close" id="candidateDetailClose" aria-label="閉じる">×</button>
+      <h2 id="candidateDetailModalHeading" class="sr-only">候補老E��細</h2>
+      <button type="button" class="candidate-detail-close" id="candidateDetailClose" aria-label="閉じめE>ÁE/button>
       <div id="candidateDetailContent">
         <div class="candidate-detail-empty">
           <p class="text-sm text-slate-500">
-            候補者行をクリックすると詳細が表示されます。
+            候補老E��をクリチE��すると詳細が表示されます、E
           </p>
           <p class="text-xs text-slate-400">
-            新規面談日・希望条件・選考進捗・CS項目などをまとめて確認できます。
+            新規面諁E��・希望条件・選老E��捗�ECS頁E��などをまとめて確認できます、E
           </p>
         </div>
       </div>
     </div>
   </div>
 </div>
+
