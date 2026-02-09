@@ -806,7 +806,7 @@
         </div>
         <div class="teleapo-form-field">
           <label>担当者</label>
-          <select id="dialFormEmployee" required></select>
+          <input id="dialFormEmployee" type="text" readonly />
         </div>
         <div class="teleapo-form-field">
           <label>候補者名</label>
@@ -846,7 +846,7 @@
       </div>
       <input type="hidden" id="dialFormCandidateId" />
       <div class="teleapo-form-actions">
-        <div class="teleapo-form-hint">日時は自動入力、候補者名を選ぶと架電回数・経路を自動セットします</div>
+        <div class="teleapo-form-hint">日時と担当者は自動入力、候補者名を選ぶと架電回数・経路を自動セットします</div>
         <button id="dialFormSubmit" type="button" class="teleapo-form-submit">保存</button>
       </div>
       <p id="dialFormMessage" class="text-sm mt-2"></p>

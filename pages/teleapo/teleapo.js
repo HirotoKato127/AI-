@@ -1,5 +1,7 @@
 ﻿// teleapo.js (clean)
 import { goalSettingsService } from '../../scripts/services/goalSettings.js';
+import { PRIMARY_API_BASE } from '../../scripts/api/endpoints.js';
+import { getSession } from '../../scripts/auth.js';
 
 console.log('teleapo.js loaded');
 
@@ -104,11 +106,10 @@ const ROUTE_TEL = 'tel';
 const ROUTE_OTHER = 'other';
 const TELEAPO_RATE_MODE_CONTACT = 'contact';
 const TELEAPO_RATE_MODE_STEP = 'step';
-const TELEAPO_API_URL = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod/teleapo/logs';
-const TELEAPO_EMPLOYEES = ['佐藤', '鈴木', '高橋', '田中'];
+const TELEAPO_API_URL = `${PRIMARY_API_BASE}/teleapo/logs`;
 const TELEAPO_HEATMAP_DAYS = ['月', '火', '水', '木', '金'];
 const TELEAPO_HEATMAP_SLOTS = ['09-11', '11-13', '13-15', '15-17', '17-19'];
-const SETTINGS_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
+const SETTINGS_API_BASE = PRIMARY_API_BASE;
 const SCREENING_RULES_ENDPOINT = `${SETTINGS_API_BASE}/settings-screening-rules`;
 // Candidate detail URL (hash router + query)
 const CANDIDATE_ID_PARAM = 'candidateId';
@@ -116,7 +117,7 @@ const TARGET_CANDIDATE_STORAGE_KEY = 'target_candidate_id';
 // ...既存の定数の下に追加...
 
 // Candidates API URL (no trailing slash)
-const CANDIDATES_API_URL = "https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod/candidates";
+const CANDIDATES_API_URL = `${PRIMARY_API_BASE}/candidates`;
 
 let candidateNameMap = new Map(); // Name -> ID
 let candidateIdMap = new Map(); // ID -> Name
@@ -1969,6 +1970,53 @@ let employeeNameToUserId = new Map();
 let teleapoRangeTouched = false;
 let teleapoAutoFallbackDone = false;
 let teleapoActivePreset = 'thisMonth'; // 現在アクティブなプリセット（今日/今週/今月/null）
+let dialFormCurrentUser = { name: '', userId: null };
+
+function resolveDialFormCurrentUser() {
+  const session = getSession();
+  const user = session?.user || {};
+  const name = String(
+    user.name ??
+    user.fullName ??
+    user.displayName ??
+    session?.name ??
+    ''
+  ).trim();
+  const rawId =
+    user.id ??
+    user.userId ??
+    session?.userId ??
+    session?.id;
+  const idNum = Number(rawId);
+  return {
+    name,
+    userId: Number.isFinite(idNum) && idNum > 0 ? idNum : null
+  };
+}
+
+function syncDialFormCurrentUser() {
+  dialFormCurrentUser = resolveDialFormCurrentUser();
+  const input = document.getElementById("dialFormEmployee");
+  if (!input) return;
+  input.value = dialFormCurrentUser.name || "";
+}
+
+function resolveDialFormEmployeeName() {
+  const inputValue = String(document.getElementById("dialFormEmployee")?.value || "").trim();
+  if (inputValue) return inputValue;
+  return dialFormCurrentUser.name || "";
+}
+
+function resolveDialFormCallerUserId(employeeName) {
+  if (Number.isFinite(dialFormCurrentUser.userId) && dialFormCurrentUser.userId > 0) {
+    return dialFormCurrentUser.userId;
+  }
+  const mappedId = Number(employeeNameToUserId.get(employeeName));
+  if (Number.isFinite(mappedId) && mappedId > 0) {
+    return mappedId;
+  }
+  return null;
+}
 
 function rebuildEmployeeMap() {
   employeeNameToUserId = new Map();
@@ -4402,7 +4450,7 @@ function localDateTimeToRfc3339(localValue) {
 }
 
 // ★ ここを実際のAPI Gatewayに合わせる（teleapo GETと同じでOK）
-const TELEAPO_API_BASE = "https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod";
+const TELEAPO_API_BASE = PRIMARY_API_BASE;
 const TELEAPO_LOGS_PATH = "/teleapo/logs";
 const TELEAPO_LOGS_URL = `${TELEAPO_API_BASE}${TELEAPO_LOGS_PATH}`;
 
@@ -4411,12 +4459,6 @@ function nowLocalDateTime() {
   const d = new Date();
   const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString();
   return iso.slice(0, 16);
-}
-
-function populateEmployeeSelect() {
-  const sel = document.getElementById("dialFormEmployee");
-  if (!sel) return;
-  sel.innerHTML = TELEAPO_EMPLOYEES.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
 }
 
 // 既存の refreshCandidateDatalist をこれで上書き
@@ -4528,8 +4570,7 @@ function updateInterviewFieldVisibility(resultValue) {
 function resetDialFormDefaults(clearMessage = true) {
   const dt = document.getElementById("dialFormCalledAt");
   if (dt) dt.value = nowLocalDateTime();
-  const emp = document.getElementById("dialFormEmployee");
-  if (emp && emp.options.length) emp.value = emp.options[0].value;
+  syncDialFormCurrentUser();
   const route = document.getElementById("dialFormRoute");
   if (route) route.value = "電話";
   const callNo = document.getElementById("dialFormCallNo");
@@ -4592,7 +4633,7 @@ function bindDialForm() {
     const result = document.getElementById("dialFormResult")?.value || "通電";
     const interviewAtLocal = document.getElementById("dialFormInterviewAt")?.value || "";
     const needsInterview = shouldRequireInterview(result);
-    const employee = document.getElementById("dialFormEmployee")?.value || "";
+    const employee = resolveDialFormEmployeeName();
     const memo = document.getElementById("dialFormMemo")?.value || "";
     const callNo = Number(document.getElementById("dialFormCallNo")?.value);
 
@@ -4601,8 +4642,12 @@ function bindDialForm() {
       if (msg) msg.textContent = "候補者名は必須です";
       return;
     }
-    if (!employee || !calledAt) {
-      if (msg) msg.textContent = "担当者と日時は必須です";
+    if (!calledAt) {
+      if (msg) msg.textContent = "日時は必須です";
+      return;
+    }
+    if (!employee) {
+      if (msg) msg.textContent = "ログインユーザー情報の取得に失敗しました";
       return;
     }
     if (needsInterview && !interviewAtLocal) {
@@ -4616,7 +4661,7 @@ function bindDialForm() {
 
     // 3. 担当者ID (callerUserId) の特定
     // ログから特定できない場合（新規環境など）、デモ用に強制的に '1' を割り当てる安全策を追加
-    let callerUserId = employeeNameToUserId.get(employee);
+    let callerUserId = resolveDialFormCallerUserId(employee);
     if (!callerUserId) {
       console.warn("社員IDが特定できないため、デモ用ID(1)を使用します");
       callerUserId = 1;
@@ -4721,9 +4766,8 @@ function bindDialForm() {
   });
 }
 function initDialForm() {
-  populateEmployeeSelect();
+  syncDialFormCurrentUser();
   resetDialFormDefaults();
   refreshCandidateDatalist();
   bindDialForm();
 }
-

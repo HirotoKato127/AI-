@@ -19,7 +19,7 @@ const routes = {
   candidates: () => import("../pages/candidates/candidates.js?v=20260322_09"),
   "candidate-detail": () => import("../pages/candidate-detail/candidate-detail.js?v=20260322_01"),
   "ad-performance": () => import("../pages/ad-performance/ad-performance.js?v=20260322_14"),
-  teleapo: () => import("../pages/teleapo/teleapo.js?v=20260322_25"),
+  teleapo: () => import("../pages/teleapo/teleapo.js?v=20260209_1"),
   referral: () => import("../pages/referral/referral.js?v=20260322_60"),
   settings: () => import("../pages/settings/settings.js?v=20260322_01"),
   "goal-settings": () => import("../pages/goal-settings/goal-settings.js"),
