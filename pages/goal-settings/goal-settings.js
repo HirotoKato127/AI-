@@ -303,10 +303,10 @@ async function handleSavePageRateTargets() {
   console.log('[DEBUG] handleSavePageRateTargets saving:', targets);
   try {
     await goalSettingsService.savePageRateTargets(state.selectedPageRatePeriodId, targets);
-    showSaveStatus('pageRateTargetSaveStatus', '??????????????');
+    showSaveStatus('pageRateTargetSaveStatus', '保存が完了しました');
   } catch (error) {
     console.error('[goal-settings] failed to save page rate targets', error);
-    showSaveStatus('pageRateTargetSaveStatus', '?????????');
+    showSaveStatus('pageRateTargetSaveStatus', '保存に失敗しました');
   }
 }
 
@@ -371,10 +371,10 @@ async function handleSaveCompanyTarget() {
   const values = readTargetTable('companyTargetTableBody');
   try {
     await goalSettingsService.saveCompanyPeriodTarget(state.selectedCompanyPeriodId, values);
-    showSaveStatus('companyTargetSaveStatus', '???????????');
+    showSaveStatus('companyTargetSaveStatus', '保存が完了しました');
   } catch (error) {
     console.error('[goal-settings] failed to save company target', error);
-    showSaveStatus('companyTargetSaveStatus', '?????????');
+    showSaveStatus('companyTargetSaveStatus', '保存に失敗しました');
   }
 }
 
@@ -383,10 +383,10 @@ async function handleSavePersonalTarget() {
   const values = readTargetTable('personalTargetTableBody');
   try {
     await goalSettingsService.savePersonalPeriodTarget(state.selectedPersonalPeriodId, values);
-    showSaveStatus('personalTargetSaveStatus', '???????????');
+    showSaveStatus('personalTargetSaveStatus', '保存が完了しました');
   } catch (error) {
     console.error('[goal-settings] failed to save personal target', error);
-    showSaveStatus('personalTargetSaveStatus', '?????????');
+    showSaveStatus('personalTargetSaveStatus', '保存に失敗しました');
   }
 }
 
@@ -490,10 +490,10 @@ async function handleSaveDailyTargets() {
   });
   try {
     await goalSettingsService.savePersonalDailyTargets(periodId, dailyTargets);
-    showSaveStatus('dailyTargetSaveStatus', '???????????');
+    showSaveStatus('dailyTargetSaveStatus', '保存が完了しました');
   } catch (error) {
     console.error('[goal-settings] failed to save daily targets', error);
-    showSaveStatus('dailyTargetSaveStatus', '?????????');
+    showSaveStatus('dailyTargetSaveStatus', '保存に失敗しました');
   }
 }
 
