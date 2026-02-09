@@ -5205,4 +5205,13 @@ function updateCandidateDetailFieldValue(candidate, path, value) {
 }
 
 // Initialize listeners
-document.addEventListener("DOMContentLoaded", setupCandidateDetailEventHandlers);
+// Initialize listeners
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", setupCandidateDetailEventHandlers);
+} else {
+  setupCandidateDetailEventHandlers();
+}
+
+// Debug Log
+console.log("Candidate Detail Event Handlers Initialized");
+
