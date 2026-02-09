@@ -269,6 +269,12 @@
     background: #0066b0 !important;
   }
 
+  .teleapo-filter-toggle-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
   /* ===== Tables ===== */
   .teleapo-table-wrapper {
     overflow-x: auto;
@@ -738,13 +744,7 @@
             <button type="button" class="teleapo-filter-btn" data-analysis-range="6m">直近半年</button>
           </div>
           <span class="teleapo-filter-label" style="margin-left: 16px;">社員</span>
-          <select id="teleapoAnalysisEmployeeFilter" class="teleapo-filter-input">
-            <option value="all">全員</option>
-            <option value="佐藤">佐藤</option>
-            <option value="鈴木">鈴木</option>
-            <option value="高橋">高橋</option>
-            <option value="田中">田中</option>
-          </select>
+          <div id="teleapoHeatmapUserToggles" class="teleapo-filter-toggle-group" role="group" aria-label="通電率ヒートマップの対象社員"></div>
         </div>
       </div>
       <p id="teleapoAnalysisPeriodLabel" class="text-xs text-slate-500 mb-4"></p>

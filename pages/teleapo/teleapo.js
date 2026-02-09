@@ -941,20 +941,6 @@ function fetchCandidatePhone(candidateId) {
   return fetchCandidateDetailInfo(idNum).then(detail => detail?.phone || null);
 }
 
-async function updateCandidateFirstInterview(candidateId, interviewAt) {
-  const url = getCandidateDetailApiUrl(candidateId);
-  if (!url) throw new Error("candidateId is required");
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ firstInterviewDate: interviewAt }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
-  return res.json().catch(() => ({}));
-}
 
 function normalizeCandidateDetail(raw) {
   if (!raw) return raw;
@@ -1962,6 +1948,7 @@ let teleapoEmployeeMetrics = [];
 let teleapoSummaryScope = { type: 'company', name: '全体' };
 let teleapoEmployeeTrendMode = 'month';
 let teleapoAnalysisRange = 'all';
+let teleapoHeatmapUser = 'all';
 let teleapoLogSort = { key: 'datetime', dir: 'desc' };
 let teleapoEmployeeSortState = { key: 'connectRate', dir: 'desc' };
 let teleapoHighlightLogId = null;
@@ -3011,8 +2998,44 @@ function updateTeleapoInsight(logs, scope) {
   el.textContent = '傾向がまだ出ていません！まずは母数を増やして、勝ち筋を掴みましょう！';
 }
 
+function getHeatmapUsers(logs = []) {
+  const names = new Set();
+  (Array.isArray(logs) ? logs : []).forEach((log) => {
+    const name = String(log?.employee || '').trim();
+    if (name) names.add(name);
+  });
+  return Array.from(names).sort((a, b) => a.localeCompare(b, 'ja'));
+}
+
+function renderHeatmapUserToggles(logs) {
+  const container = document.getElementById('teleapoHeatmapUserToggles');
+  if (!container) return;
+
+  const users = getHeatmapUsers(logs);
+  if (teleapoHeatmapUser !== 'all' && !users.includes(teleapoHeatmapUser)) {
+    teleapoHeatmapUser = 'all';
+  }
+
+  if (!users.length) {
+    container.innerHTML = '<span class="text-xs text-slate-400">対象ユーザーがいません</span>';
+    return;
+  }
+
+  const items = ['all', ...users].map((name) => {
+    const label = name === 'all' ? '全体' : name;
+    const isActive = teleapoHeatmapUser === name;
+    return `
+      <button type="button" class="teleapo-filter-btn ${isActive ? 'active' : ''}" data-heatmap-user="${escapeHtml(name)}" aria-pressed="${isActive ? 'true' : 'false'}">
+        ${escapeHtml(label)}
+      </button>
+    `;
+  });
+
+  container.innerHTML = items.join('');
+}
+
 function getAnalysisScope(logs) {
-  const employeeFilter = document.getElementById('teleapoAnalysisEmployeeFilter')?.value || 'all';
+  const employeeFilter = teleapoHeatmapUser || 'all';
   const scopeLabel = employeeFilter === 'all' ? '全体' : `${employeeFilter}さん`;
   let scopedLogs = employeeFilter === 'all' ? logs : logs.filter(l => l.employee === employeeFilter);
 
@@ -3615,6 +3638,7 @@ function applyFilters() {
     if (wrapper) wrapper.classList.add('hidden');
   }
 
+  renderHeatmapUserToggles(teleapoFilteredLogs);
   const analysisScope = getAnalysisScope(teleapoFilteredLogs);
   const analysisLogs = analysisScope.logs;
 
@@ -3814,9 +3838,13 @@ function initHeatmapControls() {
       applyFilters();
     });
   });
-  const employeeSelect = document.getElementById('teleapoAnalysisEmployeeFilter');
-  if (employeeSelect) {
-    employeeSelect.addEventListener('change', () => {
+  const toggleContainer = document.getElementById('teleapoHeatmapUserToggles');
+  if (toggleContainer) {
+    toggleContainer.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-heatmap-user]');
+      if (!button) return;
+      const value = button.dataset.heatmapUser || 'all';
+      teleapoHeatmapUser = teleapoHeatmapUser === value ? 'all' : value;
       applyFilters();
     });
   }
