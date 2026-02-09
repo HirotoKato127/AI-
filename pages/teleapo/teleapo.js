@@ -1,21 +1,122 @@
 ﻿// teleapo.js (clean)
+import { goalSettingsService } from '../../scripts/services/goalSettings.js';
+
 console.log('teleapo.js loaded');
+
+// グローバル関数: タブ切り替え（onclick属性から呼び出し）
+window.switchTeleapoTab = function (targetPanel, clickedTab) {
+  const performancePanel = document.getElementById('teleapoPerformancePanel');
+  const managementPanel = document.getElementById('teleapoManagementPanel');
+  const tabs = document.querySelectorAll('.teleapo-tab');
+
+  // タブのアクティブ状態を更新
+  tabs.forEach(t => t.classList.remove('active'));
+  clickedTab.classList.add('active');
+
+  // パネルの表示を切り替え
+  if (targetPanel === 'performance') {
+    performancePanel.style.display = 'block';
+    performancePanel.classList.add('active');
+    managementPanel.style.display = 'none';
+    managementPanel.classList.remove('active');
+  } else if (targetPanel === 'management') {
+    performancePanel.style.display = 'none';
+    performancePanel.classList.remove('active');
+    managementPanel.style.display = 'block';
+    managementPanel.classList.add('active');
+  }
+};
+
+function bindTeleapoTabs() {
+  const tabs = document.querySelectorAll('.teleapo-tab');
+  if (!tabs.length) return;
+  tabs.forEach(tab => {
+    if (tab.dataset.bound) return;
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab || 'performance';
+      window.switchTeleapoTab?.(target, tab);
+    });
+    tab.dataset.bound = 'true';
+  });
+}
+
+function bindTeleapoCollapsibles() {
+  const headers = document.querySelectorAll('.teleapo-collapsible-header');
+  if (!headers.length) return;
+  headers.forEach(header => {
+    if (header.id === 'teleapoCsTaskToggle' || header.id === 'teleapoMissingInfoToggle') {
+      return;
+    }
+    if (header.dataset.bound) return;
+    const parent = header.closest('.teleapo-collapsible');
+    const content = parent?.querySelector('.teleapo-collapsible-content');
+    if (content) {
+      const isOpen = parent?.classList.contains('open');
+      content.style.display = isOpen ? 'block' : 'none';
+    }
+    header.addEventListener('click', () => {
+      window.toggleTeleapoCollapsible?.(header);
+    });
+    const btn = header.querySelector('.teleapo-collapsible-btn');
+    if (btn && !btn.dataset.bound) {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        window.toggleTeleapoCollapsible?.(header);
+      });
+      btn.dataset.bound = 'true';
+    }
+    header.dataset.bound = 'true';
+  });
+}
+
+// グローバル関数: 折りたたみセクションのトグル
+window.toggleTeleapoCollapsible = function (header) {
+  const parent = header.closest('.teleapo-collapsible');
+  if (!parent) return;
+  const content = parent.querySelector('.teleapo-collapsible-content');
+  const willOpen = !parent.classList.contains('open');
+  parent.classList.toggle('open', willOpen);
+  if (content) {
+    content.style.display = willOpen ? 'block' : 'none';
+  }
+  const btn = parent.querySelector('.teleapo-collapsible-btn');
+  if (btn) {
+    if (willOpen) {
+      btn.textContent = '閉じる';
+    } else {
+      btn.textContent = '一覧を開く';
+    }
+  }
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    bindTeleapoTabs();
+    bindTeleapoCollapsibles();
+  });
+} else {
+  bindTeleapoTabs();
+  bindTeleapoCollapsibles();
+}
+
 
 const ROUTE_TEL = 'tel';
 const ROUTE_OTHER = 'other';
 const TELEAPO_RATE_MODE_CONTACT = 'contact';
 const TELEAPO_RATE_MODE_STEP = 'step';
-const TELEAPO_API_URL = 'https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev/teleapo/logs';
+const TELEAPO_API_URL = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod/teleapo/logs';
 const TELEAPO_EMPLOYEES = ['佐藤', '鈴木', '高橋', '田中'];
 const TELEAPO_HEATMAP_DAYS = ['月', '火', '水', '木', '金'];
 const TELEAPO_HEATMAP_SLOTS = ['09-11', '11-13', '13-15', '15-17', '17-19'];
+const SETTINGS_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
+const SCREENING_RULES_ENDPOINT = `${SETTINGS_API_BASE}/settings-screening-rules`;
 // Candidate detail URL (hash router + query)
 const CANDIDATE_ID_PARAM = 'candidateId';
 const TARGET_CANDIDATE_STORAGE_KEY = 'target_candidate_id';
 // ...既存の定数の下に追加...
 
 // Candidates API URL (no trailing slash)
-const CANDIDATES_API_URL = "https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev/candidates";
+const CANDIDATES_API_URL = "https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod/candidates";
 
 let candidateNameMap = new Map(); // Name -> ID
 let candidateIdMap = new Map(); // ID -> Name
@@ -30,6 +131,13 @@ let candidatePhoneToId = new Map();
 let candidateEmailToId = new Map();
 let candidateDetailCache = new Map();
 let candidateDetailRequests = new Map();
+let screeningRules = null;
+let screeningRulesLoaded = false;
+let screeningRulesLoading = false;
+let validApplicationDetailCache = new Map();
+let validApplicationQueue = [];
+let validApplicationQueueSet = new Set();
+let validApplicationQueueActive = false;
 let missingInfoQueue = [];
 let missingInfoQueueSet = new Set();
 let missingInfoQueueActive = false;
@@ -42,7 +150,10 @@ let contactTimeQueueSet = new Set();
 let contactTimeQueueActive = false;
 const CONTACT_TIME_FETCH_BATCH = 10;
 const CONTACT_TIME_FETCH_DELAY_MS = 200;
+const VALID_APPLICATION_FETCH_BATCH = 10;
+const VALID_APPLICATION_FETCH_DELAY_MS = 200;
 let candidateDetailRefreshTimer = null;
+let validApplicationRefreshTimer = null;
 let teleapoSummaryByCandidateId = new Map();
 let teleapoSummaryByName = new Map();
 let csTaskExpanded = false;
@@ -53,6 +164,7 @@ let attendanceQueueActive = false;
 let attendanceRefreshTimer = null;
 let teleapoRateMode = TELEAPO_RATE_MODE_CONTACT;
 let teleapoQuickEditState = { candidateId: null, detail: null, editMode: false, saving: false };
+let teleapoRateTargets = {}; // 目標値キャッシュ
 const ATTENDANCE_FETCH_BATCH = 10;
 const ATTENDANCE_FETCH_DELAY_MS = 200;
 const CONTACT_TIME_PLACEHOLDERS = new Set([
@@ -111,6 +223,14 @@ function scheduleCandidateDetailRefresh() {
     candidateDetailRefreshTimer = null;
     renderLogTable();
     renderCsTaskTable(teleapoCsTaskCandidates);
+  }, 200);
+}
+
+function scheduleValidApplicationRefresh() {
+  if (validApplicationRefreshTimer) return;
+  validApplicationRefreshTimer = window.setTimeout(() => {
+    validApplicationRefreshTimer = null;
+    rebuildCsTaskCandidates();
   }, 200);
 }
 
@@ -198,6 +318,45 @@ function prefetchContactTimeForLogs(logs) {
   });
 }
 
+function enqueueValidApplicationFetch(candidateId) {
+  if (!screeningRules) return;
+  const idNum = Number(candidateId);
+  if (!Number.isFinite(idNum) || idNum <= 0) return;
+  if (validApplicationDetailCache.has(idNum)) return;
+  if (validApplicationQueueSet.has(idNum)) return;
+  if (candidateDetailRequests.has(idNum)) return;
+  validApplicationQueueSet.add(idNum);
+  validApplicationQueue.push(idNum);
+  if (!validApplicationQueueActive) processValidApplicationQueue();
+}
+
+function processValidApplicationQueue() {
+  if (!validApplicationQueue.length) {
+    validApplicationQueueActive = false;
+    return;
+  }
+  validApplicationQueueActive = true;
+  const batch = validApplicationQueue.splice(0, VALID_APPLICATION_FETCH_BATCH);
+  batch.forEach((idNum) => validApplicationQueueSet.delete(idNum));
+  Promise.all(batch.map((idNum) => fetchCandidateDetailInfo(idNum)))
+    .finally(() => {
+      setTimeout(processValidApplicationQueue, VALID_APPLICATION_FETCH_DELAY_MS);
+    });
+}
+
+function prefetchValidApplicationForCandidates(list) {
+  if (!screeningRules || !Array.isArray(list) || !list.length) return;
+  list.forEach((candidate) => {
+    const candidateId =
+      candidate?.candidateId ??
+      candidate?.candidate_id ??
+      candidate?.id ??
+      candidate?.candidateID ??
+      null;
+    enqueueValidApplicationFetch(candidateId);
+  });
+}
+
 function prefetchContactTimeForTasks(list) {
   if (!Array.isArray(list) || !list.length) return;
   list.forEach((row) => {
@@ -238,34 +397,21 @@ function resolveCandidateInterviewDate(log) {
 
 function buildCandidateDetailUrl(candidateId) {
   const id = String(candidateId ?? '').trim();
-  if (typeof window === 'undefined' || !window.location) {
-    return `#/candidates?${CANDIDATE_ID_PARAM}=${encodeURIComponent(id)}&openDetail=1`;
-  }
-  const url = new URL(window.location.href);
-  url.searchParams.set(CANDIDATE_ID_PARAM, id);
-  url.searchParams.set("openDetail", "1");
-  url.hash = '/candidates';
-  return url.toString();
+  return `#/candidate-detail?id=${encodeURIComponent(id)}`;
 }
 
-window.navigateToCandidateDetail = function (candidateId, candidateName) {
+function navigateToCandidateDetailPage(candidateId, candidateName) {
   const resolvedId = candidateId || findCandidateIdFromTarget(candidateName);
   if (!resolvedId) {
     console.warn('candidate not found:', candidateName);
     return;
   }
-  if (typeof window === 'undefined' || !window.location) return;
   const resolvedIdText = String(resolvedId);
-  try {
-    sessionStorage.setItem(TARGET_CANDIDATE_STORAGE_KEY, resolvedIdText);
-  } catch {
-    // ignore storage errors
-  }
-  const url = new URL(window.location.href);
-  url.searchParams.set(CANDIDATE_ID_PARAM, resolvedIdText);
-  url.searchParams.set("openDetail", "1");
-  history.replaceState({}, '', url.toString());
-  window.location.hash = '/candidates';
+  window.location.hash = `/candidate-detail?id=${encodeURIComponent(resolvedIdText)}`;
+}
+
+window.navigateToCandidateDetail = function (candidateId, candidateName) {
+  openCandidateQuickView(candidateId, candidateName);
 };
 
 
@@ -403,7 +549,174 @@ function resolveCandidatePhaseDisplay(candidate) {
   return "未接触";
 }
 
+function parseRuleNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function parseListValue(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (value === null || value === undefined) return [];
+  return String(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeScreeningRulesPayload(payload) {
+  const source = payload?.rules || payload?.item || payload?.data || payload || {};
+  const minAge = parseRuleNumber(source.minAge ?? source.min_age);
+  const maxAge = parseRuleNumber(source.maxAge ?? source.max_age);
+  const nationalitiesRaw =
+    source.targetNationalities ??
+    source.target_nationalities ??
+    source.allowedNationalities ??
+    source.allowed_nationalities ??
+    source.nationalities ??
+    "";
+  const allowedJlptRaw =
+    source.allowedJlptLevels ??
+    source.allowed_jlpt_levels ??
+    source.allowed_japanese_levels ??
+    [];
+  return {
+    minAge,
+    maxAge,
+    targetNationalitiesList: parseListValue(nationalitiesRaw),
+    allowedJlptLevels: parseListValue(allowedJlptRaw),
+  };
+}
+
+function normalizeNationality(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const normalized = text.toLowerCase();
+  if (normalized === "japan" || normalized === "jpn" || normalized === "jp" || normalized === "japanese") {
+    return "日本";
+  }
+  if (text === "日本国" || text === "日本国籍" || text === "日本人" || text === "日本国民") return "日本";
+  return text;
+}
+
+function isJapaneseNationality(value) {
+  return normalizeNationality(value) === "日本";
+}
+
+function hasValidApplicationInputs(candidate, rules) {
+  if (!candidate || !rules) return false;
+  const age = resolveCandidateAgeValue(candidate);
+  if (age === null) return false;
+  const nationality = normalizeNationality(candidate?.nationality ?? "");
+  if (!nationality) return false;
+  if (isJapaneseNationality(nationality)) return true;
+  const jlpt = String(candidate?.japaneseLevel ?? candidate?.japanese_level ?? "").trim();
+  return Boolean(jlpt);
+}
+
+function resolveCandidateAgeValue(candidate) {
+  const birthday =
+    candidate?.birthday ??
+    candidate?.birth_date ??
+    candidate?.birthDate ??
+    candidate?.birthdate ??
+    "";
+  const computed = calculateAgeFromBirthday(birthday);
+  if (computed !== null) return computed;
+  const direct = candidate?.age ?? candidate?.age_years ?? candidate?.ageYears;
+  if (direct !== null && direct !== undefined && direct !== "") {
+    const parsed = Number(direct);
+    if (Number.isFinite(parsed)) return parsed;
+    const match = String(direct).match(/\d+/);
+    if (match) {
+      const fromText = Number(match[0]);
+      if (Number.isFinite(fromText)) return fromText;
+    }
+  }
+  return null;
+}
+
+function computeValidApplication(candidate, rules) {
+  if (!candidate || !rules) return null;
+  const age = resolveCandidateAgeValue(candidate);
+  if (age === null) return false;
+  if (rules.minAge !== null && rules.minAge !== undefined && rules.minAge > 0 && age < rules.minAge) return false;
+  if (rules.maxAge !== null && rules.maxAge !== undefined && rules.maxAge < 100 && age > rules.maxAge) return false;
+
+  const nationality = normalizeNationality(candidate?.nationality ?? "");
+  const allowedNationalities = (rules.targetNationalitiesList || [])
+    .map((value) => normalizeNationality(value))
+    .filter((value) => value && !isJapaneseNationality(value));
+
+  if (isJapaneseNationality(nationality)) return true;
+
+  if (allowedNationalities.length > 0) {
+    if (!nationality) return false;
+    const matched = allowedNationalities.some((value) => value === nationality);
+    if (!matched) return false;
+  }
+
+  const jlpt = String(candidate?.japaneseLevel ?? candidate?.japanese_level ?? "").trim();
+  if (!jlpt) return false;
+  const allowedJlptLevels = rules.allowedJlptLevels || [];
+  if (!allowedJlptLevels.length) return false;
+  return allowedJlptLevels.includes(jlpt);
+}
+
+function resolveCandidateIdValue(candidate) {
+  const raw =
+    candidate?.candidateId ??
+    candidate?.candidate_id ??
+    candidate?.id ??
+    candidate?.candidateID ??
+    null;
+  const idNum = Number(raw);
+  if (Number.isFinite(idNum) && idNum > 0) return idNum;
+  return null;
+}
+
+function updateValidApplicationDetailCache(candidate, { force = false } = {}) {
+  if (!screeningRules || !candidate) return null;
+  if (!hasValidApplicationInputs(candidate, screeningRules)) return null;
+  const idNum = resolveCandidateIdValue(candidate);
+  if (!Number.isFinite(idNum)) return null;
+  if (!force && validApplicationDetailCache.has(idNum)) {
+    const cached = validApplicationDetailCache.get(idNum);
+    candidate.validApplicationComputed = cached;
+    return cached;
+  }
+  const computed = computeValidApplication(candidate, screeningRules);
+  if (computed === true || computed === false) {
+    const prev = validApplicationDetailCache.get(idNum);
+    validApplicationDetailCache.set(idNum, computed);
+    candidate.validApplicationComputed = computed;
+    if (prev !== computed) {
+      scheduleValidApplicationRefresh();
+    }
+    return computed;
+  }
+  return null;
+}
+
+function resolveValidApplicationFromDetail(candidate) {
+  const idNum = resolveCandidateIdValue(candidate);
+  if (!Number.isFinite(idNum)) return null;
+  if (validApplicationDetailCache.has(idNum)) {
+    return validApplicationDetailCache.get(idNum);
+  }
+  return null;
+}
+
 function isValidApplicationCandidate(candidate) {
+  if (screeningRules && hasValidApplicationInputs(candidate, screeningRules)) {
+    const computed = computeValidApplication(candidate, screeningRules);
+    if (computed === true || computed === false) {
+      updateValidApplicationDetailCache(candidate, { force: true });
+      return computed;
+    }
+  }
+  const detailValue = resolveValidApplicationFromDetail(candidate);
+  if (detailValue === true || detailValue === false) return detailValue;
   const raw = candidate?.validApplication
     ?? candidate?.valid_application
     ?? candidate?.validApplicationComputed
@@ -561,6 +874,7 @@ function fetchCandidateDetailInfo(candidateId) {
         normalized.firstInterviewDate = firstInterviewDate;
       }
       normalized.contactPreferredTimeFetched = true;
+      updateValidApplicationDetailCache(normalized, { force: true });
 
       candidateDetailCache.set(idNum, normalized);
       candidateDetailRequests.delete(idNum);
@@ -588,6 +902,37 @@ function fetchCandidateDetailInfo(candidateId) {
   return req;
 }
 
+function applyScreeningRulesToTeleapoCandidates() {
+  validApplicationDetailCache.clear();
+  validApplicationQueue = [];
+  validApplicationQueueSet.clear();
+  validApplicationQueueActive = false;
+  if (!screeningRules || !teleapoCandidateMaster.length) return;
+  prefetchValidApplicationForCandidates(teleapoCandidateMaster);
+  rebuildCsTaskCandidates();
+}
+
+async function loadScreeningRulesForTeleapo({ force = false } = {}) {
+  if (screeningRulesLoading) return;
+  if (!force && screeningRulesLoaded) return;
+  screeningRulesLoading = true;
+  try {
+    const response = await fetch(SCREENING_RULES_ENDPOINT);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    screeningRules = normalizeScreeningRulesPayload(data);
+  } catch (error) {
+    console.error("有効応募判定ルールの取得に失敗しました。", error);
+    screeningRules = null;
+  } finally {
+    screeningRulesLoading = false;
+    screeningRulesLoaded = Boolean(screeningRules);
+    applyScreeningRulesToTeleapoCandidates();
+  }
+}
+
 function fetchCandidatePhone(candidateId) {
   const idNum = Number(candidateId);
   if (!Number.isFinite(idNum) || idNum <= 0) return Promise.resolve(null);
@@ -612,7 +957,7 @@ async function updateCandidateFirstInterview(candidateId, interviewAt) {
 
 function normalizeCandidateDetail(raw) {
   if (!raw) return raw;
-  return {
+  const normalized = {
     ...raw,
     candidateId: raw.candidateId ?? raw.candidate_id ?? raw.id ?? null,
     candidateName: raw.candidateName ?? raw.candidate_name ?? raw.name ?? "",
@@ -634,6 +979,8 @@ function normalizeCandidateDetail(raw) {
     email: raw.email ?? raw.email_address ?? "",
     birthday: raw.birthday ?? raw.birth_date ?? raw.birthDate ?? raw.birthdate ?? "",
     age: raw.age ?? raw.age_years ?? raw.ageYears ?? null,
+    nationality: raw.nationality ?? raw.nationality_text ?? raw.nationality_code ?? "",
+    japaneseLevel: raw.japaneseLevel ?? raw.japanese_level ?? raw.jlpt_level ?? raw.jlptLevel ?? "",
     applyCompanyName: raw.applyCompanyName ?? raw.apply_company_name ?? raw.companyName ?? raw.company_name ?? "",
     applyJobName: raw.applyJobName ?? raw.apply_job_name ?? raw.jobName ?? raw.job_name ?? "",
     applyRouteText: raw.applyRouteText ?? raw.apply_route_text ?? raw.source ?? "",
@@ -653,6 +1000,15 @@ function normalizeCandidateDetail(raw) {
     csSummary: raw.csSummary ?? raw.cs_summary ?? {},
     phases: raw.phases ?? raw.phaseList ?? raw.phase ?? ""
   };
+  if (normalized.birthday) {
+    const computedAge = calculateAgeFromBirthday(normalized.birthday);
+    if (computedAge !== null) {
+      normalized.age = computedAge;
+      normalized.age_years = computedAge;
+      normalized.ageYears = computedAge;
+    }
+  }
+  return normalized;
 }
 
 
@@ -744,6 +1100,7 @@ function syncCandidateCaches(candidateId, detail) {
     contactPreferredTime,
     contactPreferredTimeFetched: true
   });
+  updateValidApplicationDetailCache({ ...detail, candidateId: idNum }, { force: true });
 
   if (phone) candidatePhoneCache.set(idNum, phone);
   registerCandidateContactMaps(idNum, { phone, email: detail.email ?? "" });
@@ -854,7 +1211,7 @@ function renderCandidateQuickView(detail) {
   setCandidateQuickViewTitle(name ? `${name} の詳細` : "候補者詳細");
 
   const phaseBadges = buildCandidatePhaseBadges(candidate);
-  const validBadge = buildValidApplicationPill(candidate.validApplication);
+  const validBadge = buildValidApplicationPill(isValidApplicationCandidate(candidate));
 
   const csSummary = candidate.csSummary || {};
   const csConnected = csSummary.hasConnected ?? candidate.phoneConnected ?? false;
@@ -954,7 +1311,9 @@ function renderCandidateQuickView(detail) {
         </div>
       </div>
       <button 
-        onclick="navigateToCandidateDetail('${candidate.id}', '${escapeHtml(name)}')" 
+        type="button"
+        data-candidate-action="open-detail"
+        data-candidate-id="${escapeHtml(String(candidateId || ''))}"
         class="px-3 py-2 bg-indigo-600 text-white rounded-md text-xs font-semibold hover:bg-indigo-500 shadow-sm whitespace-nowrap">
         詳細画面へ
       </button>
@@ -1094,6 +1453,13 @@ function handleCandidateQuickAction(event) {
   if (!action) return;
   if (!teleapoQuickEditState.detail) return;
 
+  if (action === "open-detail") {
+    const candidateId = btn.dataset.candidateId || teleapoQuickEditState.detail?.candidateId || teleapoQuickEditState.detail?.id;
+    const candidateName = teleapoQuickEditState.detail?.candidateName || teleapoQuickEditState.detail?.name;
+    closeTeleapoCandidateModal();
+    navigateToCandidateDetailPage(candidateId, candidateName);
+    return;
+  }
   if (action === "edit") {
     teleapoQuickEditState.editMode = true;
     renderCandidateQuickView(teleapoQuickEditState.detail);
@@ -1349,10 +1715,24 @@ function renderCsTaskTable(list, state = {}) {
   scheduleCandidatePhoneFetch(list);
 }
 
+function parseCandidateDateValue(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  const direct = new Date(value);
+  if (!Number.isNaN(direct.getTime())) return direct;
+  const match = String(value).match(/(\d{4})\s*[\/-]\s*(\d{1,2})\s*[\/-]\s*(\d{1,2})/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const parsed = new Date(year, month, day);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function calculateAgeFromBirthday(value) {
   if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
+  const date = parseCandidateDateValue(value);
+  if (!date || Number.isNaN(date.getTime())) return null;
   const today = new Date();
   let age = today.getFullYear() - date.getFullYear();
   const monthDiff = today.getMonth() - date.getMonth();
@@ -1586,6 +1966,9 @@ let teleapoEmployeeSortState = { key: 'connectRate', dir: 'desc' };
 let teleapoHighlightLogId = null;
 let teleapoHighlightFingerprint = null;
 let employeeNameToUserId = new Map();
+let teleapoRangeTouched = false;
+let teleapoAutoFallbackDone = false;
+let teleapoActivePreset = 'thisMonth'; // 現在アクティブなプリセット（今日/今週/今月/null）
 
 function rebuildEmployeeMap() {
   employeeNameToUserId = new Map();
@@ -2058,7 +2441,18 @@ function formatRate(rate) {
 }
 
 function formatRangeLabel(startStr, endStr) {
-  if (!startStr && !endStr) return '';
+  // アクティブなプリセットがある場合はそのラベルを表示
+  if (teleapoActivePreset) {
+    const presetLabels = {
+      today: '今日',
+      thisWeek: '今週',
+      thisMonth: '今月'
+    };
+    if (presetLabels[teleapoActivePreset]) {
+      return presetLabels[teleapoActivePreset];
+    }
+  }
+  if (!startStr && !endStr) return '全期間';
   if (startStr && endStr) return `${startStr.replace(/-/g, '/')} ～ ${endStr.replace(/-/g, '/')}`;
   if (startStr) return `${startStr.replace(/-/g, '/')} ～`;
   return `～ ${endStr.replace(/-/g, '/')}`;
@@ -2073,9 +2467,13 @@ function addDaysToDateString(dateStr, days) {
   dt.setDate(dt.getDate() + days);
   return `${dt.getFullYear()}-${zeroPad(dt.getMonth() + 1)}-${zeroPad(dt.getDate())}`;
 }
-function rateClass(rate) {
-  if (rate >= 70) return 'text-green-700';
-  if (rate >= 40) return 'text-amber-600';
+function rateClass(rate, targetKey) {
+  if (!targetKey || !teleapoRateTargets[targetKey]) return 'text-slate-900';
+  const targetRate = Number(teleapoRateTargets[targetKey]);
+  if (!Number.isFinite(targetRate) || targetRate <= 0) return 'text-slate-900';
+  const percentage = (rate / targetRate) * 100;
+  if (percentage >= 100) return 'text-green-700';
+  if (percentage >= 80) return 'text-amber-600';
   return 'text-red-600';
 }
 
@@ -2106,6 +2504,7 @@ function updateRateModeUI() {
       const mode = btn.dataset.rateMode;
       const isActive = mode === teleapoRateMode;
       btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      setTeleapoButtonActive(btn, isActive);
       btn.classList.toggle('bg-indigo-600', isActive);
       btn.classList.toggle('text-white', isActive);
       btn.classList.toggle('shadow-sm', isActive);
@@ -2177,17 +2576,21 @@ function renderSummary(logs, titleText, scopeLabelText) {
   setText('teleapoSummaryScopeLabel', scopeLabelText || '全体');
   updateRateModeUI();
 
-  setText('teleapoKpiContactRateTel', formatRate(telRates.contactRate));
-  setText('teleapoKpiContactRateOther', formatRate(otherRates.contactRate));
-  setText('teleapoKpiContactRateTotal', formatRate(totalRates.contactRate));
+  setTextWithRateColor('teleapoKpiContactRateTel', telRates.contactRate, 'teleapoConnectionRate');
+  setTextWithRateColor('teleapoKpiContactRateOther', otherRates.contactRate, 'teleapoConnectionRate');
+  setTextWithRateColor('teleapoKpiContactRateTotal', totalRates.contactRate, 'teleapoConnectionRate');
 
-  setText('teleapoKpiSetRateTel', formatRate(telRates.setRate));
-  setText('teleapoKpiSetRateOther', formatRate(otherRates.setRate));
-  setText('teleapoKpiSetRateTotal', formatRate(totalRates.setRate));
+  setTextWithRateColor('teleapoKpiSetRateTel', telRates.setRate, 'teleapoSetupRate');
+  setTextWithRateColor('teleapoKpiSetRateOther', otherRates.setRate, 'teleapoSetupRate');
+  setTextWithRateColor('teleapoKpiSetRateTotal', totalRates.setRate, 'teleapoSetupRate');
 
-  setText('teleapoKpiShowRateTel', formatRate(telRates.showRate));
-  setText('teleapoKpiShowRateOther', formatRate(otherRates.showRate));
-  setText('teleapoKpiShowRateTotal', formatRate(totalRates.showRate));
+  const showRateTargetKey = teleapoRateMode === TELEAPO_RATE_MODE_STEP
+    ? 'teleapoAttendanceRate'
+    : 'teleapoAttendanceRateContact';
+
+  setTextWithRateColor('teleapoKpiShowRateTel', telRates.showRate, showRateTargetKey);
+  setTextWithRateColor('teleapoKpiShowRateOther', otherRates.showRate, showRateTargetKey);
+  setTextWithRateColor('teleapoKpiShowRateTotal', totalRates.showRate, showRateTargetKey);
 
   setText('teleapoKpiDialsTel', kpi.tel.attempts.toLocaleString());
   setText('teleapoKpiContactsTel', kpi.tel.contacts.toLocaleString());
@@ -2199,6 +2602,27 @@ function renderSummary(logs, titleText, scopeLabelText) {
   setText('teleapoKpiShowsTel', kpi.tel.shows.toLocaleString());
   setText('teleapoKpiShowsOther', kpi.other.shows.toLocaleString());
   setText('teleapoKpiShowsTotal', kpi.total.shows.toLocaleString());
+}
+
+function setTextWithRateColor(id, rate, targetKey) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const text = formatRate(rate);
+  el.textContent = text;
+  el.classList.remove('text-green-700', 'text-amber-600', 'text-red-600', 'text-slate-900', 'text-slate-800');
+  if (rate == null || Number.isNaN(rate)) {
+    el.classList.add('text-slate-900');
+    return;
+  }
+  const targetRate = Number(teleapoRateTargets[targetKey]);
+  if (!Number.isFinite(targetRate) || targetRate <= 0) {
+    el.classList.add('text-slate-900');
+    return;
+  }
+  const percentage = (rate / targetRate) * 100;
+  if (percentage >= 100) el.classList.add('text-green-700');
+  else if (percentage >= 80) el.classList.add('text-amber-600');
+  else el.classList.add('text-red-600');
 }
 
 function computeEmployeeMetrics(logs) {
@@ -2230,9 +2654,9 @@ function renderEmployeeTable(metrics) {
   const sortedMetrics = sortEmployeeMetrics(metrics, `${teleapoEmployeeSortState.key}-${teleapoEmployeeSortState.dir}`);
 
   tbody.innerHTML = sortedMetrics.map(emp => {
-    const connectClass = rateClass(emp.connectRate);
-    const setClass = rateClass(emp.setRate);
-    const showClass = rateClass(emp.showRate);
+    const connectClass = rateClass(emp.connectRate, 'teleapoConnectionRate');
+    const setClass = rateClass(emp.setRate, 'teleapoSetupRate');
+    const showClass = rateClass(emp.showRate, 'teleapoAttendanceRate');
     return `
       <tr class="teleapo-employee-row hover:bg-slate-50 cursor-pointer" data-employee-name="${emp.name}">
         <td class="font-medium text-slate-800">${emp.name}</td>
@@ -2338,7 +2762,7 @@ function setEmployeeTrendMode(mode) {
 function updateEmployeeTrendModeButtons() {
   document.querySelectorAll('[data-employee-trend-mode]').forEach((btn) => {
     const isActive = btn.dataset.employeeTrendMode === teleapoEmployeeTrendMode;
-    btn.classList.toggle('is-active', isActive);
+    setTeleapoButtonActive(btn, isActive);
     btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
 }
@@ -2888,15 +3312,15 @@ function renderEmployeeTrendTable(points, mode) {
         <td>${escapeHtml(p.label)}</td>
         <td class="text-right">${p.dials}</td>
         <td class="text-right">
-          <div class="teleapo-employee-table-rate">${formatRate(p.connectRate)}</div>
+          <div class="teleapo-employee-table-rate ${rateClass(p.connectRate, 'teleapoConnectionRate')}">${formatRate(p.connectRate)}</div>
           <div class="teleapo-employee-table-detail">${connectDetail}</div>
         </td>
         <td class="text-right">
-          <div class="teleapo-employee-table-rate">${formatRate(p.setRate)}</div>
+          <div class="teleapo-employee-table-rate ${rateClass(p.setRate, 'teleapoSetupRate')}">${formatRate(p.setRate)}</div>
           <div class="teleapo-employee-table-detail">${setDetail}</div>
         </td>
         <td class="text-right">
-          <div class="teleapo-employee-table-rate">${formatRate(p.showRate)}</div>
+          <div class="teleapo-employee-table-rate ${rateClass(p.showRate, 'teleapoAttendanceRate')}">${formatRate(p.showRate)}</div>
           <div class="teleapo-employee-table-detail">${showDetail}</div>
         </td>
       </tr>
@@ -3104,10 +3528,7 @@ function applyFilters() {
   const resultFilter = document.getElementById('teleapoLogResultFilter')?.value || '';
   const routeFilter = document.getElementById('teleapoLogRouteFilter')?.value || '';
   const targetSearch = (document.getElementById('teleapoLogTargetSearch')?.value || '').toLowerCase();
-  const startStr = document.getElementById('teleapoLogRangeStart')?.value || document.getElementById('teleapoCompanyRangeStart')?.value || '';
-  const endStr = document.getElementById('teleapoLogRangeEnd')?.value || document.getElementById('teleapoCompanyRangeEnd')?.value || '';
-  const start = startStr ? new Date(startStr + 'T00:00:00') : null;
-  const end = endStr ? new Date(endStr + 'T23:59:59') : null;
+  const { startStr, endStr, start, end } = getSelectedRange();
   const rangeLabel = formatRangeLabel(startStr, endStr);
 
   teleapoFilteredLogs = teleapoLogData.filter(log => {
@@ -3159,6 +3580,44 @@ function applyFilters() {
   setText('teleapoLogPeriodLabel', rangeLabel || '全期間');
 }
 
+function getSelectedRange() {
+  const startStr = document.getElementById('teleapoLogRangeStart')?.value
+    || document.getElementById('teleapoCompanyRangeStart')?.value
+    || '';
+  const endStr = document.getElementById('teleapoLogRangeEnd')?.value
+    || document.getElementById('teleapoCompanyRangeEnd')?.value
+    || '';
+  const start = startStr ? new Date(`${startStr}T00:00:00`) : null;
+  const end = endStr ? new Date(`${endStr}T23:59:59`) : null;
+  return { startStr, endStr, start, end };
+}
+
+function getLoadedDateRange(logs = teleapoLogData) {
+  const dates = (Array.isArray(logs) ? logs : [])
+    .map(log => parseDateTime(log.datetime))
+    .filter(Boolean)
+    .sort((a, b) => a - b);
+  if (!dates.length) return null;
+  return { min: dates[0], max: dates[dates.length - 1] };
+}
+
+function isRangeWithinLoaded(selected, loaded) {
+  if (!loaded) return false;
+  if (selected.start && selected.start < loaded.min) return false;
+  if (selected.end && selected.end > loaded.max) return false;
+  return true;
+}
+
+function refreshForRangeChange() {
+  const selected = getSelectedRange();
+  const loaded = getLoadedDateRange();
+  if (!loaded || !isRangeWithinLoaded(selected, loaded)) {
+    loadTeleapoData();
+    return;
+  }
+  applyFilters();
+}
+
 function setRangePreset(preset) {
   const today = new Date();
   let start = new Date(today);
@@ -3167,7 +3626,10 @@ function setRangePreset(preset) {
   if (preset === 'today') {
     // start/end already today
   } else if (preset === 'thisWeek') {
-    start.setDate(today.getDate() - 6);
+    // 月曜起算: getDay()は日曜=0, 月曜=1, ..., 土曜=6
+    const day = today.getDay();
+    const daysToMonday = day === 0 ? 6 : day - 1;
+    start.setDate(today.getDate() - daysToMonday);
   } else if (preset === 'thisMonth') {
     start = new Date(today.getFullYear(), today.getMonth(), 1);
   } else if (preset === 'last30') {
@@ -3178,8 +3640,14 @@ function setRangePreset(preset) {
     start.setDate(today.getDate() - 30);
   }
 
-  const startStr = start.toISOString().slice(0, 10);
-  const endStr = end.toISOString().slice(0, 10);
+  const toLocalDate = (value) => {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+  const startStr = toLocalDate(start);
+  const endStr = toLocalDate(end);
 
   ['teleapoLogRangeStart', 'teleapoCompanyRangeStart'].forEach(id => { const el = document.getElementById(id); if (el) el.value = startStr; });
   ['teleapoLogRangeEnd', 'teleapoCompanyRangeEnd'].forEach(id => { const el = document.getElementById(id); if (el) el.value = endStr; });
@@ -3188,31 +3656,107 @@ function setRangePreset(preset) {
 function clearDateFilters() {
   ['teleapoLogRangeStart', 'teleapoCompanyRangeStart', 'teleapoLogRangeEnd', 'teleapoCompanyRangeEnd']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  const companyPreset = document.querySelector('[data-scope=\"company\"]');
-  if (companyPreset) companyPreset.querySelectorAll('.kpi-v2-range-btn').forEach(b => b.classList.remove('kpi-v2-range-btn-active'));
+  clearCompanyRangePresetSelection();
+}
+
+function getCompanyPresetButtons() {
+  const scoped = document.querySelector('[data-scope="company"]');
+  if (scoped) return Array.from(scoped.querySelectorAll('[data-preset]'));
+  return Array.from(document.querySelectorAll('#teleapoPerformancePanel [data-preset]'));
+}
+
+function isTeleapoButtonActive(button) {
+  return button.classList.contains('active')
+    || button.classList.contains('is-active')
+    || button.classList.contains('kpi-v2-range-btn-active');
+}
+
+function setTeleapoButtonActive(button, isActive) {
+  if (!button) return;
+  if (isActive) {
+    if (button.classList.contains('kpi-v2-range-btn')) button.classList.add('kpi-v2-range-btn-active');
+    button.classList.add('active', 'is-active');
+    button.setAttribute('aria-pressed', 'true');
+    button.style.setProperty('background-color', '#0077c7', 'important');
+    button.style.setProperty('color', '#ffffff', 'important');
+    button.style.setProperty('font-weight', '600', 'important');
+    button.style.setProperty('box-shadow', '0 2px 8px rgba(0, 119, 199, 0.4)', 'important');
+  } else {
+    if (button.classList.contains('kpi-v2-range-btn')) button.classList.remove('kpi-v2-range-btn-active');
+    button.classList.remove('active', 'is-active');
+    button.setAttribute('aria-pressed', 'false');
+    button.style.removeProperty('background-color');
+    button.style.removeProperty('color');
+    button.style.removeProperty('font-weight');
+    button.style.removeProperty('box-shadow');
+  }
+}
+
+function syncTeleapoButtonGroup(buttons, activeButton) {
+  buttons.forEach(btn => setTeleapoButtonActive(btn, btn === activeButton));
+}
+
+function clearCompanyRangePresetSelection() {
+  const buttons = getCompanyPresetButtons();
+  if (!buttons.length) return;
+  buttons.forEach(btn => setTeleapoButtonActive(btn, false));
 }
 
 function initDateInputs() {
-  // デフォルトは直近180日で広めのモックデータが拾えるようにする
-  setRangePreset('last180');
+  const buttons = getCompanyPresetButtons();
+  // 全ボタン非アクティブ化（デフォルトは全期間）
+  buttons.forEach(btn => setTeleapoButtonActive(btn, false));
+
+  // プリセットなし
+  teleapoActivePreset = null;
+
+  // 日付フィールドクリア
+  ['teleapoLogRangeStart', 'teleapoLogRangeEnd', 'teleapoCompanyRangeStart', 'teleapoCompanyRangeEnd'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+
+  // 初期表示ラベル更新（全期間）
+  refreshForRangeChange();
 }
 
 function initFilters() {
+  const handleRangeChange = () => {
+    teleapoRangeTouched = true;
+    refreshForRangeChange();
+  };
   ['teleapoLogEmployeeFilter', 'teleapoLogResultFilter', 'teleapoLogRouteFilter', 'teleapoLogTargetSearch', 'teleapoLogRangeStart', 'teleapoLogRangeEnd', 'teleapoCompanyRangeStart', 'teleapoCompanyRangeEnd'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.addEventListener(id.includes('TargetSearch') ? 'input' : 'change', applyFilters);
+    el.addEventListener(id.includes('TargetSearch') ? 'input' : 'change', () => {
+      if (id.includes('Range')) {
+        handleRangeChange();
+        return;
+      }
+      applyFilters();
+    });
   });
   const resetBtn = document.getElementById('teleapoLogFilterReset');
-  if (resetBtn) resetBtn.onclick = () => { initDateInputs(); applyFilters(); };
+  if (resetBtn) {
+    resetBtn.onclick = () => {
+      const emp = document.getElementById('teleapoLogEmployeeFilter');
+      const result = document.getElementById('teleapoLogResultFilter');
+      const route = document.getElementById('teleapoLogRouteFilter');
+      const target = document.getElementById('teleapoLogTargetSearch');
+      if (emp) emp.value = '';
+      if (result) result.value = '';
+      if (route) route.value = '';
+      if (target) target.value = '';
+      applyFilters();
+    };
+  }
 }
 
 function initHeatmapControls() {
   const rangeButtons = Array.from(document.querySelectorAll('[data-analysis-range]'));
   const syncButtons = () => {
-    rangeButtons.forEach(b => b.classList.remove('kpi-v2-range-btn-active'));
     const active = rangeButtons.find(b => b.dataset.analysisRange === teleapoAnalysisRange);
-    if (active) active.classList.add('kpi-v2-range-btn-active');
+    syncTeleapoButtonGroup(rangeButtons, active || null);
   };
   syncButtons();
   rangeButtons.forEach(btn => {
@@ -3236,26 +3780,98 @@ function initEmployeeSort() {
   select.addEventListener('change', () => applyFilters());
 }
 
-function initCompanyRangePresets() {
-  const presetWrapper = document.querySelector('[data-scope="company"]');
-  if (!presetWrapper) return;
-  const buttons = presetWrapper.querySelectorAll('.kpi-v2-range-btn');
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const preset = btn.dataset.preset || 'thisMonth';
-      const isActive = btn.classList.contains('kpi-v2-range-btn-active');
-      buttons.forEach(b => b.classList.remove('kpi-v2-range-btn-active'));
-      if (isActive) {
-        // 同じボタンを再クリック→プリセット解除＆日付クリアで全期間表示
-        clearDateFilters();
-        applyFilters();
-        return;
-      }
-      setRangePreset(preset);
-      btn.classList.add('kpi-v2-range-btn-active');
-      applyFilters();
+
+// clearDateFilters definition removed to fix SyntaxError
+
+function initResetButton() {
+  const resetBtn = document.getElementById('teleapoSummaryResetBtn');
+  if (!resetBtn) return;
+
+  resetBtn.addEventListener('click', () => {
+    // プリセット解除
+    const buttons = getCompanyPresetButtons();
+    buttons.forEach(btn => setTeleapoButtonActive(btn, false));
+    teleapoActivePreset = null;
+
+    // 日付クリア
+    ['teleapoLogRangeStart', 'teleapoLogRangeEnd', 'teleapoCompanyRangeStart', 'teleapoCompanyRangeEnd'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
     });
+
+    // 再描画
+    refreshForRangeChange();
   });
+}
+
+function initCompanyRangePresets() {
+  setTimeout(() => {
+    const buttons = getCompanyPresetButtons();
+    if (!buttons.length) return;
+
+    buttons.forEach(btn => {
+      if (btn.dataset.listenerAttached === 'true') return;
+
+      btn.addEventListener('click', () => {
+        teleapoRangeTouched = true;
+        const preset = btn.dataset.preset || 'thisMonth';
+        const isActive = isTeleapoButtonActive(btn);
+
+        syncTeleapoButtonGroup(buttons, null);
+        if (isActive) {
+          teleapoActivePreset = null;
+          ['teleapoLogRangeStart', 'teleapoLogRangeEnd', 'teleapoCompanyRangeStart', 'teleapoCompanyRangeEnd'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+          });
+          refreshForRangeChange();
+          return;
+        }
+        teleapoActivePreset = preset;
+        setRangePreset(preset);
+        setTeleapoButtonActive(btn, true);
+        refreshForRangeChange();
+      });
+
+      btn.dataset.listenerAttached = 'true';
+    });
+  }, 50);
+}
+function initCompanyRangePresets_DISABLED() {
+  console.log('[DEBUG] initCompanyRangePresets: Start');
+  // DOMの確実な読み込みを待つために遅延実行
+  setTimeout(() => {
+    console.log('[DEBUG] initCompanyRangePresets: Timeout callback start');
+    const buttons = getCompanyPresetButtons();
+    console.log('[DEBUG] initCompanyRangePresets: buttons found', buttons.length);
+    if (!buttons.length) return;
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        console.log('[DEBUG] Clicked preset:', btn.dataset.preset);
+        teleapoRangeTouched = true;
+        const preset = btn.dataset.preset || 'thisMonth';
+        const isActive = isTeleapoButtonActive(btn);
+        console.log('[DEBUG] Clicked preset is active?', isActive);
+
+        syncTeleapoButtonGroup(buttons, null);
+        if (isActive) {
+          // 同じボタンを再クリック→プリセット解除＆日付クリアで全期間表示
+          console.log('[DEBUG] Deselecting preset (Total Range)');
+          teleapoActivePreset = null;
+          clearDateFilters();
+          refreshForRangeChange();
+          return;
+        }
+        console.log('[DEBUG] Selecting preset:', preset);
+        teleapoActivePreset = preset;
+        setRangePreset(preset);
+        setTeleapoButtonActive(btn, true);
+        refreshForRangeChange();
+      });
+    });
+    console.log('[DEBUG] initCompanyRangePresets: Timeout callback end');
+  }, 50); // 50ms delay
 }
 
 function updateLogSortIndicators() {
@@ -3372,22 +3988,32 @@ function setToggleButtonState(button, isOpen) {
 }
 
 function initCsTaskToggle() {
-  const toggleBtn = document.getElementById('teleapoCsTaskToggle');
+  const header = document.getElementById('teleapoCsTaskToggle');
   const wrapper = document.getElementById('teleapoCsTaskTableWrapper');
+  if (!header) return;
+  const toggleBtn = header.querySelector('.teleapo-collapsible-btn');
   if (!toggleBtn) return;
+  const parent = header.closest('.teleapo-collapsible');
+  const onToggle = () => {
+    csTaskExpanded = !csTaskExpanded;
+    updateLabel();
+    if (parent) parent.classList.toggle('open', csTaskExpanded);
+    if (wrapper) wrapper.style.display = csTaskExpanded ? 'block' : 'none';
+    if (csTaskExpanded) {
+      renderCsTaskTable(teleapoCsTaskCandidates);
+    }
+  };
   const updateLabel = () => {
     toggleBtn.textContent = csTaskExpanded ? '一覧を閉じる' : '一覧を開く';
     setToggleButtonState(toggleBtn, csTaskExpanded);
   };
   updateLabel();
-  if (wrapper) wrapper.classList.toggle('hidden', !csTaskExpanded);
-  toggleBtn.addEventListener('click', () => {
-    csTaskExpanded = !csTaskExpanded;
-    updateLabel();
-    if (wrapper) wrapper.classList.toggle('hidden', !csTaskExpanded);
-    if (csTaskExpanded) {
-      renderCsTaskTable(teleapoCsTaskCandidates);
-    }
+  if (parent) parent.classList.toggle('open', csTaskExpanded);
+  if (wrapper) wrapper.style.display = csTaskExpanded ? 'block' : 'none';
+  header.addEventListener('click', onToggle);
+  toggleBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onToggle();
   });
 }
 
@@ -3406,20 +4032,30 @@ function initMissingInfoTableActions() {
 }
 
 function initMissingInfoToggle() {
-  const toggleBtn = document.getElementById('teleapoMissingInfoToggle');
+  const header = document.getElementById('teleapoMissingInfoToggle');
   const wrapper = document.getElementById('teleapoMissingInfoTableWrapper');
+  if (!header) return;
+  const toggleBtn = header.querySelector('.teleapo-collapsible-btn');
   if (!toggleBtn) return;
+  const parent = header.closest('.teleapo-collapsible');
+  const onToggle = () => {
+    missingInfoExpanded = !missingInfoExpanded;
+    updateLabel();
+    if (parent) parent.classList.toggle('open', missingInfoExpanded);
+    if (wrapper) wrapper.style.display = missingInfoExpanded ? 'block' : 'none';
+    renderMissingInfoTable(teleapoMissingInfoCandidates);
+  };
   const updateLabel = () => {
     toggleBtn.textContent = missingInfoExpanded ? '一覧を閉じる' : '一覧を開く';
     setToggleButtonState(toggleBtn, missingInfoExpanded);
   };
   updateLabel();
-  if (wrapper) wrapper.classList.toggle('hidden', !missingInfoExpanded);
-  toggleBtn.addEventListener('click', () => {
-    missingInfoExpanded = !missingInfoExpanded;
-    updateLabel();
-    if (wrapper) wrapper.classList.toggle('hidden', !missingInfoExpanded);
-    renderMissingInfoTable(teleapoMissingInfoCandidates);
+  if (parent) parent.classList.toggle('open', missingInfoExpanded);
+  if (wrapper) wrapper.style.display = missingInfoExpanded ? 'block' : 'none';
+  header.addEventListener('click', onToggle);
+  toggleBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onToggle();
   });
 }
 
@@ -3497,24 +4133,27 @@ async function fetchTeleapoApi() {
     || document.getElementById('teleapoCompanyRangeEnd')?.value
     || '';
 
-  // Default to last 30 days when date inputs are empty.
-  // (keeps API queries bounded)
+  // プリセットがアクティブな場合は日付フィールドの値を使用（上書きしない）
+  // 日付が空の場合のみデフォルトを適用
   if (!startStr || !endStr) {
-    const today = new Date();
-    const from = new Date(today);
-    from.setDate(today.getDate() - 30);
-    startStr = from.toISOString().slice(0, 10);
-    endStr = today.toISOString().slice(0, 10);
+    // プリセットがアクティブなら、そのプリセットの日付を再計算
+    if (teleapoActivePreset) {
+      setRangePreset(teleapoActivePreset);
+      startStr = document.getElementById('teleapoCompanyRangeStart')?.value || '';
+      endStr = document.getElementById('teleapoCompanyRangeEnd')?.value || '';
+    }
 
-    // Sync defaults back to both date ranges when present.
-    const s1 = document.getElementById('teleapoLogRangeStart');
-    const e1 = document.getElementById('teleapoLogRangeEnd');
-    const s2 = document.getElementById('teleapoCompanyRangeStart');
-    const e2 = document.getElementById('teleapoCompanyRangeEnd');
-    if (s1) s1.value = startStr;
-    if (e1) e1.value = endStr;
-    if (s2) s2.value = startStr;
-    if (e2) e2.value = endStr;
+    // まだ空なら「全期間」として1年分を取得（APIは日付範囲が必要なため）
+    if (!startStr || !endStr) {
+      const today = new Date();
+      const from = new Date(today);
+      from.setFullYear(today.getFullYear() - 1); // 1年前から
+      startStr = from.toISOString().slice(0, 10);
+      endStr = today.toISOString().slice(0, 10);
+
+      // 日付フィールドは空のままにして「全期間」表示を維持
+      // （UIには表示しないがAPIリクエストには使用）
+    }
   }
 
   const params = new URLSearchParams();
@@ -3607,6 +4246,7 @@ async function loadCandidates() {
     refreshCandidateDatalist(); // datalist更新
 
     teleapoCandidateMaster = items;
+    prefetchValidApplicationForCandidates(teleapoCandidateMaster);
     rebuildCsTaskCandidates();
     const hydrated = hydrateLogCandidateIds(teleapoLogData);
     if (hydrated) {
@@ -3623,13 +4263,30 @@ async function loadCandidates() {
 }
 
 async function loadTeleapoData() {
+  const prevLogs = Array.isArray(teleapoLogData) ? [...teleapoLogData] : [];
+  const prevRange = getLoadedDateRange(prevLogs);
+  const selectedRange = getSelectedRange();
   try {
     const data = await fetchTeleapoApi();
     const logs = Array.isArray(data?.logs) ? data.logs : Array.isArray(data?.items) ? data.items : [];
     const mappedLogs = logs.map(mapApiLog).filter(Boolean);
-    teleapoLogData = mappedLogs.filter(l => l.datetime);
-    if (!teleapoLogData.length && mappedLogs.length) {
-      teleapoLogData = mappedLogs;
+    let nextLogs = mappedLogs.filter(l => l.datetime);
+    if (!nextLogs.length && mappedLogs.length) {
+      nextLogs = mappedLogs;
+    }
+    if (!nextLogs.length && prevLogs.length && (selectedRange.startStr || selectedRange.endStr) && prevRange) {
+      if (isRangeWithinLoaded(selectedRange, prevRange)) {
+        teleapoLogData = prevLogs;
+        applyFilters();
+        return;
+      }
+    }
+    teleapoLogData = nextLogs;
+    if (!teleapoLogData.length && !teleapoRangeTouched && !teleapoAutoFallbackDone) {
+      teleapoAutoFallbackDone = true;
+      clearCompanyRangePresetSelection();
+      setRangePreset('last180');
+      return loadTeleapoData();
     }
     teleapoLogData = mergePendingLogs(teleapoLogData);
     annotateCallAttempts(teleapoLogData);
@@ -3662,12 +4319,34 @@ async function loadTeleapoData() {
   }
 }
 
+async function loadTeleapoRateTargets() {
+  try {
+    await goalSettingsService.load();
+    const periods = goalSettingsService.getEvaluationPeriods();
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${y}-${m}-${d}`;
+    const currentPeriod = goalSettingsService.getPeriodByDate(todayStr, periods);
+    if (currentPeriod?.id) {
+      teleapoRateTargets = await goalSettingsService.loadPageRateTargets(currentPeriod.id) || {};
+    }
+  } catch (error) {
+    console.warn('[teleapo] failed to load rate targets', error);
+    teleapoRateTargets = {};
+  }
+}
+
 // 既存の mount をこれで上書き
 export function mount() {
+  bindTeleapoTabs();
+  bindTeleapoCollapsibles();
   ensureLogHighlightStyles();
   initDateInputs();
   initFilters();
   initCompanyRangePresets();
+  initResetButton();
   initHeatmapControls();
   initEmployeeSort();
   initEmployeeSortHeaders();
@@ -3679,7 +4358,7 @@ export function mount() {
   initMissingInfoTableActions();
   initMissingInfoToggle();
   initLogToggle();
-  initCandidateQuickView();
+  initCandidateQuickView(); // 既存の初期化関数を使用
   initRateModeToggle();
 
   // initLogForm(); // ← ★削除またはコメントアウト（モック用フォームはもう不要）
@@ -3687,12 +4366,21 @@ export function mount() {
   initDialForm(); // 本番用フォーム（POST対応版）
 
   // データロード開始
+  // 目標値をロード
+  loadTeleapoRateTargets().then(() => {
+    // データロード後に目標値があれば再描画されるが、ここでもロードしておく
+    refreshForRangeChange();
+  });
+  loadScreeningRulesForTeleapo();
   // 1. 候補者マスタ取得 (datalist用)
   loadCandidates();
 
   // 2. ログデータ取得 (一覧用)
   loadTeleapoData();
 }
+
+
+
 
 function localDateTimeToRfc3339(localValue) {
   // localValue: "YYYY-MM-DDTHH:mm"
@@ -3713,23 +4401,8 @@ function localDateTimeToRfc3339(localValue) {
   return `${y}-${pad2(m)}-${pad2(d)}T${pad2(hh)}:${pad2(mm)}:00${sign}${tzH}:${tzM}`;
 }
 
-export function unmount() {
-  // cleanup if needed
-}
-
-// 単独HTMLで読み込まれた場合も初期化できるようにする（ルーターがあれば二重実行を避ける）
-if (typeof window !== 'undefined') {
-  window.addEventListener('DOMContentLoaded', () => {
-    const pageEl = document.querySelector('[data-page="teleapo"]');
-    if (!pageEl) return;
-    if (window.__teleapoMounted) return;
-    window.__teleapoMounted = true;
-    mount();
-  });
-}
-
 // ★ ここを実際のAPI Gatewayに合わせる（teleapo GETと同じでOK）
-const TELEAPO_API_BASE = "https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev";
+const TELEAPO_API_BASE = "https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod";
 const TELEAPO_LOGS_PATH = "/teleapo/logs";
 const TELEAPO_LOGS_URL = `${TELEAPO_API_BASE}${TELEAPO_LOGS_PATH}`;
 

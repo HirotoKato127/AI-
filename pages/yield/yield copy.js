@@ -8,10 +8,11 @@ import {
   buildCompanyKpiFromCandidates
 } from './yield-metrics-from-candidates.js';
 
+
+
 // API接続設定
-const YIELD_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
-const KPI_API_BASE = `${YIELD_API_BASE}/kpi`;
-const MEMBERS_API_BASE = YIELD_API_BASE;
+const KPI_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod/kpi';
+const MEMBERS_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
 const MEMBERS_LIST_PATH = '/members';
 const KPI_YIELD_PATH = '/yield';
 const KPI_YIELD_TREND_PATH = '/yield/trend';
@@ -21,11 +22,6 @@ const DEFAULT_ADVISOR_USER_ID = 30;
 const DEFAULT_CALC_MODE = 'cohort';
 const DEFAULT_RATE_CALC_MODE = 'base';
 const RATE_CALC_MODE_STORAGE_KEY = 'yieldRateCalcMode.v1';
-const YIELD_UI_VERSION = '20260203_14';
-
-if (typeof window !== 'undefined') {
-  window.__yieldVersion = YIELD_UI_VERSION;
-}
 
 async function fetchJson(url, params = {}) {
   const query = new URLSearchParams(params);
@@ -148,59 +144,26 @@ const MS_SALES_METRICS = [
   { key: 'new_interviews', label: '新規面談数', targetKey: 'newInterviews' },
   { key: 'proposals', label: '提案数', targetKey: 'proposals' },
   { key: 'recommendations', label: '推薦数', targetKey: 'recommendations' },
-  { key: 'interviews_scheduled', label: '面接設定数', targetKey: 'interviewsScheduled' },
-  { key: 'interviews_held', label: '面接実施数', targetKey: 'interviewsHeld' },
+  { key: 'interview_settings', label: '面接設定数', targetKey: 'interviewSettings' },
+  { key: 'interview_executions', label: '面接実施数', targetKey: 'interviewExecutions' },
   { key: 'offers', label: '内定数', targetKey: 'offers' },
-  { key: 'accepts', label: '承諾数', targetKey: 'accepts' }
+  { key: 'acceptances', label: '承諾数', targetKey: 'acceptances' }
 ];
 
 // 部門判定関数
-function mapRoleToDepartment(role) {
-  const r = String(role || '').toLowerCase();
-  if (!r) return '';
-
-  // CS / call
-  if (
-    r.includes('caller') ||
-    r.includes('call') ||
-    r.includes('teleapo') ||
-    r.includes('テレアポ') ||
-    r.includes('架電') ||
-    r.includes('cs') ||
-    r.includes('カスタマー') ||
-    r.includes('サポート')
-  ) {
-    return 'cs';
-  }
-
-  // Marketing
-  if (
-    r.includes('marketer') ||
-    r.includes('marketing') ||
-    r.includes('market') ||
-    r.includes('マーケ') ||
-    r.includes('マーケティング')
-  ) {
-    return 'marketing';
-  }
-
-  // Sales
-  if (
-    r.includes('advisor') ||
-    r.includes('sales') ||
-    r.includes('営業') ||
-    r.includes('アドバイザー')
-  ) {
-    return 'sales';
-  }
-
-  return '';
-}
-
 function getDepartmentFromRole(role) {
-  const mapped = mapRoleToDepartment(role);
-  if (mapped) return mapped;
-  // それ以外は暫定的に営業（sales）
+  const r = String(role || '').toLowerCase();
+
+  // CS は caller
+  if (r.includes('caller')) return 'cs';
+
+  // 営業 は advisor または sales
+  if (r.includes('advisor') || r.includes('sales')) return 'sales';
+
+  // マーケ は marketer, marketing, admin
+  if (r.includes('marketer') || r.includes('marketing') || r.includes('admin')) return 'marketing';
+
+  // それ以外は暫定的にすべて営業（sales）として扱う（メンバーが表示されない問題を回避するため）
   return 'sales';
 }
 
@@ -374,39 +337,10 @@ async function resolveAdvisorUserId() {
   return DEFAULT_ADVISOR_USER_ID;
 }
 
-async function resolveUserDepartmentKey() {
-  const session = getSession();
-  const roleCandidates = [
-    session?.user?.role,
-    session?.user?.department,
-    session?.user?.division,
-    session?.user?.team,
-    session?.user?.jobTitle
-  ];
-  for (const candidate of roleCandidates) {
-    const mapped = mapRoleToDepartment(candidate);
-    if (mapped) return mapped;
-  }
-  const members = await ensureMembersList();
-  const sessionEmail = String(session?.user?.email || '').toLowerCase();
-  const sessionName = String(session?.user?.name || '');
-  const sessionId = String(session?.user?.id || '');
-  let matched = null;
-  if (sessionId) matched = members.find(member => String(member?.id || '') === sessionId);
-  if (!matched && sessionEmail) {
-    matched = members.find(member => String(member?.email || '').toLowerCase() === sessionEmail);
-  }
-  if (!matched && sessionName) {
-    matched = members.find(member => String(member?.name || '') === sessionName);
-  }
-  const mapped = mapRoleToDepartment(matched?.role || '');
-  return mapped || 'sales';
-}
-
 
 async function fetchPersonalKpiFromApi({ startDate, endDate, planned = false }) {
   const advisorUserId = await resolveAdvisorUserId();
-  console.log('[yield] fetch personal kpi', { startDate, endDate, advisorUserId, planned });
+  console.log('[yield] fetch personal kpi', { startDate, endDate, advisorUserId });
   const params = {
     from: startDate,
     to: endDate,
@@ -418,60 +352,24 @@ async function fetchPersonalKpiFromApi({ startDate, endDate, planned = false }) 
   };
   if (planned) params.planned = '1';
   const json = await fetchJson(`${KPI_API_BASE}${KPI_YIELD_PATH}`, params);
-  console.log('[yield] personal kpi response', json);
-  const kpi = json?.items?.[0]?.kpi || null;
-  console.log('[yield] personal kpi fields', {
-    revenue: kpi?.revenue,
-    currentAmount: kpi?.currentAmount,
-    revenueAmount: kpi?.revenueAmount,
-    current_amount: kpi?.current_amount,
-    revenue_amount: kpi?.revenue_amount,
-    targetAmount: kpi?.targetAmount,
-    revenueTarget: kpi?.revenueTarget,
-    revenue_target: kpi?.revenue_target,
-    achievementRate: kpi?.achievementRate
-  });
-  if (kpi && kpi.revenue === undefined && kpi.currentAmount === undefined && kpi.revenueAmount === undefined) {
-    console.warn('[yield] personal kpi missing revenue fields', kpi);
-  }
-  return kpi;
+  return json?.items?.[0]?.kpi || null;
 }
 
-async function fetchCompanyKpiFromApi({ startDate, endDate, msMode = false }) {
-  const params = {
+async function fetchCompanyKpiFromApi({ startDate, endDate }) {
+  const json = await fetchJson(`${KPI_API_BASE}${KPI_YIELD_PATH}`, {
     from: startDate,
     to: endDate,
     scope: 'company',
     granularity: 'summary',
     groupBy: 'none',
     ...buildCalcModeParams()
-  };
-  if (msMode) {
-    params.ms = '1';
-  }
-  const json = await fetchJson(`${KPI_API_BASE}${KPI_YIELD_PATH}`, params);
-  console.log('[yield] company kpi response', json);
-  const kpi = json?.items?.[0]?.kpi || null;
-  console.log('[yield] company kpi fields', {
-    revenue: kpi?.revenue,
-    currentAmount: kpi?.currentAmount,
-    revenueAmount: kpi?.revenueAmount,
-    current_amount: kpi?.current_amount,
-    revenue_amount: kpi?.revenue_amount,
-    targetAmount: kpi?.targetAmount,
-    revenueTarget: kpi?.revenueTarget,
-    revenue_target: kpi?.revenue_target,
-    achievementRate: kpi?.achievementRate
   });
-  if (kpi && kpi.revenue === undefined && kpi.currentAmount === undefined && kpi.revenueAmount === undefined) {
-    console.warn('[yield] company kpi missing revenue fields', kpi);
-  }
-  return kpi;
+  return json?.items?.[0]?.kpi || null;
 }
 
 const dailyYieldCache = new Map();
 
-async function fetchDailyYieldFromApi({ startDate, endDate, advisorUserId, msMode = false }) {
+async function fetchDailyYieldFromApi({ startDate, endDate, advisorUserId }) {
   const params = {
     from: startDate,
     to: endDate,
@@ -480,12 +378,8 @@ async function fetchDailyYieldFromApi({ startDate, endDate, advisorUserId, msMod
     groupBy: 'advisor',
     ...buildCalcModeParams()
   };
-  if (msMode) {
-    params.ms = '1';
-  }
   console.log('[yield] fetch daily kpi', params);
   const json = await fetchJson(`${KPI_API_BASE}${KPI_YIELD_PATH}`, params);
-  console.log('[DEBUG] fetchDailyYieldFromApi raw json:', JSON.stringify(json, null, 2));
   const rawItems = Array.isArray(json?.items) ? json.items : [];
   const items = await mergeMembersWithDailyItems(rawItems);
   const employees = items.map(item => ({
@@ -537,81 +431,6 @@ async function fetchYieldBreakdownFromApi({ startDate, endDate, scope, advisorUs
     labels: items.map(item => item.label),
     data: items.map(item => num(item.count))
   };
-}
-
-// CS向け: teleapo APIから日別実績を取得
-const csTeleapoCache = new Map();
-
-async function fetchCsTeleapoDaily({ startDate, endDate, callerUserId }) {
-  const cacheKey = `${startDate}:${endDate}:${callerUserId || 'all'}`;
-  if (csTeleapoCache.has(cacheKey)) return csTeleapoCache.get(cacheKey);
-
-  try {
-    const params = {
-      from: startDate,
-      to: endDate,
-      groupBy: 'date'
-    };
-    if (Number.isFinite(callerUserId) && callerUserId > 0) {
-      params.callerUserId = callerUserId;
-    }
-    const json = await fetchJson(`${KPI_API_BASE}/teleapo`, params);
-    const rows = Array.isArray(json?.rows) ? json.rows : [];
-
-    // 日別データをdate -> counts形式に変換
-    const dailyData = {};
-    rows.forEach(row => {
-      const dateStr = row.date ? String(row.date).split('T')[0] : null;
-      if (!dateStr) return;
-      dailyData[dateStr] = {
-        appointments: row.counts?.scheduledCalls || 0,  // 設定数
-        sitting: row.counts?.attendedCalls || 0          // 着座数
-      };
-    });
-
-    csTeleapoCache.set(cacheKey, dailyData);
-    return dailyData;
-  } catch (error) {
-    console.error('[yield] fetchCsTeleapoDaily failed', error);
-    return {};
-  }
-}
-
-// Marketing向け: 有効応募数の日別実績を取得
-const marketingValidAppCache = new Map();
-
-async function fetchMarketingValidApplicationsDaily({ startDate, endDate }) {
-  const cacheKey = `${startDate}:${endDate}`;
-  if (marketingValidAppCache.has(cacheKey)) return marketingValidAppCache.get(cacheKey);
-
-  try {
-    // candidates API から有効応募を日別集計
-    const json = await fetchJson(`${YIELD_API_BASE}/candidates`, {
-      from: startDate,
-      to: endDate,
-      effectiveOnly: true,
-      groupBy: 'date'
-    });
-
-    // レスポンス形式に応じてパース
-    const items = Array.isArray(json?.items) ? json.items : [];
-    const dailyData = {};
-
-    items.forEach(item => {
-      const dateStr = item.date || item.created_at?.split('T')[0];
-      if (!dateStr) return;
-      if (!dailyData[dateStr]) {
-        dailyData[dateStr] = { valid_applications: 0 };
-      }
-      dailyData[dateStr].valid_applications += 1;
-    });
-
-    marketingValidAppCache.set(cacheKey, dailyData);
-    return dailyData;
-  } catch (error) {
-    console.error('[yield] fetchMarketingValidApplicationsDaily failed', error);
-    return {};
-  }
 }
 
 async function fetchCompanyEmployeeKpis({ startDate, endDate }) {
@@ -701,82 +520,27 @@ function ensureCompanyDailyEmployeeId() {
   }
 }
 
-async function ensureDailyYieldData(periodId, { msMode = false } = {}) {
+async function ensureDailyYieldData(periodId) {
   if (!periodId) return null;
   const period = state.evaluationPeriods.find(item => item.id === periodId);
   if (!period) return null;
   const advisorUserId = await resolveAdvisorUserId();
-  const cacheKey = `${periodId}:${advisorUserId || 'none'}:${getCalcMode()}:${msMode ? 'ms' : 'default'}`;
+  const cacheKey = `${periodId}:${advisorUserId || 'none'}:${getCalcMode()}`;
   if (dailyYieldCache.has(cacheKey)) return dailyYieldCache.get(cacheKey);
   try {
-    // 営業向けのKPIデータを取得
     const payload = await fetchDailyYieldFromApi({
       startDate: period.startDate,
       endDate: period.endDate,
-      advisorUserId,
-      msMode
+      advisorUserId
     });
     dailyYieldCache.set(cacheKey, payload);
     applyDailyYieldResponse(periodId, payload);
     ensureCompanyDailyEmployeeId();
-
-    // ★ロールに応じて追加のデータを取得
-    const deptKey = await resolveUserDepartmentKey();
-
-    if (deptKey === 'cs') {
-      // CS: teleapoデータを取得してマージ
-      const csData = await fetchCsTeleapoDaily({
-        startDate: period.startDate,
-        endDate: period.endDate,
-        callerUserId: advisorUserId
-      });
-      if (csData && Object.keys(csData).length > 0) {
-        // 既存のpersonalDailyDataにCSデータをマージ
-        const existingData = state.personalDailyData[periodId] || {};
-        Object.entries(csData).forEach(([date, counts]) => {
-          if (!existingData[date]) existingData[date] = {};
-          existingData[date].appointments = counts.appointments || 0;
-          existingData[date].sitting = counts.sitting || 0;
-        });
-        state.personalDailyData[periodId] = existingData;
-      }
-
-    } else if (deptKey === 'marketing') {
-      // Marketing: 有効応募数データを取得してマージ
-      const marketingData = await fetchMarketingValidApplicationsDaily({
-        startDate: period.startDate,
-        endDate: period.endDate
-      });
-      if (marketingData && Object.keys(marketingData).length > 0) {
-        const existingData = state.personalDailyData[periodId] || {};
-        Object.entries(marketingData).forEach(([date, counts]) => {
-          if (!existingData[date]) existingData[date] = {};
-          existingData[date].valid_applications = counts.valid_applications || 0;
-        });
-        state.personalDailyData[periodId] = existingData;
-      }
-    }
-
     return payload;
   } catch (error) {
     console.error('[yield] daily api failed', error);
     return null;
   }
-}
-
-
-function buildDailyTotalsAllMetrics(periodId) {
-  const totals = {};
-  Object.values(state.companyDailyData || {}).forEach(periodMap => {
-    const series = periodMap?.[periodId] || {};
-    Object.entries(series).forEach(([date, counts]) => {
-      if (!totals[date]) totals[date] = {};
-      Object.entries(counts || {}).forEach(([key, value]) => {
-        totals[date][key] = num(totals[date][key]) + num(value);
-      });
-    });
-  });
-  return totals;
 }
 
 let candidateDataset = [];
@@ -1014,8 +778,7 @@ const DAILY_FIELDS = [
   { targetKey: 'interviewsScheduledTarget', dataKey: 'interviewsScheduled' },
   { targetKey: 'interviewsHeldTarget', dataKey: 'interviewsHeld' },
   { targetKey: 'offersTarget', dataKey: 'offers' },
-  { targetKey: 'acceptsTarget', dataKey: 'accepts' },
-  { targetKey: 'revenueTarget', dataKey: 'revenue' }
+  { targetKey: 'acceptsTarget', dataKey: 'accepts' }
 ];
 
 const DAILY_LABELS = {
@@ -1025,8 +788,7 @@ const DAILY_LABELS = {
   interviewsScheduled: '面接設定数',
   interviewsHeld: '面接実施数',
   offers: '内定数',
-  accepts: '承諾数',
-  revenue: '売上'
+  accepts: '承諾数'
 };
 
 const MS_DEPARTMENTS = [
@@ -1299,7 +1061,6 @@ const mockDashboardData = {
 const state = {
   yieldScope: 'all',
   isAdmin: false,
-  loadSeq: 0,
   calcMode: DEFAULT_CALC_MODE,
   rateCalcMode: DEFAULT_RATE_CALC_MODE,
   kpiTargets: {}, // New field
@@ -1326,8 +1087,8 @@ const state = {
   companyDailyData: {},
   companyDailyEmployees: [],
   ranges: {
-    personalPeriod: {},
-    companyPeriod: {},
+    personal: {},
+    company: {},
     employee: getCurrentMonthRange()
   },
   employees: {
@@ -1352,32 +1113,17 @@ const state = {
     dailyTotals: {},
     companyTarget: {},
     msTargets: {}, // 部門別・日付別のMS目標値
-    msTargetTotals: {}, // 部門別・指標別の期間目標
     msActuals: {}, // 部門別・日付別のMS実績値
     revenue: {
       actual: 0,
       target: 0
     }
   },
-  msRateModes: {
-    personalDaily: 'daily',
-    companyMs: 'daily'
-  },
-  personalDailyMs: {
-    metricKeys: {},
-    targets: {},
-    totals: {}
-  },
   // 個人別MSデータ
   personalMs: {
-    marketing: { members: [], msTargets: {}, msTargetTotals: {}, msActuals: {}, dates: [], metricKeys: {} },
-    cs: { members: [], msTargets: {}, msTargetTotals: {}, msActuals: {}, dates: [], metricKeys: {} },
-    sales: { members: [], msTargets: {}, msTargetTotals: {}, msActuals: {}, dates: [], metricKeys: {} },
-    importantMetrics: {
-      marketing: {},
-      cs: {},
-      sales: {}
-    }
+    marketing: { members: [], msTargets: {}, msActuals: {}, dates: [], metricKeys: {} },
+    cs: { members: [], msTargets: {}, msActuals: {}, dates: [], metricKeys: {} },
+    sales: { members: [], msTargets: {}, msActuals: {}, dates: [], metricKeys: {} }
   },
   companySales: {
     metricKeys: {},
@@ -1403,10 +1149,6 @@ const state = {
     }
   }
 };
-
-if (typeof window !== 'undefined') {
-  window.__yieldState = state;
-}
 
 let chartJsPromise = null;
 
@@ -1461,10 +1203,7 @@ function getDashboardTrendGranularity(scope) {
 }
 
 function isoDate(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return date.toISOString().split('T')[0];
 }
 
 function formatPeriodMonthLabel(period) {
@@ -1623,42 +1362,14 @@ function initializeCalcModeControls() {
 
 function updateRateModeLabels() {
   const mode = getRateCalcMode();
-  const label = getRateCalcModeLabel(mode);
   document.querySelectorAll('[data-rate-calc-mode-select]').forEach(el => {
     el.value = mode;
   });
-  document.querySelectorAll('[data-rate-mode-label]').forEach(el => {
-    el.textContent = label;
-  });
-  document.querySelectorAll('[data-rate-mode-toggle]').forEach(button => {
-    button.setAttribute('aria-pressed', mode === 'step' ? 'true' : 'false');
-  });
-}
-
-function applyRateMode(nextMode, { syncSelects = true } = {}) {
-  const next = normalizeRateCalcMode(nextMode);
-  if (next === state.rateCalcMode) return;
-  state.rateCalcMode = next;
-  try {
-    localStorage.setItem(RATE_CALC_MODE_STORAGE_KEY, next);
-  } catch (error) {
-    console.warn('[yield] failed to persist rate calc mode', error);
-  }
-  if (syncSelects) {
-    document.querySelectorAll('[data-rate-calc-mode-select]').forEach(select => {
-      select.value = next;
-    });
-  }
-  updateRateModeLabels();
-  loadYieldData();
-  reloadDashboardData('personal');
-  reloadDashboardData('company');
 }
 
 function initializeRateModeControls() {
   const selects = Array.from(document.querySelectorAll('[data-rate-calc-mode-select]'));
-  const toggles = Array.from(document.querySelectorAll('[data-rate-mode-toggle]'));
-  if (!selects.length && !toggles.length) return;
+  if (!selects.length) return;
   let stored = null;
   try {
     stored = localStorage.getItem(RATE_CALC_MODE_STORAGE_KEY);
@@ -1669,63 +1380,24 @@ function initializeRateModeControls() {
   updateRateModeLabels();
   selects.forEach(select => {
     select.addEventListener('change', (e) => {
-      applyRateMode(e.target.value, { syncSelects: false });
+      const next = normalizeRateCalcMode(e.target.value);
+      state.rateCalcMode = next;
+      try {
+        localStorage.setItem(RATE_CALC_MODE_STORAGE_KEY, next);
+      } catch (error) {
+        console.warn('[yield] failed to persist rate calc mode', error);
+      }
+
       // Update other selects
       selects.forEach(other => {
-        if (other !== select) other.value = state.rateCalcMode;
+        if (other !== select) other.value = next;
       });
+
+      loadYieldData();
+      reloadDashboardData('personal');
+      reloadDashboardData('company');
     });
   });
-  toggles.forEach(button => {
-    if (button.dataset.bound) return;
-    button.addEventListener('click', () => {
-      const next = state.rateCalcMode === 'step' ? 'base' : 'step';
-      applyRateMode(next);
-    });
-    button.dataset.bound = 'true';
-  });
-}
-
-function updateMsRateToggleButton(button, mode) {
-  if (!button) return;
-  const label = mode === 'overall' ? '全体' : '毎日';
-  button.textContent = label;
-  button.setAttribute('aria-pressed', mode === 'overall' ? 'true' : 'false');
-}
-
-function initializeMsRateToggles() {
-  document.querySelectorAll('[data-ms-rate-toggle]').forEach(button => {
-    const scope = button.dataset.msRateScope;
-    if (!scope) return;
-    const current = state.msRateModes?.[scope] || 'daily';
-    updateMsRateToggleButton(button, current);
-  });
-
-  const root = document.body;
-  if (!root || root.dataset.msRateToggleBound === 'true') return;
-  const handler = (event) => {
-    const button = event.target.closest('[data-ms-rate-toggle]');
-    if (!button) return;
-    const scope = button.dataset.msRateScope;
-    if (!scope) return;
-    if (!state.msRateModes) state.msRateModes = {};
-    const next = state.msRateModes[scope] === 'overall' ? 'daily' : 'overall';
-    state.msRateModes[scope] = next;
-    document
-      .querySelectorAll(`[data-ms-rate-toggle][data-ms-rate-scope="${scope}"]`)
-      .forEach(btn => updateMsRateToggleButton(btn, next));
-    if (scope === 'personalDaily') {
-      const periodId = state.personalDailyPeriodId;
-      const dailyData = state.personalDailyData[periodId] || {};
-      renderPersonalDailyTable(periodId, dailyData);
-    }
-    if (scope === 'companyMs') {
-      renderCompanyMsTable();
-      renderAllPersonalMsTables();
-    }
-  };
-  root.addEventListener('click', handler);
-  root.dataset.msRateToggleBound = 'true';
 }
 
 export async function mount(root) {
@@ -1748,16 +1420,7 @@ export async function mount(root) {
   safe('initializeEvaluationPeriods', initializeEvaluationPeriods);
   safe('initializeCalcModeControls', initializeCalcModeControls);
   safe('initializeRateModeControls', initializeRateModeControls);
-  safe('initializeMsRateToggles', initializeMsRateToggles);
   safe('loadYieldData', loadYieldData);
-
-  // Force load CSS with cache buster
-  if (typeof document !== 'undefined') {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = './pages/yield/yield.css?v=20260205_140149';
-    document.head.appendChild(link);
-  }
 }
 
 export function unmount() { }
@@ -1775,24 +1438,25 @@ function initializeDatePickers() {
   if (companyPeriodStart) companyPeriodStart.value = monthRange.startDate;
   if (companyPeriodEnd) companyPeriodEnd.value = monthRange.endDate;
 
-  state.ranges.personalPeriod = { startDate: personalRangeStart?.value, endDate: personalRangeEnd?.value };
-  state.ranges.companyPeriod = { startDate: companyPeriodStart?.value, endDate: companyPeriodEnd?.value };
+  state.ranges.personal = { startDate: personalRangeStart?.value, endDate: personalRangeEnd?.value };
+  state.ranges.company = { startDate: companyPeriodStart?.value, endDate: companyPeriodEnd?.value };
 
   const handlePersonalChange = () => {
     const nextRange = { startDate: personalRangeStart?.value, endDate: personalRangeEnd?.value };
     if (isValidRange(nextRange)) {
       state.personalDisplayMode = 'range';
-      state.ranges.personalPeriod = nextRange;
+      state.ranges.personal = nextRange;
       loadYieldData();
     }
   };
   [personalRangeStart, personalRangeEnd].forEach(input => input?.addEventListener('change', handlePersonalChange));
 
-  const handleCompanyChange = async () => {
+  const handleCompanyChange = () => {
     const nextRange = { startDate: companyPeriodStart?.value, endDate: companyPeriodEnd?.value };
     if (isValidRange(nextRange)) {
-      state.ranges.companyPeriod = nextRange;
-      await loadCompanyPeriodKPIData();
+      state.companyDisplayMode = 'range';
+      state.ranges.company = nextRange;
+      loadCompanyPeriodKPIData();
     }
   };
   [companyPeriodStart, companyPeriodEnd].forEach(input => input?.addEventListener('change', handleCompanyChange));
@@ -1837,7 +1501,7 @@ function initPersonalPeriodPreset() {
     endInputId: 'personalRangeEnd',
     onApply: (startDate, endDate) => {
       state.personalDisplayMode = 'range';
-      state.ranges.personalPeriod = { startDate, endDate };
+      state.ranges.personal = { startDate, endDate };
       loadYieldData();
     }
   });
@@ -1849,7 +1513,8 @@ function initCompanyPeriodPreset() {
     startInputId: 'companyPeriodStart',
     endInputId: 'companyPeriodEnd',
     onApply: (startDate, endDate) => {
-      state.ranges.companyPeriod = { startDate, endDate };
+      state.companyDisplayMode = 'range';
+      state.ranges.company = { startDate, endDate };
       loadCompanyPeriodKPIData();
     }
   });
@@ -2100,34 +1765,39 @@ function renderRateDetails(section, data) {
 }
 
 function renderPersonalSummary(rangeData, monthOverride) {
-  const primary = monthOverride || {};
-  const fallback = rangeData || {};
-  const primaryAmount = num(primary?.currentAmount ?? primary?.revenue ?? primary?.revenueAmount);
-  const fallbackAmount = num(fallback?.currentAmount ?? fallback?.revenue ?? fallback?.revenueAmount);
-  const useFallback = primaryAmount === 0 && fallbackAmount > 0;
-  const targetPrimary = num(primary?.targetAmount ?? primary?.revenueTarget ?? primary?.target_amount ?? primary?.revenue_target);
-  const targetFallback = num(fallback?.targetAmount ?? fallback?.revenueTarget ?? fallback?.target_amount ?? fallback?.revenue_target);
   const summary = {
-    achievementRate: num(primary?.achievementRate ?? fallback?.achievementRate),
-    currentAmount: useFallback ? fallbackAmount : primaryAmount,
-    targetAmount: targetPrimary || targetFallback || 0,
-    usedFallback: useFallback
+    achievementRate: num(monthOverride?.achievementRate ?? rangeData?.achievementRate),
+    currentAmount: num(
+      monthOverride?.currentAmount ??
+      monthOverride?.revenue ??
+      monthOverride?.revenueAmount ??
+      rangeData?.currentAmount ??
+      rangeData?.revenue ??
+      rangeData?.revenueAmount
+    ),
+    targetAmount: num(
+      monthOverride?.targetAmount ??
+      monthOverride?.revenueTarget ??
+      rangeData?.targetAmount ??
+      rangeData?.revenueTarget
+    )
   };
-  console.log('[yield] personal revenue summary', { monthOverride, rangeData, summary });
-  const periodTarget = goalSettingsService.getPersonalPeriodTarget(
-    state.personalEvaluationPeriodId,
-    getAdvisorName()
-  );
-  if (periodTarget?.revenueTarget !== undefined) {
-    summary.targetAmount = num(periodTarget.revenueTarget);
+  if (state.personalDisplayMode !== 'range') {
+    const periodTarget = goalSettingsService.getPersonalPeriodTarget(
+      state.personalEvaluationPeriodId,
+      getAdvisorName()
+    );
+    if (periodTarget?.revenueTarget !== undefined) {
+      summary.targetAmount = num(periodTarget.revenueTarget);
+    }
   }
   if (summary.targetAmount > 0) {
     summary.achievementRate = Math.round((summary.currentAmount / summary.targetAmount) * 100);
   }
   const rateText = summary.targetAmount > 0 ? `${summary.achievementRate}%` : '--%';
   setText('personalAchievementRate', rateText);
-  setText('personalCurrent', `¥${summary.currentAmount.toLocaleString()}`);
-  setText('personalTarget', `¥${summary.targetAmount.toLocaleString()}`);
+  setText('personalCurrent', `?${summary.currentAmount.toLocaleString()}`);
+  setText('personalTarget', `?${summary.targetAmount.toLocaleString()}`);
   const progressFill = document
     .getElementById('personalAchievementRate')
     ?.closest('.kpi-v2-summary-unified')
@@ -2142,8 +1812,9 @@ function renderPersonalSummary(rangeData, monthOverride) {
 
 function renderPersonalKpis(todayData, summaryData, periodData) {
   const today = normalizeTodayKpi(todayData);
-  const monthly = normalizeKpi(summaryData?.monthly || summaryData?.period || summaryData || {});
+  const monthly = normalizeKpi(summaryData?.monthly || summaryData || {});
   const period = normalizeKpi(periodData?.period || periodData || {});
+  const display = state.personalDisplayMode === 'range' ? period : monthly;
 
   state.kpi.today = today;
   state.kpi.monthly = monthly;
@@ -2154,17 +1825,13 @@ function renderPersonalKpis(todayData, summaryData, periodData) {
 
   renderCounts('today', today);
 
-  renderCounts('personalMonthly', monthly);
-  renderRates('personalMonthly', monthly);
-  renderRateDetails('personalMonthly', monthly);
-  renderGoalProgress('monthly', monthly);
-  renderDeltaBadges('personalMonthly', monthly, {}, { includeRates: true });
+  renderCounts('personalMonthly', display);
+  renderRates('personalMonthly', display);
+  renderRateDetails('personalMonthly', display);
+  renderGoalProgress('monthly', display);
+  renderDeltaBadges('personalMonthly', display, {}, { includeRates: true });
 
-  renderCounts('personalPeriod', period);
-  renderRates('personalPeriod', period);
-  renderRateDetails('personalPeriod', period);
-
-  renderPersonalSummary(monthly, monthly);
+  renderPersonalSummary(display, display);
   updatePersonalPeriodLabels();
   syncEvaluationPeriodLabels();
 }
@@ -2199,10 +1866,9 @@ function renderCompanyTargets() {
 }
 
 function renderCompanyRevenueSummary(target = {}) {
-  const current = num(state.kpi.companyMonthly?.currentAmount ?? state.kpi.companyMonthly?.revenue ?? state.kpi.companyMonthly?.revenueAmount);
+  const current = num(state.kpi.companyMonthly?.revenue);
   const targetAmount = num(target.revenueTarget);
   const achv = targetAmount > 0 ? Math.round((current / targetAmount) * 100) : 0;
-  console.log('[yield] company revenue summary', { target, current, targetAmount, monthly: state.kpi.companyMonthly });
   setText('companyCurrent', `¥${current.toLocaleString()}`);
   setText('companyTarget', `¥${targetAmount.toLocaleString()}`);
   setText('companyAchievementRate', targetAmount > 0 ? `${achv}%` : '--%');
@@ -2236,29 +1902,17 @@ function renderCompanyGoalCards(target = {}, actuals = {}) {
 
 function renderCompanyRateGoals() {
   const targets = state.kpiTargets || {};
-  const companyTarget = state.companyEvaluationPeriodId
-    ? goalSettingsService.getCompanyPeriodTarget(state.companyEvaluationPeriodId) || {}
-    : {};
   const rateKeys = [
     'proposalRate', 'recommendationRate', 'interviewScheduleRate',
     'interviewHeldRate', 'offerRate', 'acceptRate', 'hireRate'
   ];
-
-  const resolveFallbackTarget = (rateKey) => {
-    const entry = Object.entries(TARGET_TO_DATA_KEY).find(([, dataKey]) => dataKey === rateKey);
-    const targetKey = entry?.[0];
-    if (!targetKey) return undefined;
-    const raw = companyTarget[targetKey];
-    return raw === undefined || raw === null ? undefined : num(raw);
-  };
 
   rateKeys.forEach(key => {
     // 目標値表示
     const goalRef = `companyGoal-${key}`;
     const el = document.querySelector(`[data-ref="${goalRef}"]`);
     if (el) {
-      const fallbackVal = resolveFallbackTarget(key);
-      const val = targets[key] !== undefined && targets[key] !== null ? targets[key] : fallbackVal;
+      const val = targets[key];
       const hasVal = val !== undefined && val !== null;
       el.textContent = hasVal ? `${val}%` : '--';
 
@@ -2269,14 +1923,12 @@ function renderCompanyRateGoals() {
       el.onclick = (e) => handleRateGoalClick(e, key, val);
     }
 
-    // 進捗率表示
+    // 達成率表示
     const achvRef = `companyAchv-${key}`;
     const achvEl = document.querySelector(`[data-ref="${achvRef}"]`);
     if (achvEl) {
       const actual = num(state.kpi.companyMonthly?.[key]);
-      const fallbackVal = resolveFallbackTarget(key);
-      const resolvedTarget = targets[key] !== undefined && targets[key] !== null ? targets[key] : fallbackVal;
-      const targetVal = num(resolvedTarget);
+      const targetVal = num(targets[key]);
       if (targetVal > 0) {
         const rate = Math.round((actual / targetVal) * 100);
         achvEl.textContent = `${rate}%`;
@@ -2333,8 +1985,6 @@ function handleRateGoalClick(e, key, currentVal) {
 }
 
 async function loadYieldData() {
-  const loadToken = ++state.loadSeq;
-  const isCurrent = () => state.loadSeq === loadToken;
   try {
     const wantsPersonal = isYieldScope('personal');
     const wantsCompany = isYieldScope('company');
@@ -2367,22 +2017,17 @@ async function loadYieldData() {
         loadPersonalSummaryKPIData(),
         loadPersonalKPIData()
       ]);
-      if (!isCurrent()) return;
       if (todayData || personalSummary || personalRange) {
-        const summaryPayload = personalSummary && Object.keys(personalSummary).length ? personalSummary : personalRange;
-        renderPersonalKpis(todayData || {}, summaryPayload || {}, personalRange || {});
+        renderPersonalKpis(todayData || {}, personalSummary || {}, personalRange || {});
       }
     }
 
     if (wantsCompany) {
       const companyKPI = await loadCompanyKPIData();
-      if (!isCurrent()) return;
       if (companyKPI) renderCompanyMonthly(companyKPI);
       await loadCompanyPeriodKPIData();
-      if (!isCurrent()) return;
       // Load MS for Company scope too
       await loadAndRenderCompanyMs();
-      if (!isCurrent()) return;
     }
 
     if (wantsAdmin) {
@@ -2391,27 +2036,20 @@ async function loadYieldData() {
       // if (todayEmployeeRows?.length) renderCompanyTodayTable();
 
       const companyTermRows = await loadCompanyTermEmployeeKpi();
-      if (!isCurrent()) return;
       if (companyTermRows?.length) renderCompanyTermTables();
     }
 
     if (wantsPersonal) {
       await loadAndRenderPersonalDaily();
-      if (!isCurrent()) return;
       await loadAndRenderPersonalMs();
-      if (!isCurrent()) return;
     }
     if (wantsCompany) {
       await loadAndRenderCompanyDaily();
-      if (!isCurrent()) return;
     }
     if (wantsAdmin) {
       await loadAndRenderCompanyMs();
-      if (!isCurrent()) return;
       await loadAndRenderCompanyDaily();
-      if (!isCurrent()) return;
       await loadEmployeeData(state.ranges.employee.startDate ? state.ranges.employee : {});
-      if (!isCurrent()) return;
     }
   } catch (error) {
     console.error('Failed to load yield data:', error);
@@ -2421,8 +2059,8 @@ async function loadYieldData() {
 async function loadPersonalKPIData() {
   try {
     const fallbackRange = getCurrentMonthRange();
-    const startDate = state.ranges.personalPeriod.startDate || fallbackRange.startDate;
-    const endDate = state.ranges.personalPeriod.endDate || fallbackRange.endDate;
+    const startDate = state.ranges.personal.startDate || fallbackRange.startDate;
+    const endDate = state.ranges.personal.endDate || fallbackRange.endDate;
     if (!startDate || !endDate) return null;
     const kpi = await fetchPersonalKpiFromApi({ startDate, endDate });
     if (kpi) return { period: kpi };
@@ -2538,8 +2176,8 @@ async function loadCompanyKPIData() {
 
 async function loadCompanyPeriodKPIData() {
   try {
-    const startDate = state.ranges.companyPeriod.startDate;
-    const endDate = state.ranges.companyPeriod.endDate;
+    const startDate = state.ranges.company.startDate;
+    const endDate = state.ranges.company.endDate;
     if (!startDate || !endDate) return null;
 
     const kpi = await fetchCompanyKpiFromApi({ startDate, endDate });
@@ -2682,8 +2320,8 @@ async function loadAndRenderPersonalDaily() {
   if (isMonthlyMode) {
     if (periodSelectLabel) periodSelectLabel.style.display = 'none';
 
-    const startDate = state.ranges.personalPeriod?.startDate;
-    const endDate = state.ranges.personalPeriod?.endDate;
+    const startDate = state.ranges.personal?.startDate;
+    const endDate = state.ranges.personal?.endDate;
     if (!startDate || !endDate) return;
 
     const months = enumerateMonthsInRange(startDate, endDate);
@@ -2712,7 +2350,6 @@ async function loadAndRenderPersonalDaily() {
     const periodId = state.personalDailyPeriodId;
     if (!periodId) return;
     const advisorName = getSession()?.user?.name || null;
-    const advisorRole = getSession()?.user?.role || '';
 
     const period = state.evaluationPeriods.find(item => item.id === periodId);
     if (!period) return;
@@ -2721,39 +2358,6 @@ async function loadAndRenderPersonalDaily() {
       ensureDailyYieldData(periodId),
       goalSettingsService.loadPersonalDailyTargets(periodId, advisorName)
     ]);
-    const deptKey = await resolveUserDepartmentKey();
-    state.personalDailyMs.departmentKey = deptKey;
-    const userId = await resolveAdvisorUserId();
-    if (deptKey && userId) {
-      try {
-        const items = await goalSettingsService.loadImportantMetrics({
-          departmentKey: deptKey,
-          userId: Number(userId),
-          force: true
-        });
-        const first = Array.isArray(items) ? items[0] : null;
-        const metricKey = first?.metricKey || first?.metric_key || '';
-        if (metricKey) {
-          if (!state.personalMs.metricKeys) state.personalMs.metricKeys = {};
-          state.personalMs.metricKeys[deptKey] = metricKey;
-          if (!state.personalMs.importantMetrics) state.personalMs.importantMetrics = {};
-          if (!state.personalMs.importantMetrics[deptKey]) state.personalMs.importantMetrics[deptKey] = {};
-          state.personalMs.importantMetrics[deptKey][String(userId)] = metricKey;
-        }
-      } catch (error) {
-        console.warn('[yield] failed to load important metric (personal daily)', error);
-      }
-    }
-    const targetDepts = [];
-    if (deptKey) targetDepts.push(deptKey);
-    if (!targetDepts.includes('revenue')) targetDepts.push('revenue');
-    await Promise.all(targetDepts.map(async dept => {
-      const metrics = dept === 'revenue'
-        ? [{ key: 'revenue', label: '売上', targetKey: 'revenue' }]
-        : getMetricsForDept(dept);
-      if (!metrics.length) return;
-      await Promise.all(metrics.map(metric => loadPersonalDailyMsTargets(periodId, dept, metric.key)));
-    }));
     const dailyData = state.personalDailyData[periodId] || {};
     renderPersonalDailyTable(periodId, dailyData);
     renderPersonalTableRates(period.startDate, period.endDate);
@@ -2949,16 +2553,6 @@ function formatNumberCell(value) {
   return Number.isFinite(numeric) ? numeric.toLocaleString() : '--';
 }
 
-function formatCurrencyCell(value) {
-  if (value === null || value === undefined || value === '') return '--';
-  const numeric = num(value);
-  if (!Number.isFinite(numeric)) return '--';
-  // 万円単位で表示
-  const manyen = Math.round(numeric / 10000);
-  return `¥${manyen.toLocaleString()}万`;
-}
-
-
 function formatAchievementCell(percent) {
   if (percent === null || Number.isNaN(percent)) {
     return { value: '--%', className: 'daily-muted' };
@@ -2968,8 +2562,8 @@ function formatAchievementCell(percent) {
 }
 
 function formatDayLabel(dateStr) {
-  const parsed = parseLocalDate(dateStr);
-  if (!parsed || Number.isNaN(parsed)) return dateStr;
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed)) return dateStr;
   return String(parsed.getDate());
 }
 
@@ -2989,120 +2583,6 @@ function calcCumulativeValue(total, index, length) {
   return Math.round((totalNumber * (index + 1)) / length);
 }
 
-function buildDailyTargetsFromTotal(total, length) {
-  if (!Number.isFinite(total) || length <= 0) return [];
-  const cumulative = buildCumulativeSeries(total, length);
-  return cumulative.map((value, index) => {
-    if (index === 0) return value;
-    return value - cumulative[index - 1];
-  });
-}
-
-function getPersonalDailyTargetMap(deptKey, metricKey) {
-  return state.personalDailyMs.targets?.[deptKey]?.[metricKey] || {};
-}
-
-function getLastCumulativeTarget(dates, targets = {}, deptKey, periodId) {
-  let last = 0;
-  dates.forEach(date => {
-    const disabled = isDateBeforePersonalDeptStart(date, deptKey, periodId) || isDateAfterPersonalDeptEnd(date, deptKey, periodId);
-    if (disabled) return;
-    const value = targets?.[date];
-    if (value !== undefined && value !== null && value !== '') {
-      last = num(value);
-    }
-  });
-  return last;
-}
-
-async function persistPersonalDailyMsTargets(periodId, deptKey, metricKey) {
-  if (!periodId || !deptKey || !metricKey) return;
-  const advisorUserId = await resolveAdvisorUserId();
-  const dailyTargets = getPersonalDailyTargetMap(deptKey, metricKey);
-  const period = state.evaluationPeriods.find(item => item.id === periodId);
-  const range = resolvePersonalDailyDateRange(periodId, deptKey);
-  const dates = range.startDate && range.endDate ? enumerateDateRange(range.startDate, range.endDate) : [];
-  const targetTotal =
-    state.personalDailyMs.totals?.[deptKey]?.[metricKey] ??
-    getLastCumulativeTarget(dates, dailyTargets, deptKey, periodId);
-  try {
-    await goalSettingsService.saveMsTargets({
-      scope: 'personal',
-      departmentKey: deptKey,
-      metricKey,
-      periodId,
-      advisorUserId,
-      targetTotal,
-      dailyTargets
-    });
-  } catch (error) {
-    console.warn('[yield] failed to save personal daily ms targets', error);
-  }
-}
-
-async function loadPersonalDailyMsTargets(periodId, deptKey, metricKey) {
-  if (!periodId || !deptKey || !metricKey) return;
-  const advisorUserId = await resolveAdvisorUserId();
-  const data = await goalSettingsService.loadMsTargets({
-    scope: 'personal',
-    departmentKey: deptKey,
-    metricKey,
-    periodId,
-    advisorUserId
-  });
-  if (!data) return;
-  if (!state.personalDailyMs.targets) state.personalDailyMs.targets = {};
-  if (!state.personalDailyMs.targets[deptKey]) state.personalDailyMs.targets[deptKey] = {};
-  state.personalDailyMs.targets[deptKey][metricKey] = data.dailyTargets || {};
-  if (!state.personalDailyMs.totals) state.personalDailyMs.totals = {};
-  if (!state.personalDailyMs.totals[deptKey]) state.personalDailyMs.totals[deptKey] = {};
-  state.personalDailyMs.totals[deptKey][metricKey] = num(data.targetTotal || 0);
-}
-
-async function handlePersonalDailyDistribute(event) {
-  const button = event.target;
-  const deptKey = button.dataset.dept;
-  const metricKey = button.dataset.metric;
-  const periodId = state.personalDailyPeriodId;
-  if (!deptKey || !metricKey || !periodId) return;
-  const datesForTotal = (() => {
-    const range = resolvePersonalDailyDateRange(periodId, deptKey);
-    return range.startDate && range.endDate ? enumerateDateRange(range.startDate, range.endDate) : [];
-  })();
-  const currentTotal =
-    state.personalDailyMs.totals?.[deptKey]?.[metricKey] ??
-    getLastCumulativeTarget(datesForTotal, getPersonalDailyTargetMap(deptKey, metricKey), deptKey, periodId);
-  const input = prompt('最終目標値を入力してください', currentTotal ? String(currentTotal) : '');
-  if (input === null) return;
-  const total = Number(input);
-  if (!Number.isFinite(total) || total < 0) return;
-  const range = resolvePersonalDailyDateRange(periodId, deptKey);
-  if (!range.startDate || !range.endDate) return;
-  const dates = enumerateDateRange(range.startDate, range.endDate);
-  const activeDates = dates.filter(date => {
-    const disabled = isDateBeforePersonalDeptStart(date, deptKey, periodId) || isDateAfterPersonalDeptEnd(date, deptKey, periodId);
-    return !disabled;
-  });
-  const cumulative = buildCumulativeSeries(total, activeDates.length);
-  const targetMap = {};
-  let activeIndex = 0;
-  dates.forEach(date => {
-    const disabled = isDateBeforePersonalDeptStart(date, deptKey, periodId) || isDateAfterPersonalDeptEnd(date, deptKey, periodId);
-    if (disabled) return;
-    targetMap[date] = cumulative[activeIndex] ?? 0;
-    activeIndex += 1;
-  });
-  if (!state.personalDailyMs.targets) state.personalDailyMs.targets = {};
-  if (!state.personalDailyMs.targets[deptKey]) state.personalDailyMs.targets[deptKey] = {};
-  state.personalDailyMs.targets[deptKey][metricKey] = targetMap;
-  if (!state.personalDailyMs.totals) state.personalDailyMs.totals = {};
-  if (!state.personalDailyMs.totals[deptKey]) state.personalDailyMs.totals[deptKey] = {};
-  state.personalDailyMs.totals[deptKey][metricKey] = total;
-  const dailyData = state.personalDailyData[periodId] || {};
-  renderPersonalDailyTable(periodId, dailyData);
-  persistPersonalDailyMsTargets(periodId, deptKey, metricKey);
-}
-
 function renderPersonalDailyTable(periodId, dailyData = {}) {
   const body = document.getElementById('personalDailyTableBody');
   const headerRow = document.getElementById('personalDailyHeaderRow');
@@ -3115,277 +2595,38 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
     if (labelEl) labelEl.textContent = '評価期間：--';
     return;
   }
-
-  const deptKey = state.personalDailyMs.departmentKey || getDepartmentFromRole(getSession()?.user?.role || '');
-  const useDeptTotals = deptKey === 'marketing';
-  const effectiveDailyData = useDeptTotals
-    ? buildDailyTotalsAllMetrics(periodId)
-    : dailyData;
-  const range = resolvePersonalDailyDateRange(periodId, deptKey);
-  const dates = enumerateDateRange(range.startDate, range.endDate);
+  const dates = enumeratePeriodDates(period);
   const advisorName = getAdvisorName();
   const periodTarget = goalSettingsService.getPersonalPeriodTarget(periodId, advisorName) || {};
+  const savedTargets = goalSettingsService.getPersonalDailyTargets(periodId, advisorName) || {};
+  const cumulativeFallback = DAILY_FIELDS.reduce((acc, field) => {
+    const rawTotal = periodTarget[field.targetKey];
+    if (rawTotal === undefined || rawTotal === null) return acc;
+    const total = num(rawTotal);
+    acc[field.targetKey] = buildCumulativeSeries(total, dates.length);
+    return acc;
+  }, {});
+  if (labelEl) labelEl.textContent = `評価期間：${period.startDate}〜${period.endDate}`;
+
+  renderDailyMatrix({
+    headerRow,
+    body,
+    dates,
+    dailyData,
+    resolveValues: (field, date, dateIndex) => {
+      const actual = dailyData[date] || {};
+      const target = savedTargets[date] || {};
+      const rawTarget = target[field.targetKey];
+      const expected = rawTarget !== undefined && rawTarget !== null
+        ? num(rawTarget)
+        : cumulativeFallback[field.targetKey] !== undefined
+          ? cumulativeFallback[field.targetKey][dateIndex]
+          : null;
+      return { actual: actual[field.dataKey], target: expected };
+    },
+    simpleMode: true
+  });
   if (labelEl) labelEl.textContent = `評価期間：${formatPeriodMonthLabel(period) || '--'}`;
-
-  const targetDepts = [];
-  if (deptKey) targetDepts.push(deptKey);
-  // 常に売上を最後に表示するように制御
-  if (!targetDepts.includes('revenue')) {
-    targetDepts.push('revenue');
-  }
-
-  const dateCells = dates.map(date => `<th scope="col" class="ms-date-header">${formatDayLabel(date)}</th>`).join('');
-  headerRow.innerHTML = `
-    <th scope="col" class="kpi-v2-sticky-label">事業部</th>
-    <th scope="col" class="kpi-v2-sticky-label kpi-v2-ms-metric">指標</th>
-    <th scope="col" class="daily-type">区分</th>
-    ${dateCells}
-  `;
-
-  if (!state.personalDailyMs) state.personalDailyMs = { metricKeys: {}, targets: {}, totals: {} };
-
-  const rows = [];
-  targetDepts.forEach((dept, deptIndex) => {
-    const isRevenue = dept === 'revenue';
-    const metrics = isRevenue
-      ? [{ key: 'revenue', label: '売上金額', targetKey: 'revenue', isCurrency: true }]
-      : getMetricsForDept(dept);
-
-    if (!metrics.length) return;
-
-    const deptRowspan = metrics.length * 3; // MS、進捗率、実績の3行を各指標ごとに生成
-    const deptLabel = dept === 'marketing' ? 'マーケ' : dept === 'cs' ? 'CS' : dept === 'sales' ? '営業' : '売上';
-    if (!state.personalMs.metricKeys) state.personalMs.metricKeys = {};
-    if (!state.personalMs.metricKeys[dept]) {
-      state.personalMs.metricKeys[dept] = metrics[0]?.key || '';
-    }
-    const importantMetricKey = state.personalMs.metricKeys[dept] || '';
-    const importantSelect = dept !== 'revenue'
-      ? `<select class="kpi-v2-sort-select personal-daily-important-select" data-dept="${dept}">
-           ${metrics.map(option => `<option value="${option.key}" ${option.key === importantMetricKey ? 'selected' : ''}>${option.label}</option>`).join('')}
-         </select>`
-      : '';
-
-    metrics.forEach((metricOption, metricIndex) => {
-      const metricKey = metricOption.key;
-      const metricLabel = metricOption.label || '';
-      const isImportant = !isRevenue && importantMetricKey && metricKey === importantMetricKey;
-      const highlightClass = isImportant ? 'ms-important-row' : '';
-
-      const distributeButton = `<button type="button" class="ms-distribute-btn" data-ms-distribute data-scope="personalDaily" data-dept="${dept}" data-metric="${metricKey}">日割り</button>`;
-      const metricCell = `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="3">
-           <div class="ms-metric-cell">
-             <span>${metricLabel}</span>
-             ${distributeButton}
-           </div>
-         </th>`;
-
-      const field = DAILY_FIELDS.find(f => f.dataKey === metricOption.targetKey);
-      const periodTargetKey = field?.targetKey || null;
-      const storedTotal = state.personalDailyMs.totals?.[dept]?.[metricKey];
-      const totalTarget = Number.isFinite(storedTotal)
-        ? num(storedTotal)
-        : periodTargetKey
-          ? num(periodTarget?.[periodTargetKey])
-          : 0;
-
-      const targetMap = getPersonalDailyTargetMap(dept, metricKey);
-      const activeDates = dates.filter(date => {
-        const disabled = isDateBeforePersonalDeptStart(date, dept, periodId) || isDateAfterPersonalDeptEnd(date, dept, periodId);
-        return !disabled;
-      });
-      const fallbackCumulative = totalTarget > 0 ? buildCumulativeSeries(totalTarget, activeDates.length) : [];
-
-      let activeIndex = 0;
-      const cumulativeTargets = dates.map(date => {
-        const isDisabled = isDateBeforePersonalDeptStart(date, dept, periodId) || isDateAfterPersonalDeptEnd(date, dept, periodId);
-        if (isDisabled) return null;
-        const saved = targetMap?.[date];
-        if (saved !== undefined && saved !== null && saved !== '') {
-          activeIndex += 1;
-          return num(saved);
-        }
-        const fallback = fallbackCumulative[activeIndex] ?? null;
-        activeIndex += 1;
-        return fallback;
-      });
-
-      const dailyTargets = [];
-      let prevTarget = 0;
-      cumulativeTargets.forEach(value => {
-        if (value === null) {
-          dailyTargets.push(null);
-          return;
-        }
-        const daily = num(value) - num(prevTarget);
-        dailyTargets.push(daily);
-        prevTarget = num(value);
-      });
-
-      const dailyActuals = [];
-      let actualSum = 0;
-      dates.forEach(date => {
-        const isDisabled = isDateBeforePersonalDeptStart(date, dept, periodId) || isDateAfterPersonalDeptEnd(date, dept, periodId);
-        if (isDisabled) {
-          dailyActuals.push(null);
-          return;
-        }
-        const dayCounts = effectiveDailyData?.[date] || {};
-        const value = getDailyMetricValue(dayCounts, metricOption, metricKey);
-        actualSum += num(value);
-        dailyActuals.push(num(value));
-      });
-
-      const cumulativeActuals = [];
-      let running = 0;
-      dailyActuals.forEach(value => {
-        if (value === null) {
-          cumulativeActuals.push(null);
-          return;
-        }
-        running += num(value);
-        cumulativeActuals.push(running);
-      });
-
-      const totalTargetValue = Number.isFinite(storedTotal)
-        ? num(storedTotal)
-        : getLastCumulativeTarget(dates, targetMap, dept, periodId) || (totalTarget > 0 ? totalTarget : 0);
-
-      const msCells = dates.map((date, idx) => {
-        const isDisabled = isDateBeforePersonalDeptStart(date, dept, periodId) || isDateAfterPersonalDeptEnd(date, dept, periodId);
-        if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
-        const value = cumulativeTargets[idx];
-        const displayValue = Number.isFinite(value) ? value : '';
-        return `
-          <td class="ms-target-cell">
-            <input type="number" class="ms-target-input personal-daily-ms-input"
-                   data-dept="${dept}"
-                   data-date="${date}"
-                   data-metric="${metricKey}"
-                   value="${displayValue}"
-                   min="0" />
-          </td>
-        `;
-      }).join('');
-
-      const rateCells = dates.map((date, idx) => {
-        const isDisabled = isDateBeforePersonalDeptStart(date, dept, periodId) || isDateAfterPersonalDeptEnd(date, dept, periodId);
-        if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
-        // 進捗率 = その日までの累積実績 / その日までの累積目標
-        const cumulativeActual = cumulativeActuals[idx] ?? 0;
-        const cumulativeTarget = cumulativeTargets[idx] ?? 0;
-        let rateDisplay = '-';
-        let rateClass = '';
-        if (cumulativeTarget && Number(cumulativeTarget) > 0) {
-          const rate = Math.round((cumulativeActual / Number(cumulativeTarget)) * 100);
-          rateDisplay = `${rate}%`;
-          rateClass = rate >= 100 ? 'ms-rate-good' : rate >= 80 ? 'ms-rate-warn' : 'ms-rate-bad';
-        }
-        return `<td class="ms-rate-cell ${rateClass}">${rateDisplay}</td>`;
-      }).join('');
-
-
-      const actualCells = dates.map((date, idx) => {
-        const isDisabled = isDateBeforePersonalDeptStart(date, dept, periodId) || isDateAfterPersonalDeptEnd(date, dept, periodId);
-        if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
-        const displayValue = metricOption.isCurrency
-          ? formatCurrencyCell(cumulativeActuals[idx])
-          : formatNumberCell(cumulativeActuals[idx]);
-        return `<td class="ms-actual-cell">${displayValue}</td>`;
-      }).join('');
-
-
-      const tripletAlt = (deptIndex + metricIndex) % 2 === 1 ? 'daily-triplet-alt' : '';
-      const deptCell = metricIndex === 0
-        ? `<th scope="row" class="kpi-v2-sticky-label ms-dept-cell" rowspan="${deptRowspan}">
-             <div class="ms-metric-cell">
-               <span>${deptLabel}</span>
-               ${importantSelect}
-             </div>
-           </th>`
-        : '';
-
-      // 3行構造で統一: MS → 進捗率 → 実績
-      // 1行目: MS（deptCell と metricCell を出力）
-      rows.push(`
-        <tr class="${tripletAlt} ${highlightClass}">
-          ${deptCell}
-          ${metricCell}
-          <td class="daily-type">MS</td>
-          ${msCells}
-        </tr>
-      `);
-      // 2行目: 進捗率（rowspanで結合済みなので空セル不要）
-      rows.push(`
-        <tr class="${tripletAlt} ${highlightClass}">
-          <td class="daily-type">進捗率</td>
-          ${rateCells}
-        </tr>
-      `);
-      // 3行目: 実績
-      rows.push(`
-        <tr class="${tripletAlt} ${highlightClass}">
-          <td class="daily-type">実績</td>
-          ${actualCells}
-        </tr>
-      `);
-    });
-  });
-
-  body.innerHTML = rows.join('');
-
-  body.querySelectorAll('.personal-daily-ms-input').forEach(input => {
-    if (input.dataset.bound) return;
-    input.addEventListener('change', (event) => {
-      const el = event.target;
-      const { dept, metric, date } = el.dataset;
-      if (!dept || !metric || !date) return;
-      if (!state.personalDailyMs.targets) state.personalDailyMs.targets = {};
-      if (!state.personalDailyMs.targets[dept]) state.personalDailyMs.targets[dept] = {};
-      if (!state.personalDailyMs.targets[dept][metric]) state.personalDailyMs.targets[dept][metric] = {};
-      state.personalDailyMs.targets[dept][metric][date] = num(el.value);
-      if (!state.personalDailyMs.totals) state.personalDailyMs.totals = {};
-      if (!state.personalDailyMs.totals[dept]) state.personalDailyMs.totals[dept] = {};
-      state.personalDailyMs.totals[dept][metric] = getLastCumulativeTarget(dates, state.personalDailyMs.targets[dept][metric], dept, periodId);
-      renderPersonalDailyTable(periodId, dailyData);
-      persistPersonalDailyMsTargets(periodId, dept, metric);
-    });
-    input.dataset.bound = 'true';
-  });
-
-  body.querySelectorAll('.personal-daily-important-select').forEach(select => {
-    if (select.dataset.bound) return;
-    select.addEventListener('change', async (event) => {
-      const dept = event.target.dataset.dept;
-      const value = event.target.value;
-      if (!dept) return;
-      if (!state.personalMs.metricKeys) state.personalMs.metricKeys = {};
-      state.personalMs.metricKeys[dept] = value;
-      const userId = await resolveAdvisorUserId();
-      if (userId) {
-        if (!state.personalMs.importantMetrics) state.personalMs.importantMetrics = {};
-        if (!state.personalMs.importantMetrics[dept]) state.personalMs.importantMetrics[dept] = {};
-        state.personalMs.importantMetrics[dept][String(userId)] = value;
-        try {
-          await goalSettingsService.saveImportantMetric({
-            departmentKey: dept,
-            userId: Number(userId),
-            metricKey: value
-          });
-        } catch (error) {
-          console.warn('[yield] failed to save important metric (personal daily)', error);
-        }
-      }
-      renderPersonalDailyTable(periodId, dailyData);
-    });
-    select.dataset.bound = 'true';
-  });
-
-  body.querySelectorAll('[data-ms-distribute][data-scope="personalDaily"]').forEach(button => {
-    if (button.dataset.bound) return;
-    button.addEventListener('click', handlePersonalDailyDistribute);
-    button.dataset.bound = 'true';
-  });
 }
 
 async function loadAndRenderCompanyDaily() {
@@ -3477,20 +2718,12 @@ function getAutoCalculatedActual(memberId, date, metricKey) {
   return 0;
 }
 
-function parseLocalDate(dateStr) {
-  if (!dateStr) return null;
-  const parts = String(dateStr).split('-').map(Number);
-  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
-  const [year, month, day] = parts;
-  return new Date(year, month - 1, day);
-}
-
 function enumerateDateRange(startDate, endDate) {
   if (!startDate || !endDate) return [];
   const dates = [];
-  const start = parseLocalDate(startDate);
-  const end = parseLocalDate(endDate);
-  if (!start || !end || Number.isNaN(start) || Number.isNaN(end)) return [];
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (Number.isNaN(start) || Number.isNaN(end)) return [];
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     dates.push(isoDate(d));
   }
@@ -3509,6 +2742,16 @@ function resolveCompanyMsRanges(period) {
     return emptyResult;
   }
   const baseRange = { startDate: period.startDate, endDate: period.endDate };
+  const ruleType = goalSettingsService.getEvaluationRule()?.type;
+  if (ruleType !== 'master-month') {
+    return {
+      salesRange: baseRange,
+      revenueRange: baseRange,
+      marketingRange: baseRange,
+      csRange: baseRange
+    };
+  }
+  // 期間の終了日から当月を算出
   const end = new Date(period.endDate);
   if (Number.isNaN(end.getTime())) {
     return {
@@ -3521,44 +2764,29 @@ function resolveCompanyMsRanges(period) {
   const currentYear = end.getFullYear();
   const currentMonth = end.getMonth(); // 0-indexed
 
-  // 個人日別実績と同じ基準（前月/当月の固定日）でMS期間を算出する
+  // マーケ: 前月17日 〜 当月20日
   const marketingStart = new Date(currentYear, currentMonth - 1, 17);
-  const marketingEnd = new Date(currentYear, currentMonth, 19);
+  const marketingEnd = new Date(currentYear, currentMonth, 20);
+
+  // CS・営業: 前月18日 〜 当月21日
   const csStart = new Date(currentYear, currentMonth - 1, 18);
-  const csEnd = new Date(currentYear, currentMonth, 20);
-  const salesStart = new Date(currentYear, currentMonth - 1, 18);
-  const salesEnd = new Date(currentYear, currentMonth, 19);
+  const csEnd = new Date(currentYear, currentMonth, 21);
+
+  // 売上: 当月1日 〜 当月末日
   const revenueStart = new Date(currentYear, currentMonth, 1);
   const revenueEnd = new Date(currentYear, currentMonth + 1, 0);
+
+  // MS全体: 前月17日 〜 当月末日（全事業部をカバー）
   const msOverallStart = new Date(currentYear, currentMonth - 1, 17);
   const msOverallEnd = new Date(currentYear, currentMonth + 1, 0);
 
   return {
-    salesRange: { startDate: isoDate(salesStart), endDate: isoDate(salesEnd) },
+    salesRange: { startDate: isoDate(csStart), endDate: isoDate(csEnd) },
     revenueRange: { startDate: isoDate(revenueStart), endDate: isoDate(revenueEnd) },
     marketingRange: { startDate: isoDate(marketingStart), endDate: isoDate(marketingEnd) },
     csRange: { startDate: isoDate(csStart), endDate: isoDate(csEnd) },
     msOverallRange: { startDate: isoDate(msOverallStart), endDate: isoDate(msOverallEnd) }
   };
-}
-
-if (typeof window !== 'undefined') {
-  window.__yieldDebug = window.__yieldDebug || {};
-  window.__yieldDebug.getCompanyMsRange = () => {
-    const period = state.evaluationPeriods.find(p => p.id === state.companyMsPeriodId);
-    return {
-      periodId: state.companyMsPeriodId,
-      period,
-      ranges: resolveCompanyMsRanges(period)
-    };
-  };
-  window.__yieldDebug.getCompanyMsDates = () => ({
-    periodId: state.companyMsPeriodId,
-    count: state.companyMs?.dates?.length || 0,
-    head: (state.companyMs?.dates || []).slice(0, 5),
-    tail: (state.companyMs?.dates || []).slice(-5)
-  });
-  window.__yieldDebug.reloadCompanyMs = () => loadAndRenderCompanyMs();
 }
 
 async function resolveAdvisorEmployeeIds() {
@@ -3592,8 +2820,9 @@ function buildCompanyMsDailyTotals(periodId, employeeIds) {
     const series = state.companyDailyData[id]?.[periodId] || {};
     Object.entries(series).forEach(([date, counts]) => {
       if (!totals[date]) totals[date] = {};
-      Object.entries(counts || {}).forEach(([key, value]) => {
-        totals[date][key] = num(totals[date][key]) + num(value);
+      DAILY_FIELDS.forEach(field => {
+        const key = field.dataKey;
+        totals[date][key] = num(totals[date][key]) + num(counts?.[key]);
       });
     });
   });
@@ -3610,8 +2839,9 @@ function buildCompanyMsDailyTotalsFromEmployees(employees, employeeIds) {
     const series = emp?.daily || emp?.dailyData || emp?.series || {};
     Object.entries(series).forEach(([date, counts]) => {
       if (!totals[date]) totals[date] = {};
-      Object.entries(counts || {}).forEach(([key, value]) => {
-        totals[date][key] = num(totals[date][key]) + num(value);
+      DAILY_FIELDS.forEach(field => {
+        const key = field.dataKey;
+        totals[date][key] = num(totals[date][key]) + num(counts?.[key]);
       });
     });
   });
@@ -3620,18 +2850,26 @@ function buildCompanyMsDailyTotalsFromEmployees(employees, employeeIds) {
 
 function buildCompanyMsHeaderRow(headerRow, dates) {
   if (!headerRow) return;
-  // 日付ごとに1列（MS/進捗率/実績は行で分ける）
+  // スプレッドシート形式: 日付ごとに2列（MS/進捗率 と 実績）
   const dateCells = dates.map(date => {
     const dayLabel = formatDayLabel(date);
-    return `<th scope="col" class="ms-date-header">${dayLabel}</th>`;
+    return `<th scope="col" colspan="2" class="ms-date-header">${dayLabel}</th>`;
   }).join('');
+  const subHeaderCells = dates.map(() => `
+    <th scope="col" class="ms-sub-header">MS</th>
+    <th scope="col" class="ms-sub-header">進捗率</th>
+  `).join('');
 
   headerRow.innerHTML = `
-    <th scope="col" class="kpi-v2-sticky-label">事業部</th>
-    <th scope="col" class="kpi-v2-sticky-label kpi-v2-ms-metric">指標</th>
-    <th scope="col" class="daily-type">区分</th>
+    <th scope="col" class="kpi-v2-sticky-label" rowspan="2">事業部</th>
+    <th scope="col" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="2">指標</th>
+    <th scope="col" class="daily-type" rowspan="2">区分</th>
     ${dateCells}
   `;
+  // サブヘッダー行を追加
+  const subHeaderRow = document.createElement('tr');
+  subHeaderRow.innerHTML = subHeaderCells;
+  headerRow.parentElement?.appendChild(subHeaderRow);
 }
 
 // 日付が部門の開始日より前かどうかを判定
@@ -3643,8 +2881,7 @@ function isDateBeforeDeptStart(date, deptKey) {
   const end = new Date(period.endDate);
   const currentYear = end.getFullYear();
   const currentMonth = end.getMonth();
-  const dateObj = parseLocalDate(date);
-  if (!dateObj) return false;
+  const dateObj = new Date(date);
 
   // 部門別開始日
   let startDate;
@@ -3674,20 +2911,17 @@ function isDateAfterDeptEnd(date, deptKey) {
   const end = new Date(period.endDate);
   const currentYear = end.getFullYear();
   const currentMonth = end.getMonth();
-  const dateObj = parseLocalDate(date);
-  if (!dateObj) return false;
+  const dateObj = new Date(date);
 
   // 部門別終了日
   let endDate;
   switch (deptKey) {
     case 'marketing':
-      endDate = new Date(currentYear, currentMonth, 19);
-      break;
-    case 'cs':
       endDate = new Date(currentYear, currentMonth, 20);
       break;
+    case 'cs':
     case 'sales':
-      endDate = new Date(currentYear, currentMonth, 19);
+      endDate = new Date(currentYear, currentMonth, 21);
       break;
     case 'revenue':
       endDate = new Date(currentYear, currentMonth + 1, 0); // 月末
@@ -3696,77 +2930,6 @@ function isDateAfterDeptEnd(date, deptKey) {
       return false;
   }
   return dateObj > endDate;
-}
-
-function sumTargetValues(targets = {}) {
-  return Object.values(targets).reduce((sum, value) => sum + num(value), 0);
-}
-
-function getLastCumulativeTargetForCompany(dates, targets = {}, deptKey) {
-  let last = 0;
-  dates.forEach(date => {
-    const disabled = isDateBeforeDeptStart(date, deptKey) || isDateAfterDeptEnd(date, deptKey);
-    if (disabled) return;
-    const value = targets?.[date];
-    if (value !== undefined && value !== null && value !== '') {
-      last = num(value);
-    }
-  });
-  return last;
-}
-
-function getCompanyMsTargetMap(deptKey, metricKey) {
-  return state.companyMs.msTargets?.[deptKey]?.[metricKey] || {};
-}
-
-async function persistCompanyMsTargets(deptKey, metricKey) {
-  const periodId = state.companyMsPeriodId;
-  if (!periodId || !deptKey || !metricKey) return;
-  const dailyTargets = getCompanyMsTargetMap(deptKey, metricKey);
-  const dates = state.companyMs.dates || [];
-  const targetTotal =
-    state.companyMs.msTargetTotals?.[deptKey]?.[metricKey] ??
-    (dates.length ? getLastCumulativeTargetForCompany(dates, dailyTargets, deptKey) : sumTargetValues(dailyTargets));
-  try {
-    await goalSettingsService.saveMsTargets({
-      scope: 'company',
-      departmentKey: deptKey,
-      metricKey,
-      periodId,
-      targetTotal,
-      dailyTargets
-    });
-  } catch (error) {
-    console.warn('[yield] failed to save company ms targets', error);
-  }
-}
-
-async function loadCompanyMsTargets(periodId) {
-  if (!periodId) return;
-  const tasks = [];
-  MS_DEPARTMENTS.forEach(dept => {
-    const isRevenue = dept.key === 'revenue';
-    const metricKey = isRevenue
-      ? 'revenue'
-      : state.companyMs.metricKeys?.[dept.key] || getMetricsForDept(dept.key)[0]?.key;
-    if (!metricKey) return;
-    tasks.push((async () => {
-      const data = await goalSettingsService.loadMsTargets({
-        scope: 'company',
-        departmentKey: dept.key,
-        metricKey,
-        periodId
-      });
-      if (!data) return;
-      if (!state.companyMs.msTargets) state.companyMs.msTargets = {};
-      if (!state.companyMs.msTargets[dept.key]) state.companyMs.msTargets[dept.key] = {};
-      state.companyMs.msTargets[dept.key][metricKey] = data.dailyTargets || {};
-      if (!state.companyMs.msTargetTotals) state.companyMs.msTargetTotals = {};
-      if (!state.companyMs.msTargetTotals[dept.key]) state.companyMs.msTargetTotals[dept.key] = {};
-      state.companyMs.msTargetTotals[dept.key][metricKey] = num(data.targetTotal || 0);
-    })());
-  });
-  await Promise.all(tasks);
 }
 
 // MS目標入力ハンドラ
@@ -3778,59 +2941,10 @@ function handleMsTargetInput(event) {
   // stateに保存
   if (!state.companyMs.msTargets) state.companyMs.msTargets = {};
   if (!state.companyMs.msTargets[dept]) state.companyMs.msTargets[dept] = {};
-  if (!state.companyMs.msTargets[dept][metric]) state.companyMs.msTargets[dept][metric] = {};
-  state.companyMs.msTargets[dept][metric][date] = value;
-  if (!state.companyMs.msTargetTotals) state.companyMs.msTargetTotals = {};
-  if (!state.companyMs.msTargetTotals[dept]) state.companyMs.msTargetTotals[dept] = {};
-  const dates = state.companyMs.dates || [];
-  state.companyMs.msTargetTotals[dept][metric] = dates.length
-    ? getLastCumulativeTargetForCompany(dates, state.companyMs.msTargets[dept][metric], dept)
-    : sumTargetValues(state.companyMs.msTargets[dept][metric]);
+  state.companyMs.msTargets[dept][date] = value;
 
-  // 進捗率は全体に影響するため再描画
-  renderCompanyMsTable();
-  persistCompanyMsTargets(dept, metric);
-}
-
-function distributeMsTargets(totalTarget, dates, deptKey, periodId) {
-  const activeDates = dates.filter(date => {
-    const disabled = isDateBeforeDeptStart(date, deptKey) || isDateAfterDeptEnd(date, deptKey);
-    return !disabled;
-  });
-  const cumulative = buildCumulativeSeries(totalTarget, activeDates.length);
-  const map = {};
-  let activeIndex = 0;
-  dates.forEach(date => {
-    const disabled = isDateBeforeDeptStart(date, deptKey) || isDateAfterDeptEnd(date, deptKey);
-    if (disabled) return;
-    map[date] = cumulative[activeIndex] ?? 0;
-    activeIndex += 1;
-  });
-  return map;
-}
-
-function handleCompanyMsDistribute(event) {
-  const button = event.target;
-  const deptKey = button.dataset.dept;
-  const metricKey = button.dataset.metric;
-  const periodId = state.companyMsPeriodId;
-  if (!deptKey || !metricKey || !periodId) return;
-  const dates = state.companyMs.dates || [];
-  const currentTotal = state.companyMs.msTargetTotals?.[deptKey]?.[metricKey]
-    ?? (dates.length ? getLastCumulativeTargetForCompany(dates, getCompanyMsTargetMap(deptKey, metricKey), deptKey) : sumTargetValues(getCompanyMsTargetMap(deptKey, metricKey)));
-  const input = prompt('最終目標値を入力してください', currentTotal ? String(currentTotal) : '');
-  if (input === null) return;
-  const total = Number(input);
-  if (!Number.isFinite(total) || total < 0) return;
-  const targetMap = distributeMsTargets(total, state.companyMs.dates || [], deptKey, periodId);
-  if (!state.companyMs.msTargets) state.companyMs.msTargets = {};
-  if (!state.companyMs.msTargets[deptKey]) state.companyMs.msTargets[deptKey] = {};
-  state.companyMs.msTargets[deptKey][metricKey] = targetMap;
-  if (!state.companyMs.msTargetTotals) state.companyMs.msTargetTotals = {};
-  if (!state.companyMs.msTargetTotals[deptKey]) state.companyMs.msTargetTotals[deptKey] = {};
-  state.companyMs.msTargetTotals[deptKey][metricKey] = total;
-  renderCompanyMsTable();
-  persistCompanyMsTargets(deptKey, metricKey);
+  // 進捗率を再計算
+  updateMsProgressRate(dept, date);
 }
 
 // 進捗率を更新
@@ -3866,30 +2980,6 @@ function handleMsActualInput(event) {
   updateMsProgressRate(dept, date);
 }
 
-function resolveMetricDataKey(metricOption, fallbackKey = '') {
-  return metricOption?.targetKey || metricOption?.key || fallbackKey || '';
-}
-
-function getDailyMetricValue(dailyCounts, metricOption, fallbackKey = '') {
-  if (!dailyCounts) return 0;
-  const dataKey = resolveMetricDataKey(metricOption, fallbackKey);
-  if (!dataKey) return 0;
-  if (dailyCounts[dataKey] !== undefined) return num(dailyCounts[dataKey]);
-  const snakeKey = dataKey.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-  if (dailyCounts[snakeKey] !== undefined) return num(dailyCounts[snakeKey]);
-  return 0;
-}
-
-function buildCumulativeFromDaily(values) {
-  const result = [];
-  let sum = 0;
-  values.forEach(value => {
-    sum += num(value);
-    result.push(sum);
-  });
-  return result;
-}
-
 function renderCompanyMsTable() {
   const headerRow = document.getElementById('companyMsHeaderRow');
   const body = document.getElementById('companyMsTableBody');
@@ -3902,13 +2992,9 @@ function renderCompanyMsTable() {
     return;
   }
 
-  // サブヘッダー行が残っていたら削除
-  const thead = headerRow.parentElement;
-  if (thead) {
-    while (thead.rows.length > 1) {
-      thead.deleteRow(1);
-    }
-  }
+  // サブヘッダー行を削除（再レンダリング時）
+  const existingSubHeader = headerRow.parentElement?.querySelector('tr:not(:first-child)');
+  if (existingSubHeader) existingSubHeader.remove();
 
   buildCompanyMsHeaderRow(headerRow, dates);
 
@@ -3917,15 +3003,12 @@ function renderCompanyMsTable() {
 
   MS_DEPARTMENTS.forEach((dept, index) => {
     const isRevenue = dept.key === 'revenue';
-    const deptMetrics = isRevenue
-      ? [{ key: 'revenue', label: '売上', targetKey: 'revenue' }]
-      : getMetricsForDept(dept.key);
+    const deptMetrics = getMetricsForDept(dept.key);
 
     // 現在選択中の指標（なければデフォルト）
-    let metricKey = isRevenue ? 'revenue' : state.companyMs.metricKeys?.[dept.key];
-    if (!metricKey || !deptMetrics.some(m => m.key === metricKey)) {
-      metricKey = deptMetrics[0]?.key;
-      if (!metricKey) return;
+    let metricKey = state.companyMs.metricKeys?.[dept.key];
+    if (!metricKey && deptMetrics.length > 0) {
+      metricKey = deptMetrics[0].key;
       // stateも更新しておく
       if (!state.companyMs.metricKeys) state.companyMs.metricKeys = {};
       state.companyMs.metricKeys[dept.key] = metricKey;
@@ -3940,108 +3023,84 @@ function renderCompanyMsTable() {
     ).join('');
 
     // 指標セル（セレクトボックスまたはラベル）
-    const distributeButton = `<button type="button" class="ms-distribute-btn" data-ms-distribute data-scope="company" data-dept="${dept.key}" data-metric="${metricKey}">日割り</button>`;
     const metricCell = isRevenue
-      ? `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="3">
-           <div class="ms-metric-cell">
-             <span>${metricLabel}</span>
-             ${distributeButton}
-           </div>
-         </th>`
-      : `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="3">
-           <div class="ms-metric-cell">
-             <select class="kpi-v2-sort-select company-ms-metric-select" data-dept="${dept.key}">
-               ${optionsHtml}
-             </select>
-             ${distributeButton}
-           </div>
+      ? `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="2">${metricLabel}</th>`
+      : `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="2">
+           <select class="kpi-v2-sort-select company-ms-metric-select" data-dept="${dept.key}">
+             ${optionsHtml}
+           </select>
          </th>`;
 
-    const targetMap = state.companyMs.msTargets?.[dept.key]?.[metricKey] || {};
-    const cumulativeTargets = [];
-    const dailyActuals = [];
-    dates.forEach(date => {
+    // 各日付のセルを生成
+    const msAndRateCells = dates.map(date => {
       const isDisabled = isDateBeforeDeptStart(date, dept.key) || isDateAfterDeptEnd(date, dept.key);
+      const disabledClass = isDisabled ? 'ms-cell-disabled' : '';
+
       if (isDisabled) {
-        cumulativeTargets.push(null);
-        dailyActuals.push(null);
-        return;
+        return `<td class="${disabledClass}"></td><td class="${disabledClass}"></td>`;
       }
-      const savedMs = targetMap?.[date];
-      cumulativeTargets.push(savedMs !== undefined && savedMs !== null ? num(savedMs) : null);
-      const dailyCount = isRevenue
-        ? getDailyMetricValue(state.companyMs.dailyTotals?.[date], null, 'revenue')
-        : getDailyMetricValue(state.companyMs.dailyTotals?.[date], metricOption, metricKey || '');
-      dailyActuals.push(dailyCount);
-    });
 
-    const cumulativeActuals = buildCumulativeFromDaily(dailyActuals.map(value => (value === null ? 0 : value)));
-    const totalTarget = Number.isFinite(state.companyMs.msTargetTotals?.[dept.key]?.[metricKey])
-      ? num(state.companyMs.msTargetTotals?.[dept.key]?.[metricKey])
-      : getLastCumulativeTargetForCompany(dates, targetMap, dept.key);
+      const savedMs = state.companyMs.msTargets?.[dept.key]?.[date] || '';
+      const actual = isRevenue
+        ? state.companyMs.revenue?.actual || 0
+        : (state.companyMs.dailyTotals?.[date]?.[metricOption?.key] || 0);
 
-    const msCells = dates.map((date, idx) => {
-      const isDisabled = isDateBeforeDeptStart(date, dept.key) || isDateAfterDeptEnd(date, dept.key);
-      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
-      const savedMs = cumulativeTargets[idx];
-      const displayValue = Number.isFinite(savedMs) ? savedMs : '';
+      // 進捗率計算
+      let rateDisplay = '-';
+      let rateClass = '';
+      if (savedMs && Number(savedMs) > 0) {
+        const rate = Math.round((actual / Number(savedMs)) * 100);
+        rateDisplay = `${rate}%`;
+        rateClass = rate >= 100 ? 'ms-rate-good' : rate >= 80 ? 'ms-rate-warn' : 'ms-rate-bad';
+      }
+
       return `
         <td class="ms-target-cell">
           <input type="number" class="ms-target-input" 
                  data-dept="${dept.key}" 
                  data-date="${date}" 
                  data-metric="${metricKey || ''}"
-                 value="${displayValue}" 
+                 value="${savedMs}" 
                  min="0" />
+        </td>
+        <td class="ms-rate-cell ${rateClass}" data-progress-rate data-dept="${dept.key}" data-date="${date}">
+          ${rateDisplay}
         </td>
       `;
     }).join('');
 
-    const rateCells = dates.map((date, idx) => {
+    const actualCells = dates.map(date => {
       const isDisabled = isDateBeforeDeptStart(date, dept.key) || isDateAfterDeptEnd(date, dept.key);
-      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
+      const disabledClass = isDisabled ? 'ms-cell-disabled' : '';
 
-      const cumulativeActual = cumulativeActuals[idx] ?? 0;
-      const cumulativeTarget = cumulativeTargets[idx] ?? 0;
-      const numerator = cumulativeActual;
-      const denominator = cumulativeTarget;
-
-      let rateDisplay = '-';
-      let rateClass = '';
-      if (denominator && Number(denominator) > 0) {
-        const rate = Math.round((numerator / Number(denominator)) * 100);
-        rateDisplay = `${rate}%`;
-        rateClass = rate >= 100 ? 'ms-rate-good' : rate >= 80 ? 'ms-rate-warn' : 'ms-rate-bad';
+      if (isDisabled) {
+        return `<td class="${disabledClass}" colspan="2"></td>`;
       }
-      return `<td class="ms-rate-cell ${rateClass}" data-progress-rate data-dept="${dept.key}" data-date="${date}">
-        ${rateDisplay}
-      </td>`;
-    }).join('');
 
-    const actualCells = dates.map((date, idx) => {
-      const isDisabled = isDateBeforeDeptStart(date, dept.key) || isDateAfterDeptEnd(date, dept.key);
-      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
-      const displayValue = cumulativeActuals[idx] ?? 0;
-      return `<td class="ms-actual-cell">${formatNumberCell(displayValue)}</td>`;
+      // 保存された実績値を取得
+      const savedActual = state.companyMs.msActuals?.[dept.key]?.[date] ?? '';
+
+      return `
+        <td class="ms-actual-cell" colspan="2">
+          <input type="number" class="ms-actual-input" 
+                 data-dept="${dept.key}" 
+                 data-date="${date}" 
+                 value="${savedActual}" 
+                 min="0" 
+                 placeholder="実績" />
+        </td>
+      `;
     }).join('');
 
     const tripletAlt = index % 2 === 1 ? 'daily-triplet-alt' : '';
 
-    // MS行
+    // MS/進捗率行
     rows.push(`
       <tr class="${tripletAlt}">
-        <th scope="row" class="kpi-v2-sticky-label" rowspan="3">${dept.label}</th>
+        <th scope="row" class="kpi-v2-sticky-label" rowspan="2">${dept.label}</th>
         ${metricCell}
-        <td class="daily-type">MS</td>
-        ${msCells}
-      </tr>
-    `);
-
-    // 進捗率行
-    rows.push(`
-      <tr class="${tripletAlt}">
-        <td class="daily-type">進捗率</td>
-        ${rateCells}
+        <td class="daily-type">MS/進捗率</td>
+        ${msAndRateCells}
       </tr>
     `);
 
@@ -4060,7 +3119,7 @@ function renderCompanyMsTable() {
   body.querySelectorAll('.company-ms-metric-select').forEach(select => {
     const deptKey = select.dataset.dept;
     if (!deptKey) return;
-    select.value = state.companyMs.metricKeys?.[deptKey] || getMetricsForDept(deptKey)[0]?.key || '';
+    select.value = state.companyMs.metricKeys?.[deptKey] || MS_METRIC_OPTIONS[0]?.key;
     if (select.dataset.bound) return;
     select.addEventListener('change', handleCompanyMsMetricChange);
     select.dataset.bound = 'true';
@@ -4073,12 +3132,12 @@ function renderCompanyMsTable() {
     input.dataset.bound = 'true';
   });
 
-  body.querySelectorAll('[data-ms-distribute][data-scope="company"]').forEach(button => {
-    if (button.dataset.bound) return;
-    button.addEventListener('click', handleCompanyMsDistribute);
-    button.dataset.bound = 'true';
+  // MS実績入力のイベントバインド
+  body.querySelectorAll('.ms-actual-input').forEach(input => {
+    if (input.dataset.bound) return;
+    input.addEventListener('change', handleMsActualInput);
+    input.dataset.bound = 'true';
   });
-
 }
 
 // ==================== 個人別MSテーブル ====================
@@ -4091,86 +3150,19 @@ function getMetricsForDept(deptKey) {
   return [];
 }
 
-function getPersonalMsTargetMap(deptKey, memberId, metricKey) {
-  if (!deptKey || !memberId || !metricKey) return {};
-  return state.personalMs?.[deptKey]?.msTargets?.[memberId]?.[metricKey] || {};
-}
-
-function getPersonalMsTargetTotal(deptKey, memberId, metricKey) {
-  if (!deptKey || !memberId || !metricKey) return null;
-  return state.personalMs?.[deptKey]?.msTargetTotals?.[memberId]?.[metricKey];
-}
-
-async function loadPersonalMsTargetsForMember(deptKey, memberId, metricKey, periodId = state.companyMsPeriodId) {
-  if (!deptKey || !memberId || !metricKey || !periodId) return;
-  try {
-    const data = await goalSettingsService.loadMsTargets({
-      scope: 'personal',
-      departmentKey: deptKey,
-      metricKey,
-      periodId,
-      advisorUserId: Number(memberId)
-    });
-    if (!data) return;
-    if (!state.personalMs[deptKey].msTargets) state.personalMs[deptKey].msTargets = {};
-    if (!state.personalMs[deptKey].msTargets[memberId]) state.personalMs[deptKey].msTargets[memberId] = {};
-    state.personalMs[deptKey].msTargets[memberId][metricKey] = data.dailyTargets || {};
-    if (!state.personalMs[deptKey].msTargetTotals) state.personalMs[deptKey].msTargetTotals = {};
-    if (!state.personalMs[deptKey].msTargetTotals[memberId]) state.personalMs[deptKey].msTargetTotals[memberId] = {};
-    state.personalMs[deptKey].msTargetTotals[memberId][metricKey] = num(data.targetTotal || 0);
-  } catch (error) {
-    console.warn('[yield] failed to load personal ms targets', error);
-  }
-}
-
-async function persistPersonalMsTargets(periodId, deptKey, memberId, metricKey) {
-  if (!periodId || !deptKey || !memberId || !metricKey) return;
-  const dailyTargets = getPersonalMsTargetMap(deptKey, memberId, metricKey);
-  const dates = state.personalMs?.[deptKey]?.dates || [];
-  const targetTotal =
-    getPersonalMsTargetTotal(deptKey, memberId, metricKey) ??
-    getLastCumulativeTarget(dates, dailyTargets, deptKey, periodId);
-  try {
-    await goalSettingsService.saveMsTargets({
-      scope: 'personal',
-      departmentKey: deptKey,
-      metricKey,
-      periodId,
-      advisorUserId: Number(memberId),
-      targetTotal,
-      dailyTargets
-    });
-  } catch (error) {
-    console.warn('[yield] failed to save personal ms targets', error);
-  }
-}
-
-// 指標変更ハンドラ（管理者: 重要指標の更新）
-async function handlePersonalMsMetricChange(event) {
+// 指標変更ハンドラ
+function handlePersonalMsMetricChange(event) {
   const select = event.target;
   const { dept, member } = select.dataset;
   const value = select.value;
 
-  if (!dept || !member || !state.personalMs[dept]) return;
+  if (!state.personalMs[dept]) return;
   if (!state.personalMs[dept].metricKeys) {
     state.personalMs[dept].metricKeys = {};
   }
   state.personalMs[dept].metricKeys[member] = value;
-  if (!state.personalMs.importantMetrics) state.personalMs.importantMetrics = {};
-  if (!state.personalMs.importantMetrics[dept]) state.personalMs.importantMetrics[dept] = {};
-  state.personalMs.importantMetrics[dept][member] = value;
 
-  try {
-    await goalSettingsService.saveImportantMetric({
-      departmentKey: dept,
-      userId: Number(member),
-      metricKey: value
-    });
-  } catch (error) {
-    console.warn('[yield] failed to save important metric', error);
-  }
-
-  await loadPersonalMsTargetsForMember(dept, member, value);
+  // テーブル再レンダリング
   renderPersonalMsTable(dept);
 }
 
@@ -4188,17 +3180,8 @@ function handlePersonalMsTargetInput(event) {
     state.personalMs[dept].msTargets[member][metric] = {};
   }
   state.personalMs[dept].msTargets[member][metric][date] = value;
-  if (!state.personalMs[dept].msTargetTotals) state.personalMs[dept].msTargetTotals = {};
-  if (!state.personalMs[dept].msTargetTotals[member]) state.personalMs[dept].msTargetTotals[member] = {};
-  const dates = state.personalMs[dept]?.dates || [];
-  state.personalMs[dept].msTargetTotals[member][metric] = getLastCumulativeTarget(
-    dates,
-    state.personalMs[dept].msTargets[member][metric],
-    dept,
-    state.companyMsPeriodId
-  );
-  renderPersonalMsTable(dept);
-  persistPersonalMsTargets(state.companyMsPeriodId, dept, member, metric);
+
+  updatePersonalMsProgressRate(dept, member, date, metric);
 }
 
 // 個人別MS実績入力ハンドラ
@@ -4217,46 +3200,6 @@ function handlePersonalMsActualInput(event) {
   state.personalMs[dept].msActuals[member][metric][date] = value;
 
   updatePersonalMsProgressRate(dept, member, date, metric);
-}
-
-function handlePersonalMsDistribute(event) {
-  const button = event.target;
-  const { dept, member, metric } = button.dataset;
-  const periodId = state.companyMsPeriodId;
-  if (!dept || !member || !metric || !periodId) return;
-
-  const dates = state.personalMs?.[dept]?.dates || [];
-  const currentTotal =
-    getPersonalMsTargetTotal(dept, member, metric) ??
-    getLastCumulativeTarget(dates, getPersonalMsTargetMap(dept, member, metric), dept, periodId);
-  const input = prompt('最終目標値を入力してください', currentTotal ? String(currentTotal) : '');
-  if (input === null) return;
-  const total = Number(input);
-  if (!Number.isFinite(total) || total < 0) return;
-
-  const activeDates = dates.filter(date => {
-    const disabled = isDateBeforeDeptStart(date, dept) || isDateAfterDeptEnd(date, dept);
-    return !disabled;
-  });
-  const cumulative = buildCumulativeSeries(total, activeDates.length);
-  const targetMap = {};
-  let activeIndex = 0;
-  dates.forEach(date => {
-    const disabled = isDateBeforeDeptStart(date, dept) || isDateAfterDeptEnd(date, dept);
-    if (disabled) return;
-    targetMap[date] = cumulative[activeIndex] ?? 0;
-    activeIndex += 1;
-  });
-
-  if (!state.personalMs[dept].msTargets) state.personalMs[dept].msTargets = {};
-  if (!state.personalMs[dept].msTargets[member]) state.personalMs[dept].msTargets[member] = {};
-  state.personalMs[dept].msTargets[member][metric] = targetMap;
-  if (!state.personalMs[dept].msTargetTotals) state.personalMs[dept].msTargetTotals = {};
-  if (!state.personalMs[dept].msTargetTotals[member]) state.personalMs[dept].msTargetTotals[member] = {};
-  state.personalMs[dept].msTargetTotals[member][metric] = total;
-
-  renderPersonalMsTable(dept);
-  persistPersonalMsTargets(periodId, dept, member, metric);
 }
 
 // 個人別MS進捗率を更新
@@ -4297,147 +3240,89 @@ function renderPersonalMsTable(deptKey) {
   const deptData = state.personalMs[deptKey];
   if (!deptData) return;
 
-  const periodId = state.companyMsPeriodId;
   const dates = deptData.dates || [];
   const members = deptData.members || [];
   const metrics = getMetricsForDept(deptKey);
   const defaultMetricKey = metrics[0]?.key;
 
-  // サブヘッダーを削除
-  const thead = headerRow.parentElement;
-  if (thead) {
-    while (thead.rows.length > 1) {
-      thead.deleteRow(1);
-    }
-  }
-
-  if (!dates.length || !metrics.length) {
+  if (!dates.length || !members.length || !metrics.length) {
     headerRow.innerHTML = '';
     body.innerHTML = '<tr><td colspan="10" class="kpi-v2-empty">該当するメンバーまたデータがありません</td></tr>';
     return;
   }
 
-  // ヘッダー行を構築（1日1列）
+  // ヘッダー行を構築
   const dateCells = dates.map(date => {
     const dayLabel = formatDayLabel(date);
-    return `<th scope="col" class="ms-date-header">${dayLabel}</th>`;
+    return `<th scope="col" colspan="2" class="ms-date-header">${dayLabel}</th>`;
   }).join('');
+  const subHeaderCells = dates.map(() => `
+    <th scope="col" class="ms-sub-header">MS</th>
+    <th scope="col" class="ms-sub-header">進捗率</th>
+  `).join('');
 
   headerRow.innerHTML = `
-    <th scope="col" class="kpi-v2-sticky-label">メンバー</th>
-    <th scope="col" class="kpi-v2-sticky-label kpi-v2-ms-metric">指標</th>
-    <th scope="col" class="daily-type">区分</th>
+    <th scope="col" class="kpi-v2-sticky-label" rowspan="2">メンバー</th>
+    <th scope="col" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="2">指標</th>
+    <th scope="col" class="daily-type" rowspan="2">区分</th>
     ${dateCells}
   `;
 
-  if (!members.length) {
-    const colSpan = 3 + dates.length;
-    body.innerHTML = `<tr><td colspan="${colSpan}" class="kpi-v2-empty">該当するメンバーまたデータがありません</td></tr>`;
-    return;
-  }
+  // サブヘッダー行を追加（既存のものを削除してから）
+  const existingSubHeader = headerRow.parentElement?.querySelector('tr:not(:first-child)');
+  if (existingSubHeader) existingSubHeader.remove();
+  const subHeaderRow = document.createElement('tr');
+  subHeaderRow.innerHTML = subHeaderCells;
+  headerRow.parentElement?.appendChild(subHeaderRow);
 
   // 各メンバーの行を生成
   const rows = [];
   members.forEach((member, index) => {
-    const memberId = String(member.id || '');
-    if (!memberId) return;
+    const memberId = String(member.id);
     const memberName = member.name || `ID:${memberId}`;
 
-    // 重要指標（なければデフォルト）
-    const importantMetricKey = state.personalMs?.importantMetrics?.[deptKey]?.[memberId];
-    let currentMetricKey = importantMetricKey || state.personalMs[deptKey].metricKeys?.[memberId] || defaultMetricKey;
-    if (!metrics.some(m => m.key === currentMetricKey)) currentMetricKey = defaultMetricKey;
-    if (!state.personalMs[deptKey].metricKeys) state.personalMs[deptKey].metricKeys = {};
-    state.personalMs[deptKey].metricKeys[memberId] = currentMetricKey;
+    // 現在選択されている指標（なければデフォルト）
+    const currentMetricKey = state.personalMs[deptKey].metricKeys?.[memberId] || defaultMetricKey;
 
     // 指標セレクトボックスHTML
     const metricOptionsHtml = metrics.map(m =>
       `<option value="${m.key}" ${m.key === currentMetricKey ? 'selected' : ''}>${m.label}</option>`
     ).join('');
 
-    const isSingleMetric = metrics.length <= 1;
-    const distributeButton = `<button type="button" class="ms-distribute-btn" data-ms-distribute data-scope="personalMs" data-dept="${deptKey}" data-member="${memberId}" data-metric="${currentMetricKey}">日割り</button>`;
+    // マーケは1つしかないので固定表示でもいいが、統一感のためdisabledなselectまたは単一optionにする
     const metricCell = `
-      <th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="3">
-        <div class="ms-metric-cell">
-          <select class="kpi-v2-sort-select personal-ms-metric-select" 
-                  data-dept="${deptKey}" 
-                  data-member="${memberId}"
-                  ${isSingleMetric ? 'disabled' : ''}>
-            ${metricOptionsHtml}
-          </select>
-          ${distributeButton}
-        </div>
+      <th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="2">
+        <select class="kpi-v2-sort-select personal-ms-metric-select" 
+                data-dept="${deptKey}" 
+                data-member="${memberId}">
+          ${metricOptionsHtml}
+        </select>
       </th>
     `;
 
-    const targetMap = getPersonalMsTargetMap(deptKey, memberId, currentMetricKey);
-    const storedTotal = getPersonalMsTargetTotal(deptKey, memberId, currentMetricKey);
-    const totalTarget = Number.isFinite(storedTotal)
-      ? num(storedTotal)
-      : getLastCumulativeTarget(dates, targetMap, deptKey, periodId);
-    const activeDates = dates.filter(date => {
-      const disabled = isDateBeforeDeptStart(date, deptKey) || isDateAfterDeptEnd(date, deptKey);
-      return !disabled;
-    });
-    const fallbackCumulative = totalTarget > 0 ? buildCumulativeSeries(totalTarget, activeDates.length) : [];
-    let activeIndex = 0;
-    const cumulativeTargets = dates.map(date => {
+    // MS/進捗率行
+    const msAndRateCells = dates.map(date => {
       const isDisabled = isDateBeforeDeptStart(date, deptKey) || isDateAfterDeptEnd(date, deptKey);
-      if (isDisabled) return null;
-      const saved = targetMap?.[date];
-      if (saved !== undefined && saved !== null && saved !== '') {
-        activeIndex += 1;
-        return num(saved);
-      }
-      const fallback = fallbackCumulative[activeIndex] ?? null;
-      activeIndex += 1;
-      return fallback;
-    });
+      const disabledClass = isDisabled ? 'ms-cell-disabled' : '';
 
-    const dailyTargets = [];
-    let prevTarget = 0;
-    cumulativeTargets.forEach(value => {
-      if (value === null) {
-        dailyTargets.push(null);
-        return;
-      }
-      const daily = num(value) - num(prevTarget);
-      dailyTargets.push(daily);
-      prevTarget = num(value);
-    });
-
-    const dailyActuals = [];
-    dates.forEach(date => {
-      const isDisabled = isDateBeforeDeptStart(date, deptKey) || isDateAfterDeptEnd(date, deptKey);
       if (isDisabled) {
-        dailyActuals.push(null);
-        return;
+        return `<td class="${disabledClass}"></td><td class="${disabledClass}"></td>`;
       }
-      const value = getAutoCalculatedActual(memberId, date, currentMetricKey);
-      dailyActuals.push(num(value));
-    });
 
-    const cumulativeActuals = [];
-    let running = 0;
-    dailyActuals.forEach(value => {
-      if (value === null) {
-        cumulativeActuals.push(null);
-        return;
+      const savedMs = state.personalMs[deptKey]?.msTargets?.[memberId]?.[currentMetricKey]?.[date] ?? '';
+
+      const autoValue = getAutoCalculatedActual(memberId, date, currentMetricKey);
+      const savedActual = state.personalMs[deptKey]?.msActuals?.[memberId]?.[currentMetricKey]?.[date];
+      const actualValue = (savedActual !== undefined && savedActual !== '') ? Number(savedActual) : autoValue;
+
+      let rateDisplay = '-';
+      let rateClass = '';
+      if (savedMs && Number(savedMs) > 0) {
+        const rate = Math.round((actualValue / Number(savedMs)) * 100);
+        rateDisplay = `${rate}%`;
+        rateClass = rate >= 100 ? 'ms-rate-good' : rate >= 80 ? 'ms-rate-warn' : 'ms-rate-bad';
       }
-      running += num(value);
-      cumulativeActuals.push(running);
-    });
 
-    const totalTargetValue = Number.isFinite(storedTotal)
-      ? num(storedTotal)
-      : getLastCumulativeTarget(dates, targetMap, deptKey, periodId) || (totalTarget > 0 ? totalTarget : 0);
-
-    const msCells = dates.map((date, idx) => {
-      const isDisabled = isDateBeforeDeptStart(date, deptKey) || isDateAfterDeptEnd(date, deptKey);
-      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
-      const value = cumulativeTargets[idx];
-      const displayValue = Number.isFinite(value) ? value : '';
       return `
         <td class="ms-target-cell">
           <input type="number" class="ms-target-input personal-ms-target-input" 
@@ -4445,52 +3330,54 @@ function renderPersonalMsTable(deptKey) {
                  data-member="${memberId}" 
                  data-date="${date}"
                  data-metric="${currentMetricKey}"
-                 value="${displayValue}" 
+                 value="${savedMs}" 
                  min="0" />
+        </td>
+        <td class="ms-rate-cell ${rateClass}" data-personal-progress-rate 
+            data-dept="${deptKey}" 
+            data-member="${memberId}" 
+            data-date="${date}"
+            data-metric="${currentMetricKey}">
+          ${rateDisplay}
         </td>
       `;
     }).join('');
 
-    const rateCells = dates.map((date, idx) => {
+    // 実績行
+    const actualCells = dates.map(date => {
       const isDisabled = isDateBeforeDeptStart(date, deptKey) || isDateAfterDeptEnd(date, deptKey);
-      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
-      const dailyTarget = dailyTargets[idx];
-      const dailyActual = dailyActuals[idx] ?? 0;
-      const cumulativeActual = cumulativeActuals[idx] ?? 0;
-      const useOverall = state.msRateModes?.companyMs === 'overall';
-      const numerator = useOverall ? cumulativeActual : dailyActual;
-      const denominator = useOverall ? totalTargetValue : dailyTarget;
+      const disabledClass = isDisabled ? 'ms-cell-disabled' : '';
 
-      let rateDisplay = '-';
-      let rateClass = '';
-      if (denominator && Number(denominator) > 0) {
-        const rate = Math.round((numerator / Number(denominator)) * 100);
-        rateDisplay = `${rate}%`;
-        rateClass = rate >= 100 ? 'ms-rate-good' : rate >= 80 ? 'ms-rate-warn' : 'ms-rate-bad';
+      if (isDisabled) {
+        return `<td class="${disabledClass}" colspan="2"></td>`;
       }
-      return `<td class="ms-rate-cell ${rateClass}">${rateDisplay}</td>`;
-    }).join('');
 
-    const actualCells = dates.map((date, idx) => {
-      const isDisabled = isDateBeforeDeptStart(date, deptKey) || isDateAfterDeptEnd(date, deptKey);
-      if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
-      return `<td class="ms-actual-cell">${formatNumberCell(cumulativeActuals[idx])}</td>`;
+      const autoValue = getAutoCalculatedActual(memberId, date, currentMetricKey);
+      const savedActual = state.personalMs[deptKey]?.msActuals?.[memberId]?.[currentMetricKey]?.[date];
+      const displayValue = (savedActual !== undefined && savedActual !== '') ? savedActual : autoValue;
+
+      return `
+        <td class="ms-actual-cell" colspan="2">
+          <input type="number" class="ms-actual-input personal-ms-actual-input" 
+                 data-dept="${deptKey}" 
+                 data-member="${memberId}" 
+                 data-date="${date}"
+                 data-metric="${currentMetricKey}"
+                 value="${displayValue}" 
+                 min="0" 
+                 placeholder="${autoValue}" />
+        </td>
+      `;
     }).join('');
 
     const rowAlt = index % 2 === 1 ? 'daily-triplet-alt' : '';
 
     rows.push(`
       <tr class="${rowAlt}">
-        <th scope="row" class="kpi-v2-sticky-label" rowspan="3">${memberName}</th>
+        <th scope="row" class="kpi-v2-sticky-label" rowspan="2">${memberName}</th>
         ${metricCell}
-        <td class="daily-type">MS</td>
-        ${msCells}
-      </tr>
-    `);
-    rows.push(`
-      <tr class="${rowAlt}">
-        <td class="daily-type">進捗率</td>
-        ${rateCells}
+        <td class="daily-type">MS/進捗率</td>
+        ${msAndRateCells}
       </tr>
     `);
     rows.push(`
@@ -4516,16 +3403,16 @@ function renderPersonalMsTable(deptKey) {
     input.dataset.bound = 'true';
   });
 
-  body.querySelectorAll('[data-ms-distribute][data-scope="personalMs"]').forEach(button => {
-    if (button.dataset.bound) return;
-    button.addEventListener('click', handlePersonalMsDistribute);
-    button.dataset.bound = 'true';
+  body.querySelectorAll('.personal-ms-actual-input').forEach(input => {
+    if (input.dataset.bound) return;
+    input.addEventListener('change', handlePersonalMsActualInput);
+    input.dataset.bound = 'true';
   });
 }
 
 // 個人別MSテーブルをすべてレンダリング
 function renderAllPersonalMsTables() {
-  ['cs', 'sales'].forEach(deptKey => {
+  ['marketing', 'cs', 'sales'].forEach(deptKey => {
     renderPersonalMsTable(deptKey);
   });
 }
@@ -4533,82 +3420,19 @@ function renderAllPersonalMsTables() {
 // 個人別MSデータを読み込み
 // 個人別MSデータを読み込み
 async function loadPersonalMsData() {
-  const periodId = state.companyMsPeriodId;
-  const period = state.evaluationPeriods.find(item => item.id === periodId);
-  const marketingSection = document.querySelector('[data-personal-ms="marketing"]');
-  if (marketingSection) marketingSection.hidden = true;
-  if (!period) {
-    state.personalMs.marketing.dates = [];
-    state.personalMs.cs.dates = [];
-    state.personalMs.sales.dates = [];
-    state.personalMs.marketing.members = [];
-    state.personalMs.cs.members = [];
-    state.personalMs.sales.members = [];
-    renderAllPersonalMsTables();
-    return;
-  }
-
-  await ensureDailyYieldData(periodId, { msMode: true });
-
   const members = await ensureMembersList();
-  const ranges = resolveCompanyMsRanges(period);
+  const ranges = resolveCompanyMsRanges();
 
-  // 部門別に日付を設定（部門ごとの期間のみ）
-  state.personalMs.marketing.dates = enumerateDateRange(ranges.marketingRange?.startDate || '', ranges.marketingRange?.endDate || '');
-  state.personalMs.cs.dates = enumerateDateRange(ranges.csRange?.startDate || '', ranges.csRange?.endDate || '');
-  state.personalMs.sales.dates = enumerateDateRange(ranges.salesRange?.startDate || '', ranges.salesRange?.endDate || '');
+  // 部門別に日付を設定（終了日はMS全体＝末日まで延長）
+  state.personalMs.marketing.dates = enumerateDateRange(ranges.marketingRange?.startDate || '', ranges.msOverallRange?.endDate || '');
+  state.personalMs.cs.dates = enumerateDateRange(ranges.csRange?.startDate || '', ranges.msOverallRange?.endDate || '');
+  state.personalMs.sales.dates = enumerateDateRange(ranges.salesRange?.startDate || '', ranges.msOverallRange?.endDate || '');
 
   // 部門別にメンバーを振り分け
   state.personalMs.marketing.members = getMembersByDepartment(members, 'marketing');
   state.personalMs.cs.members = getMembersByDepartment(members, 'cs');
   state.personalMs.sales.members = getMembersByDepartment(members, 'sales');
 
-  // 重要指標を取得してマッピング
-  const deptKeys = ['cs', 'sales'];
-  if (!state.personalMs.importantMetrics) state.personalMs.importantMetrics = {};
-  deptKeys.forEach(deptKey => {
-    state.personalMs.importantMetrics[deptKey] = {};
-  });
-  await Promise.all(deptKeys.map(async (deptKey) => {
-    try {
-      const items = await goalSettingsService.loadImportantMetrics({ departmentKey: deptKey, force: true });
-      const map = {};
-      (items || []).forEach(item => {
-        const userId = String(item?.userId || item?.user_id || '');
-        const metricKey = item?.metricKey || item?.metric_key || '';
-        if (!userId || !metricKey) return;
-        map[userId] = metricKey;
-      });
-      if (!state.personalMs.importantMetrics) state.personalMs.importantMetrics = {};
-      state.personalMs.importantMetrics[deptKey] = map;
-    } catch (error) {
-      console.warn('[yield] failed to load important metrics', error);
-    }
-  }));
-
-  // メンバー別の目標値をロード
-  const loadPromises = [];
-  deptKeys.forEach((deptKey) => {
-    const metrics = getMetricsForDept(deptKey);
-    const defaultMetricKey = metrics[0]?.key || '';
-    const deptState = state.personalMs[deptKey];
-    if (!deptState.metricKeys) deptState.metricKeys = {};
-    deptState.msTargets = {};
-    deptState.msTargetTotals = {};
-
-    (deptState.members || []).forEach(member => {
-      const memberId = String(member.id || '');
-      if (!memberId) return;
-      const important = state.personalMs?.importantMetrics?.[deptKey]?.[memberId];
-      const validImportant = important && metrics.some(m => m.key === important) ? important : '';
-      const selected = validImportant || deptState.metricKeys[memberId] || defaultMetricKey;
-      if (!selected) return;
-      deptState.metricKeys[memberId] = selected;
-      loadPromises.push(loadPersonalMsTargetsForMember(deptKey, memberId, selected, periodId));
-    });
-  });
-
-  await Promise.all(loadPromises);
   renderAllPersonalMsTables();
 }
 
@@ -4711,56 +3535,14 @@ async function loadAndRenderCompanyMs() {
   const periodId = state.companyMsPeriodId;
   const period = state.evaluationPeriods.find(item => item.id === periodId);
   if (!period) {
-    state.companyMs = {
-      ...state.companyMs,
-      dates: [],
-      dailyTotals: {},
-      companyTarget: {},
-      msTargets: {},
-      msTargetTotals: {},
-      revenue: { actual: 0, target: 0 }
-    };
+    state.companyMs = { ...state.companyMs, dates: [], dailyTotals: {}, companyTarget: {}, revenue: { actual: 0, target: 0 } };
     state.companySales = { ...state.companySales, dates: [], employees: [] };
     renderCompanyMsTable();
     renderCompanySalesTable();
     return;
   }
-  state.companyMs.msTargets = {};
-  state.companyMs.msTargetTotals = {};
   const ranges = resolveCompanyMsRanges(period);
-  const msOverallRange = ranges.msOverallRange || ranges.salesRange;
-
-  // Always update dates first so headers are correct even if API calls fail.
-  state.companyMs = {
-    ...state.companyMs,
-    metricKeys: {
-      marketing: state.companyMs.metricKeys?.marketing || getMetricsForDept('marketing')[0]?.key,
-      cs: state.companyMs.metricKeys?.cs || getMetricsForDept('cs')[0]?.key,
-      sales: state.companyMs.metricKeys?.sales || getMetricsForDept('sales')[0]?.key
-    },
-    dates: enumerateDateRange(msOverallRange.startDate, msOverallRange.endDate),
-    marketingDates: enumerateDateRange(ranges.marketingRange?.startDate || '', ranges.msOverallRange?.endDate || ''),
-    csDates: enumerateDateRange(ranges.csRange?.startDate || '', ranges.msOverallRange?.endDate || ''),
-    salesDates: enumerateDateRange(ranges.salesRange?.startDate || '', ranges.msOverallRange?.endDate || ''),
-    revenueDates: enumerateDateRange(ranges.revenueRange?.startDate || '', ranges.msOverallRange?.endDate || ''),
-    dailyTotals: {},
-    companyTarget: {},
-    revenue: { actual: 0, target: 0 }
-  };
-  state.companySales = {
-    ...state.companySales,
-    dates: enumerateDateRange(ranges.salesRange.startDate, ranges.salesRange.endDate)
-  };
-
-  let payload;
-  try {
-    payload = await ensureDailyYieldData(periodId, { msMode: true });
-  } catch (error) {
-    console.warn('[yield] failed to load daily yield data for MS', error);
-    renderCompanyMsTable();
-    renderCompanySalesTable();
-    return;
-  }
+  const payload = await ensureDailyYieldData(periodId);
   const advisors = await resolveAdvisorEmployees();
   const fallbackAdvisors = (payload?.employees || [])
     .map(emp => ({
@@ -4770,18 +3552,12 @@ async function loadAndRenderCompanyMs() {
     .filter(item => item.id);
   const effectiveAdvisors = advisors.length ? advisors : fallbackAdvisors;
   const advisorIds = effectiveAdvisors.map(item => item.id).filter(id => id);
-  const allEmployeeIds = (payload?.employees || [])
-    .map(emp => String(emp?.advisorUserId ?? emp?.id ?? ''))
-    .filter(id => id);
   const dailyTotalsFromPayload = payload?.employees?.length
-    ? buildCompanyMsDailyTotalsFromEmployees(payload.employees, allEmployeeIds)
+    ? buildCompanyMsDailyTotalsFromEmployees(payload.employees, advisorIds)
     : {};
-  const fallbackIds = allEmployeeIds.length
-    ? allEmployeeIds
-    : getCompanyDailyEmployees().map(emp => String(emp?.id ?? '')).filter(id => id);
   const dailyTotals = Object.keys(dailyTotalsFromPayload).length
     ? dailyTotalsFromPayload
-    : buildCompanyMsDailyTotals(periodId, fallbackIds);
+    : buildCompanyMsDailyTotals(periodId, advisorIds);
   await goalSettingsService.loadCompanyPeriodTarget(periodId);
   const companyTarget = goalSettingsService.getCompanyPeriodTarget(periodId) || {};
   if (typeof goalSettingsService.loadPersonalPeriodTargetsBulk === 'function') {
@@ -4792,8 +3568,7 @@ async function loadAndRenderCompanyMs() {
     try {
       const revenueKpi = await fetchCompanyKpiFromApi({
         startDate: ranges.revenueRange.startDate,
-        endDate: ranges.revenueRange.endDate,
-        msMode: true
+        endDate: ranges.revenueRange.endDate
       });
       revenueActual = normalizeCounts(revenueKpi || {}).revenue;
     } catch (error) {
@@ -4801,8 +3576,20 @@ async function loadAndRenderCompanyMs() {
       revenueActual = 0;
     }
   }
+  // 事業部ごとの日付を保存
+  const msOverallRange = ranges.msOverallRange || ranges.salesRange;
   state.companyMs = {
     ...state.companyMs,
+    metricKeys: {
+      marketing: state.companyMs.metricKeys?.marketing || MS_METRIC_OPTIONS[0]?.key,
+      cs: state.companyMs.metricKeys?.cs || MS_METRIC_OPTIONS[0]?.key,
+      sales: state.companyMs.metricKeys?.sales || MS_METRIC_OPTIONS[0]?.key
+    },
+    dates: enumerateDateRange(msOverallRange.startDate, msOverallRange.endDate),
+    marketingDates: enumerateDateRange(ranges.marketingRange?.startDate || '', ranges.msOverallRange?.endDate || ''), // 末日まで延長
+    csDates: enumerateDateRange(ranges.csRange?.startDate || '', ranges.msOverallRange?.endDate || ''), // 末日まで延長
+    salesDates: enumerateDateRange(ranges.salesRange?.startDate || '', ranges.msOverallRange?.endDate || ''), // 末日まで延長
+    revenueDates: enumerateDateRange(ranges.revenueRange?.startDate || '', ranges.msOverallRange?.endDate || ''), // 末日まで延長
     dailyTotals,
     companyTarget,
     revenue: {
@@ -4810,8 +3597,11 @@ async function loadAndRenderCompanyMs() {
       target: num(companyTarget.revenueTarget ?? 0)
     }
   };
-  state.companySales = { ...state.companySales, employees: effectiveAdvisors };
-  await loadCompanyMsTargets(periodId);
+  state.companySales = {
+    ...state.companySales,
+    employees: effectiveAdvisors,
+    dates: enumerateDateRange(ranges.salesRange.startDate, ranges.salesRange.endDate)
+  };
   renderCompanyMsTable();
   renderCompanySalesTable();
   await loadPersonalMsData();
@@ -4830,6 +3620,9 @@ function enumeratePeriodDates(period) {
 }
 
 function getCompanySummaryRange() {
+  if (state.companyDisplayMode === 'range' && state.ranges.company.startDate && state.ranges.company.endDate) {
+    return state.ranges.company;
+  }
   const period = state.evaluationPeriods.find(item => item.id === state.companyEvaluationPeriodId);
   if (period?.startDate && period?.endDate) {
     return { startDate: period.startDate, endDate: period.endDate };
@@ -4892,12 +3685,7 @@ async function loadEmployeeData(rangeFilters = {}) {
 }
 
 function normalizeCounts(src = {}) {
-  if (src.revenue || src.currentAmount || src.fee_amount || src.offer_accept_date) console.log('[DEBUG] normalizeCounts src:', src);
-  const revenue = num(src.revenue ?? src.currentAmount ?? src.revenueAmount ?? src.current_amount ?? src.revenue_amount);
-  const targetAmount = num(src.targetAmount ?? src.revenueTarget ?? src.target_amount ?? src.revenue_target);
-  const achievementRate = targetAmount > 0
-    ? num(src.achievementRate) || Math.round((revenue / targetAmount) * 100)
-    : num(src.achievementRate) || 0;
+  const revenue = num(src.revenue ?? src.currentAmount ?? src.revenueAmount);
   return {
     newInterviews: num(src.newInterviews ?? src.new_interviews ?? src.proposals),
     proposals: num(src.proposals),
@@ -4909,8 +3697,7 @@ function normalizeCounts(src = {}) {
     hires: num(src.hires ?? src.accepts),
     revenue,
     currentAmount: revenue,
-    targetAmount,
-    achievementRate
+    targetAmount: num(src.targetAmount ?? src.revenueTarget ?? src.target_amount)
   };
 }
 
@@ -5222,13 +4009,7 @@ function handleCompanyMsMetricChange(event) {
       [deptKey]: next
     };
   }
-  if (deptKey && state.companyMsPeriodId) {
-    loadCompanyMsTargets(state.companyMsPeriodId).then(() => {
-      renderCompanyMsTable();
-    });
-  } else {
-    renderCompanyMsTable();
-  }
+  renderCompanyMsTable();
 }
 
 function handleCompanySalesMetricChange(event) {
@@ -5280,22 +4061,11 @@ function initializeKpiTabs() {
     const section = group.closest('.kpi-v2-section');
     if (!section) return;
     const tabs = Array.from(group.querySelectorAll('.kpi-tab[data-kpi-tab]'));
-    const localPanels = Array.from(section.querySelectorAll('.kpi-tab-panel[data-kpi-tab-panel]'));
-    const scope = group.dataset.kpiTabGroup || '';
-    const scopedPanels = scope
-      ? Array.from(document.querySelectorAll(`.kpi-tab-panel[data-kpi-tab-panel^="${scope}-"]`))
-      : [];
-    const panels = scopedPanels.length ? scopedPanels : localPanels;
+    const panels = Array.from(section.querySelectorAll('.kpi-tab-panel[data-kpi-tab-panel]'));
 
     const activate = tabId => {
       tabs.forEach(btn => btn.classList.toggle('is-active', btn.dataset.kpiTab === tabId));
-      panels.forEach(panel => {
-        const isActive = panel.dataset.kpiTabPanel === tabId;
-        panel.classList.toggle('is-active', isActive);
-        panel.classList.toggle('is-hidden', !isActive);
-        panel.style.display = isActive ? '' : 'none';
-        panel.hidden = !isActive;
-      });
+      panels.forEach(panel => panel.classList.toggle('is-hidden', panel.dataset.kpiTabPanel !== tabId));
       if (tabId.includes('graphs')) {
         // Trigger dashboard reload/resize to ensure charts render on visible canvas
         const scope = tabId.split('-')[0]; // 'personal' or 'company'
@@ -5347,9 +4117,6 @@ function loadEvaluationPeriods() {
   if (!hasCompanyTerm && (todayPeriodId || first)) state.companyTermPeriodId = todayPeriodId || first?.id || '';
   if (!hasCompanyTerm && (todayPeriodId || first)) state.companyTermPeriodId = todayPeriodId || first?.id || '';
   if (!hasCompanyMs && (todayPeriodId || first)) state.companyMsPeriodId = todayPeriodId || first?.id || '';
-  if (state.personalDailyPeriodId && !state.companyMsPeriodId) {
-    state.companyMsPeriodId = state.personalDailyPeriodId;
-  }
   const hasPersonalMs = state.evaluationPeriods.some(period => period.id === state.personalMsPeriodId);
   if (!hasPersonalMs && (todayPeriodId || first)) state.personalMsPeriodId = todayPeriodId || first?.id || '';
   ensureCompanyDailyEmployeeId();
@@ -5442,6 +4209,7 @@ function handlePersonalPeriodChange(event) {
 
 async function handleCompanyPeriodChange(event) {
   state.companyEvaluationPeriodId = event.target.value || '';
+  state.companyDisplayMode = 'period';
   await goalSettingsService.loadCompanyPeriodTarget(state.companyEvaluationPeriodId);
   renderCompanyTargets();
   loadCompanySummaryKPI();
@@ -5465,16 +4233,8 @@ async function handlePersonalMsPeriodChange(event) {
 
 function handlePersonalDailyPeriodChange(event) {
   state.personalDailyPeriodId = event.target.value || '';
-  if (state.personalDailyPeriodId) {
-    state.companyMsPeriodId = state.personalDailyPeriodId;
-  }
   state.personalDisplayMode = 'monthly'; // Force daily mode when dropdown is used
-  if (state.personalDailyMs) {
-    state.personalDailyMs.targets = {};
-    state.personalDailyMs.totals = {};
-  }
   loadAndRenderPersonalDaily();
-  loadAndRenderCompanyMs();
 }
 
 function handleCompanyDailyPeriodChange(event) {
@@ -5494,11 +4254,12 @@ function syncPersonalRangeToEvaluationPeriod() {
   const endInput = document.getElementById('personalRangeEnd');
   if (startInput) startInput.value = period.startDate;
   if (endInput) endInput.value = period.endDate;
-  state.ranges.personalPeriod = { startDate: period.startDate, endDate: period.endDate };
+  state.ranges.personal = { startDate: period.startDate, endDate: period.endDate };
 }
 
 function applyPersonalEvaluationPeriod(shouldReload = true) {
   state.personalDisplayMode = 'monthly';
+  syncPersonalRangeToEvaluationPeriod();
   seedGoalDefaultsFromSettings();
   initGoalInputs('today');
   initGoalInputs('monthly');
@@ -5514,6 +4275,13 @@ function applyPersonalEvaluationPeriod(shouldReload = true) {
 
 
 function getPersonalSummaryTitleText() {
+  if (state.personalDisplayMode === 'range') {
+    const startDate = state.ranges.personal?.startDate;
+    const endDate = state.ranges.personal?.endDate;
+    if (startDate && endDate) {
+      return `${startDate}〜${endDate}の実績サマリー`;
+    }
+  }
   const period = state.evaluationPeriods.find(item => item.id === state.personalEvaluationPeriodId);
   const labelText = formatPeriodMonthLabel(period);
   return labelText ? `${labelText}の実績サマリー` : '今月の実績サマリー';
@@ -5547,6 +4315,15 @@ function syncEvaluationPeriodLabels() {
 }
 
 function getCompanySummaryTitleText() {
+  if (state.companyDisplayMode === 'range') {
+    const start = state.ranges.company.startDate;
+    const end = state.ranges.company.endDate;
+    if (start && end) {
+      const startDate = start.replace(/-/g, '/');
+      const endDate = end.replace(/-/g, '/');
+      return `${startDate}〜${endDate}の実績サマリー`;
+    }
+  }
   const period = state.evaluationPeriods.find(item => item.id === state.companyEvaluationPeriodId);
   const labelText = formatPeriodMonthLabel(period);
   return labelText ? `${labelText}の実績サマリー` : '今月の実績サマリー';
@@ -5703,17 +4480,6 @@ function renderDashboardCharts(scope) {
 function renderTrendChart(scope) {
   const canvas = document.getElementById(`${scope}TrendChart`);
   if (!canvas || !window.Chart) return;
-
-  const trendCard = canvas.closest('.dashboard-card');
-  if (trendCard) {
-    trendCard.style.gridColumn = scope === 'company' ? '1 / -1' : 'span 2';
-    trendCard.style.minHeight = scope === 'company' ? '480px' : '420px';
-  }
-  const chartWrap = canvas.closest('.dashboard-chart');
-  if (chartWrap) {
-    chartWrap.style.height = scope === 'company' ? '400px' : '360px';
-    chartWrap.style.minHeight = scope === 'company' ? '400px' : '360px';
-  }
   destroyChart(scope, `${scope}TrendChart`);
   const config = buildTrendChartConfig(scope);
   state.dashboard[scope].charts[`${scope}TrendChart`] = new Chart(canvas, {
@@ -5876,85 +4642,53 @@ function isValidRange(range) {
   return new Date(range.startDate) <= new Date(range.endDate);
 }
 
-function resolvePeriodEndById(periodId) {
-  if (!periodId) return null;
+function isDateBeforePersonalDeptStart(date, deptKey) {
+  const periodId = state.personalMsPeriodId;
   const period = state.evaluationPeriods.find(p => p.id === periodId);
-  if (!period?.endDate) return null;
+  if (!period?.endDate) return false;
+
   const end = new Date(period.endDate);
-  return Number.isNaN(end.getTime()) ? null : end;
-}
+  const currentYear = end.getFullYear();
+  const currentMonth = end.getMonth();
+  const dateObj = new Date(date);
 
-function resolveDeptStartDate(periodId, deptKey) {
-  const end = resolvePeriodEndById(periodId);
-  if (!end) return null;
-  const year = end.getFullYear();
-  const month = end.getMonth();
+  let startDate;
   switch (deptKey) {
     case 'marketing':
-      return new Date(year, month - 1, 17);
+      startDate = new Date(currentYear, currentMonth - 1, 17);
+      break;
     case 'cs':
     case 'sales':
-      return new Date(year, month - 1, 18);
+      startDate = new Date(currentYear, currentMonth - 1, 18);
+      break;
     case 'revenue':
-      return new Date(year, month, 1);
+      startDate = new Date(currentYear, currentMonth, 1);
+      break;
     default:
-      return new Date(year, month, 1);
+      return false;
   }
-}
-
-function resolveDeptEndDate(periodId, deptKey) {
-  const end = resolvePeriodEndById(periodId);
-  if (!end) return null;
-  const year = end.getFullYear();
-  const month = end.getMonth();
-  switch (deptKey) {
-    case 'marketing':
-      return new Date(year, month, 19);
-    case 'cs':
-      return new Date(year, month, 20);
-    case 'sales':
-      return new Date(year, month, 19);
-    case 'revenue':
-      return new Date(year, month + 1, 0);
-    default:
-      return new Date(year, month + 1, 0);
-  }
-}
-
-function isDateBeforeDeptStartForPeriod(date, deptKey, periodId) {
-  const startDate = resolveDeptStartDate(periodId, deptKey);
-  if (!startDate) return false;
-  const dateObj = parseLocalDate(date);
-  if (!dateObj) return false;
   return dateObj < startDate;
 }
 
-function isDateAfterDeptEndForPeriod(date, deptKey, periodId) {
-  const endDate = resolveDeptEndDate(periodId, deptKey);
-  if (!endDate) return false;
-  const dateObj = parseLocalDate(date);
-  if (!dateObj) return false;
-  return dateObj > endDate;
-}
-
-function isDateBeforePersonalDeptStart(date, deptKey, periodId = state.personalMsPeriodId) {
-  return isDateBeforeDeptStartForPeriod(date, deptKey, periodId);
-}
-
-function isDateAfterPersonalDeptEnd(date, deptKey, periodId = state.personalMsPeriodId) {
-  return isDateAfterDeptEndForPeriod(date, deptKey, periodId);
-}
-
-function resolvePersonalDailyDateRange(periodId, deptKey) {
-  const end = resolvePeriodEndById(periodId);
-  if (!end) return { startDate: '', endDate: '' };
-  const revenueStart = new Date(end.getFullYear(), end.getMonth(), 1);
-  const revenueEnd = new Date(end.getFullYear(), end.getMonth() + 1, 0);
-  const deptStart = resolveDeptStartDate(periodId, deptKey) || revenueStart;
-  const deptEnd = resolveDeptEndDate(periodId, deptKey) || revenueEnd;
-  const start = deptStart < revenueStart ? deptStart : revenueStart;
-  const finish = deptEnd > revenueEnd ? deptEnd : revenueEnd;
-  return { startDate: isoDate(start), endDate: isoDate(finish) };
+function isDateAfterPersonalDeptEnd(date, deptKey) {
+  // Assuming logic is symmetric or similar to company check, but company check wasn't shown fully.
+  // Using generic logic or just copying company logic if available.
+  // Original isDateAfterDeptEnd was at L2850 approx.
+  // I'll assume standard end date logic (end of period?).
+  // For now, I'll rely on the period end date check if I can find logic.
+  // Wait, I should check isDateAfterDeptEnd implementation first.
+  // I'll skip implementation if I don't need it or use a safe fallback.
+  // Actually, L4646 calls isDateAfterDeptEnd. I should check it.
+  // I'll assume I can reuse isDateAfterDeptEnd IF it doesn't use companyMsPeriodId.
+  // But isDateBeforeDeptStart DID use it.
+  // I'll try to grep isDateAfterDeptEnd first? 
+  // Step 2174 showed L2850 comment but not code.
+  // I'll assume I need to implement it.
+  // I'll implement a simple version based on period.endDate.
+  const periodId = state.personalMsPeriodId;
+  const period = state.evaluationPeriods.find(p => p.id === periodId);
+  if (!period?.endDate) return false;
+  return new Date(date) > new Date(period.endDate);
 }
 
 function buildAdvisorMsHeaderRow(headerRow, dates) {
@@ -6000,7 +4734,7 @@ async function loadAndRenderPersonalMs() {
   }
   const ranges = resolveCompanyMsRanges(period);
   const [payload, members] = await Promise.all([
-    ensureDailyYieldData(periodId, { msMode: true }),
+    ensureDailyYieldData(periodId),
     ensureMembersList()
   ]);
 

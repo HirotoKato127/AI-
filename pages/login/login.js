@@ -10,6 +10,17 @@ export async function mount(root) {
   const form = root.querySelector('#loginForm');
   const errorMessage = root.querySelector('#errorMessage');
   const devLoginButton = root.querySelector('#devLoginButton');
+  const memberList = root.querySelector('#loginMemberList');
+
+  const fillCredentials = (email, password) => {
+    if (!form) return;
+    form.email.value = email || '';
+    form.password.value = password || '';
+  };
+
+  if (memberList) {
+    memberList.innerHTML = '';
+  }
 
   if (form) {
     form.addEventListener('submit', async (e) => {
@@ -48,6 +59,16 @@ export async function mount(root) {
       }
     });
   }
+}
+
+function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 export async function unmount() {

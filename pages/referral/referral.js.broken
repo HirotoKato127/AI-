@@ -1,6 +1,4 @@
 // ==========================================
-import { goalSettingsService } from '../../scripts/services/goalSettings.js';
-
 
 // 状態管理変数
 
@@ -19,12 +17,9 @@ let currentSort = 'company-asc';
 let selectedCompanyId = null;
 
 let detailEditMode = false;
-let referralRateTargets = {}; // 目標値キャッシュ
 
-const REFERRAL_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
-const CLIENTS_KPI_API_URL = `${REFERRAL_API_BASE}/kpi/clients`;
-const CLIENTS_PROFILE_API_URL = `${REFERRAL_API_BASE}/clients`;
-const CANDIDATES_API_BASE = REFERRAL_API_BASE;
+const CLIENTS_API_URL = 'https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev/kpi/clients';
+const CANDIDATES_API_BASE = 'https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev';
 const CANDIDATES_LIST_PATH = '/candidates';
 const CANDIDATES_LIST_LIMIT = 500;
 const CANDIDATES_MATCH_FETCH_LIMIT = 20;
@@ -49,20 +44,16 @@ const flowCandidateInFlight = new Map();
 window.navigateToCandidate = function (candidateId) {
   const resolvedId = String(candidateId ?? '').trim();
   if (!resolvedId) return;
-
-  // URLオブジェクト構築: 現在のオリジン + パス (ハッシュなし)
-  const baseUrl = window.location.origin + window.location.pathname;
-  const url = new URL(baseUrl);
-
-  // クエリパラメータ設定
+  try {
+    sessionStorage.setItem('target_candidate_id', resolvedId);
+  } catch {
+    // ignore storage errors
+  }
+  const url = new URL(window.location.href);
   url.searchParams.set('candidateId', resolvedId);
-  url.searchParams.set('openDetail', '1'); // candidates.js で自動オープンさせるフラグ
-
-  // ハッシュ設定
-  url.hash = '#/candidates';
-
-  console.log(`Navigating to candidate: ${resolvedId}`, url.toString());
-  window.location.href = url.toString();
+  history.replaceState({}, '', url.toString());
+  window.location.hash = '/candidates';
+  console.log(`Navigating to candidate: ${resolvedId}`);
 };
 
 
@@ -141,8 +132,6 @@ export function unmount() {
 // ==========================================
 
 async function loadReferralData() {
-  // 目標値をロード
-  await loadReferralRateTargets();
 
   const from = document.getElementById('referralDateStart')?.value || '';
 
@@ -152,7 +141,7 @@ async function loadReferralData() {
 
 
 
-  const url = new URL(CLIENTS_KPI_API_URL, window.location.origin);
+  const url = new URL(CLIENTS_API_URL);
 
   if (from) url.searchParams.set('from', from);
 
@@ -175,7 +164,6 @@ async function loadReferralData() {
 
 
   allData = items.map((item, index) => normalizeReferralItem(item, index));
-  updateJobFilterOptions();
 
   // Don't auto-select any company
   selectedCompanyId = null;
@@ -229,9 +217,10 @@ function normalizeReferralItem(item = {}, index = 0) {
   const company = str(['name', 'companyName', 'company'], '-');
 
   const industry = str(['industry'], '-');
-  const contactName = str(['contactName', 'contact_name', 'contact', 'contactPerson', 'contact_person'], '');
-  const contactEmail = str(['contactEmail', 'contact_email'], '');
-  const contact = contactName || contactEmail || '-';
+
+  const contact = str(['contactName', 'contact', 'contactPerson'], '-');
+  const contactEmail = str(['contactEmail', 'contact_email', 'email'], '');
+
   const location = str(['location', 'workLocation'], '-');
 
 
@@ -251,13 +240,9 @@ function normalizeReferralItem(item = {}, index = 0) {
   const retentionRaw = val(['retentionRate', 'retention', 'retention_rate']);
 
   // 入社数が0の場合は定着率を'-'とする
-  // 入社数が0の場合は定着率を'-'とする
-  const retention = joined === 0 ? '-' : formatRetention(retentionRaw, 'referralRetentionRateTarget');
+  const retention = joined === 0 ? '-' : formatRetention(retentionRaw);
 
-  const warrantyPeriodRaw = val(['warrantyPeriod', 'warranty_period'], null);
-  const warrantyPeriod = warrantyPeriodRaw === null || warrantyPeriodRaw === '' ? null : warrantyPeriodRaw;
-  const feeDetails = str(['feeDetails', 'fee_details', 'feeContract', 'fee_contract'], '');
-  const contractNote = str(['contractNote', 'contract_note', 'contractNotes', 'contract_notes'], '');
+  const warrantyPeriod = num(['warrantyPeriod', 'warranty_period'], null);
 
 
 
@@ -285,8 +270,7 @@ function normalizeReferralItem(item = {}, index = 0) {
 
 
 
-  const jobCategories = str(['jobCategories', 'jobTitle', 'job_categories'], '-');
-  const jobTitle = jobCategories || '-';
+  const jobTitle = str(['jobCategories', 'jobTitle', 'job_categories'], '-');
 
   const highlightPosition = str(['highlightPosition', 'highlight'], jobTitle);
 
@@ -331,15 +315,15 @@ function normalizeReferralItem(item = {}, index = 0) {
 
   return {
 
-    id, company, industry, contact, contactName, contactEmail, location,
+    id, company, industry, contact, contactName: contact, contactEmail, location,
 
     planHeadcount, joined, remaining,
 
-    retention, warrantyPeriod, feeDetails, feeContract: feeDetails, contractNote, contractNotes: contractNote, refundAmount, leadTime, feeDisplay, feeValue,
+    retention, warrantyPeriod, refundAmount, leadTime, feeDisplay, feeValue,
 
     proposal, docScreen, interview1, interview2, offer,
 
-    jobTitle, jobCategories, highlightPosition,
+    jobTitle, highlightPosition,
 
     prejoinDeclines, prejoinDeclineReason, dropoutCount,
 
@@ -357,47 +341,20 @@ function normalizeReferralItem(item = {}, index = 0) {
 
 // ==========================================
 
-function formatRetention(val, targetKey) {
+function formatRetention(val) {
+
   if (val !== null && val !== undefined && val !== '') {
+
     const n = parseFloat(val);
-    if (!isNaN(n)) {
-      const display = n <= 1 ? `${Math.round(n * 100)}%` : `${n}%`;
-      const badgeClass = getRateBadgeClass(n <= 1 ? n * 100 : n, 'clientRetentionRate');
-      return `<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${badgeClass}">${display}</span>`;
-    }
+
+    if (!isNaN(n)) return n <= 1 ? `${Math.round(n * 100)}%` : `${n}%`;
+
     if (typeof val === 'string' && val.includes('%')) return val;
+
   }
+
   return '-';
-}
 
-function getRateBadgeClass(actualRate, targetKey) {
-  if (!targetKey || !referralRateTargets[targetKey]) return 'bg-slate-100 text-slate-700'; // 目標未設定
-  const targetRate = Number(referralRateTargets[targetKey]);
-  if (!Number.isFinite(targetRate) || targetRate <= 0) return 'bg-slate-100 text-slate-700';
-
-  const percentage = (actualRate / targetRate) * 100;
-  if (percentage >= 100) return 'bg-green-100 text-green-700';
-  if (percentage >= 80) return 'bg-amber-100 text-amber-700';
-  return 'bg-red-100 text-red-700';
-}
-
-async function loadReferralRateTargets() {
-  try {
-    await goalSettingsService.load();
-    const periods = goalSettingsService.getEvaluationPeriods();
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const todayStr = `${y}-${m}-${d}`;
-    const currentPeriod = goalSettingsService.getPeriodByDate(todayStr, periods);
-    if (currentPeriod?.id) {
-      referralRateTargets = await goalSettingsService.loadPageRateTargets(currentPeriod.id) || {};
-    }
-  } catch (error) {
-    console.warn('[referral] failed to load rate targets', error);
-    referralRateTargets = {};
-  }
 }
 
 
@@ -418,40 +375,6 @@ function formatFee(val) {
 function formatCurrency(val) {
 
   return val == null ? '-' : `${Number(val).toLocaleString('ja-JP')}`;
-}
-
-function updateJobFilterOptions() {
-  const select = document.getElementById('referralJobFilter');
-  if (!select) return;
-
-  const current = select.value || '';
-  const jobSet = new Set();
-  (allData || []).forEach(item => {
-    const title = String(item?.jobTitle || '').trim();
-    if (!title || title === '-' || title === 'ー') return;
-    jobSet.add(title);
-  });
-
-  const jobs = Array.from(jobSet).sort((a, b) => a.localeCompare(b, 'ja'));
-
-  while (select.firstChild) select.removeChild(select.firstChild);
-  const allOption = document.createElement('option');
-  allOption.value = '';
-  allOption.textContent = '全て';
-  select.appendChild(allOption);
-
-  jobs.forEach(job => {
-    const opt = document.createElement('option');
-    opt.value = job;
-    opt.textContent = job;
-    select.appendChild(opt);
-  });
-
-  if (current && jobs.includes(current)) {
-    select.value = current;
-  } else {
-    select.value = '';
-  }
 }
 
 
@@ -925,7 +848,27 @@ async function fetchFlowCandidatesForCompany(company) {
   return request;
 }
 
+function getFlowCandidates(company) {
+  const direct = Array.isArray(company?.currentCandidates) ? company.currentCandidates : [];
+  if (direct.length) return direct;
 
+  const fromSummaries = buildFlowCandidatesFromSummaries(company);
+  if (fromSummaries.length) return fromSummaries;
+
+  const rawName = company?.company || company?.companyName || '';
+  const companyName = rawName && String(rawName).trim() !== '-' ? String(rawName).trim() : '';
+  const key = normalizeCompanyName(companyName) || normalizeText(companyName);
+  if (!key) return fromSummaries;
+
+  if (flowCandidateCache.has(key)) {
+    return buildFlowCandidatesFromSummaries(company, flowCandidateCache.get(key));
+  }
+
+  if (!flowCandidateInFlight.has(key)) {
+    fetchFlowCandidatesForCompany(company);
+  }
+  return fromSummaries;
+}
 
 // ==========================================
 // 候補者データ取得・マッチング用正規化
@@ -1025,9 +968,7 @@ function normalizeCandidateSummaryForMatch(candidate) {
   const registeredAt = candidate?.registeredAt ?? candidate?.created_at ?? candidate?.createdAt ?? '';
   const selectionProgress = Array.isArray(candidate?.selectionProgress ?? candidate?.selection_progress)
     ? (candidate?.selectionProgress ?? candidate?.selection_progress)
-    : (Array.isArray(candidate?.candidateApplications ?? candidate?.candidate_applications)
-      ? (candidate?.candidateApplications ?? candidate?.candidate_applications)
-      : []);
+    : [];
 
   return {
     id: id ? String(id) : '',
@@ -1275,102 +1216,76 @@ function buildReferralCandidateQuickViewHtml(candidate, state = {}) {
   const selectionDateText = selectionDate ? formatDateString(selectionDate) : '-';
 
   return `
-    <div class="bg-white rounded-lg overflow-hidden h-full flex flex-col">
-      <!-- Header -->
-      <div class="p-4 border-b border-slate-100 flex items-start justify-between bg-slate-50/50">
+    <div class="referral-candidate-detail">
+      <div class="referral-candidate-top">
         <div>
-          <div class="flex items-center gap-2 mb-1">
-            <h3 class="text-lg font-bold text-slate-800">${formatCandidateField(candidate.name)}</h3>
-            <span class="text-xs px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 font-medium">${ageText}</span>
-          </div>
-          <div class="text-xs text-slate-500 flex items-center gap-2">
-            <span>${titleText}</span>
-            <span class="text-slate-300">|</span>
-            <span>ID: ${candidate.id}</span>
-          </div>
+          <div class="referral-candidate-name">${formatCandidateField(candidate.name)}</div>
+          <div class="referral-candidate-sub">${titleText} / ${ageText}</div>
         </div>
         <button 
-          type="button"
-          data-action="open-candidate-detail"
-          data-candidate-id="${candidate.id}"
-          class="flex items-center gap-1 px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-bold hover:bg-indigo-700 shadow-sm transition-colors cursor-pointer ml-4">
-          <span>詳細画面へ</span>
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+          onclick="navigateToCandidate('${candidate.id}')" 
+          class="px-3 py-2 bg-indigo-600 text-white rounded-md text-xs font-semibold hover:bg-indigo-500 shadow-sm whitespace-nowrap">
+          詳細画面へ
         </button>
       </div>
-
-      <!-- Scrollable Body -->
-      <div class="flex-1 overflow-y-auto p-4 space-y-6">
-        
-        <!-- Status Grid -->
-        <div class="grid grid-cols-2 gap-x-6 gap-y-4">
-          <div>
-            <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">フェーズ</div>
-            <div class="text-sm font-medium text-slate-700 bg-slate-50 px-2 py-1 rounded inline-block border border-slate-200">${phaseText}</div>
+      <div class="referral-candidate-grid">
+        <div class="referral-candidate-item">
+          <span class="referral-candidate-label">\u30d5\u30a7\u30fc\u30ba</span>
+          <span class="referral-candidate-value">${phaseText}</span>
+        </div>
+        <div class="referral-candidate-item">
+          <span class="referral-candidate-label">\u767b\u9332\u65e5</span>
+          <span class="referral-candidate-value">${registeredAtText}</span>
+        </div>
+        <div class="referral-candidate-item">
+          <span class="referral-candidate-label">\u5e0c\u671b\u5e74\u53ce</span>
+          <span class="referral-candidate-value">${salaryText}</span>
+        </div>
+        <div class="referral-candidate-item">
+          <span class="referral-candidate-label">\u52e4\u52d9\u5730</span>
+          <span class="referral-candidate-value">${locationText}</span>
+        </div>
+        <div class="referral-candidate-item">
+          <span class="referral-candidate-label">\u5fdc\u52df\u4f01\u696d</span>
+          <span class="referral-candidate-value">${selectionCompany}</span>
+        </div>
+        <div class="referral-candidate-item">
+          <span class="referral-candidate-label">\u5fdc\u52df\u8077\u7a2e</span>
+          <span class="referral-candidate-value">${selectionJob}</span>
+        </div>
+        <div class="referral-candidate-item">
+          <span class="referral-candidate-label">\u5fdc\u52df\u7d4c\u8def</span>
+          <span class="referral-candidate-value">${selectionRoute}</span>
+        </div>
+        <div class="referral-candidate-item">
+          <span class="referral-candidate-label">\u9078\u8003\u30b9\u30c6\u30fc\u30bf\u30b9</span>
+          <span class="referral-candidate-value">${selectionStatus}</span>
+        </div>
+        <div class="referral-candidate-item">
+          <span class="referral-candidate-label">\u9078\u8003\u958b\u59cb</span>
+          <span class="referral-candidate-value">${selectionDateText}</span>
+        </div>
+      </div>
+      <div class="referral-candidate-section">
+        <div class="referral-candidate-section-title">\u30b9\u30ad\u30eb\u30fb\u9069\u6027</div>
+        <div class="referral-candidate-stack">
+          <div class="referral-candidate-item">
+            <span class="referral-candidate-label">\u30b9\u30ad\u30eb</span>
+            <span class="referral-candidate-value">${skills}</span>
           </div>
-          <div>
-            <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">登録日</div>
-            <div class="text-sm font-medium text-slate-700">${registeredAtText}</div>
+          <div class="referral-candidate-item">
+            <span class="referral-candidate-label">\u8cc7\u683c</span>
+            <span class="referral-candidate-value">${qualifications}</span>
           </div>
-          <div>
-            <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">希望年収</div>
-            <div class="text-sm font-medium text-slate-700">${salaryText}</div>
+          <div class="referral-candidate-item">
+            <span class="referral-candidate-label">\u6027\u683c</span>
+            <span class="referral-candidate-value">${personality}</span>
           </div>
-          <div>
-            <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">希望勤務地</div>
-            <div class="text-sm font-medium text-slate-700">${locationText}</div>
+          <div class="referral-candidate-item is-wide">
+            <span class="referral-candidate-label">\u30e1\u30e2</span>
+            <span class="referral-candidate-value">${noteText}</span>
           </div>
         </div>
-
-        <!-- Selection Info -->
-        ${selection ? `
-        <div class="border-t border-slate-100 pt-4">
-          <h4 class="text-xs font-bold text-slate-500 mb-3 flex items-center gap-2">
-            <span class="w-1 h-4 bg-indigo-500 rounded-full"></span>
-            現在の選考状況
-          </h4>
-          <div class="bg-indigo-50/50 rounded-lg p-3 border border-indigo-100 space-y-2">
-            <div class="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1 text-sm">
-              <span class="text-xs text-indigo-400 font-medium whitespace-nowrap">企業</span>
-              <span class="text-slate-700 font-medium">${selectionCompany}</span>
-              
-              <span class="text-xs text-indigo-400 font-medium whitespace-nowrap">職種</span>
-              <span class="text-slate-700">${selectionJob}</span>
-              
-              <span class="text-xs text-indigo-400 font-medium whitespace-nowrap">ステータス</span>
-              <span class="text-slate-700">${selectionStatus}</span>
-              
-              <span class="text-xs text-indigo-400 font-medium whitespace-nowrap">開始日</span>
-              <span class="text-slate-700">${selectionDateText}</span>
-            </div>
-          </div>
-        </div>
-        ` : ''}
-
-        <!-- Skills & Note -->
-        <div class="space-y-4 border-t border-slate-100 pt-4">
-          <div>
-            <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">スキル</div>
-            <div class="text-sm text-slate-700 leading-relaxed bg-slate-50 p-2 rounded border border-slate-100">${skills}</div>
-          </div>
-          
-          <div class="grid grid-cols-2 gap-4">
-             <div>
-              <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">資格</div>
-              <div class="text-sm text-slate-700 leading-relaxed bg-slate-50 p-2 rounded border border-slate-100 h-full">${qualifications}</div>
-            </div>
-            <div>
-              <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">性格・特徴</div>
-              <div class="text-sm text-slate-700 leading-relaxed bg-slate-50 p-2 rounded border border-slate-100 h-full">${personality}</div>
-            </div>
-          </div>
-
-          <div>
-            <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">メモ</div>
-            <div class="text-sm text-slate-600 whitespace-pre-wrap bg-yellow-50/50 p-3 rounded border border-yellow-100">${noteText}</div>
-          </div>
-        </div>
-
       </div>
     </div>
   `;
@@ -1392,14 +1307,6 @@ function closeReferralCandidateModal() {
   document.body.classList.remove('referral-candidate-open');
 }
 
-// Close modal then navigate to candidate detail page
-window.navigateToCandidateFromReferral = function (candidateId) {
-  closeReferralCandidateModal();
-  const id = String(candidateId ?? '').trim();
-  if (!id) return;
-  window.location.hash = `#/candidate-detail?id=${encodeURIComponent(id)}`;
-};
-
 function initReferralCandidateModal() {
   const modal = document.getElementById('referralCandidateModal');
   const closeBtn = document.getElementById('referralCandidateClose');
@@ -1407,13 +1314,6 @@ function initReferralCandidateModal() {
   modal.dataset.bound = 'true';
   closeBtn?.addEventListener('click', () => closeReferralCandidateModal());
   modal.addEventListener('click', (event) => {
-    const openBtn = event.target.closest('[data-action="open-candidate-detail"]');
-    if (openBtn) {
-      event.preventDefault();
-      const candidateId = openBtn.dataset.candidateId || '';
-      window.navigateToCandidateFromReferral?.(candidateId);
-      return;
-    }
     if (event.target === modal) closeReferralCandidateModal();
   });
 }
@@ -1422,14 +1322,6 @@ function renderReferralCandidateQuickView(candidate, state = {}) {
   const container = document.getElementById('referralCandidateModalBody');
   if (!container) return;
   container.innerHTML = buildReferralCandidateQuickViewHtml(candidate, state);
-  const openBtn = container.querySelector('[data-action="open-candidate-detail"]');
-  if (openBtn) {
-    openBtn.addEventListener('click', (event) => {
-      event.preventDefault();
-      const candidateId = openBtn.dataset.candidateId || '';
-      window.navigateToCandidateFromReferral?.(candidateId);
-    });
-  }
   const titleEl = document.getElementById('referralCandidateModalTitle');
   if (titleEl) {
     const name = candidate?.name ? String(candidate.name).trim() : '';
@@ -1912,7 +1804,21 @@ function renderTable() {
 
 
 
-  tbody.innerHTML = pageData.map(item => {
+  const prioritized = [...pageData];
+
+  const selIdx = prioritized.findIndex(p => p.id === selectedCompanyId);
+
+  if (selIdx > 0) {
+
+    const [sel] = prioritized.splice(selIdx, 1);
+
+    prioritized.unshift(sel);
+
+  }
+
+
+
+  tbody.innerHTML = prioritized.map(item => {
 
     const isSelected = item.id === selectedCompanyId;
 
@@ -2000,76 +1906,11 @@ function attachRowClickHandlers() {
 
 
 
-
-function getFlowCandidates(company) {
-  if (!company) {
-    console.log("Debug: getFlowCandidates - No company provided");
-    return [];
-  }
-
-  const companyName = company.company;
-  const direct = Array.isArray(company.currentCandidates) ? company.currentCandidates : [];
-  console.log(`Debug: getFlowCandidates for '${companyName}'`, {
-    directCount: direct.length,
-    globalSummariesCount: (candidateSummaries || []).length
-  });
-
-  // 1. Prefer direct list if available (API provided and populated)
-  if (direct.length > 0) {
-    return direct;
-  }
-
-  // 2. Fallback: Search in global candidateSummaries
-  if (Array.isArray(candidateSummaries) && candidateSummaries.length > 0) {
-    const normCompany = normalizeCompanyName(companyName);
-    if (!normCompany) {
-      console.warn("Debug: getFlowCandidates - Normalized company name is empty", companyName);
-      return [];
-    }
-
-    const found = candidateSummaries.filter(c => {
-      // Check selectionProgress
-      const progress = c.selectionProgress || [];
-      const hasProgressMatch = progress.some(p => normalizeCompanyName(p.companyName) === normCompany);
-
-      // Check candidate_applications (mapped to selectionProgress by normalizeCandidateSummaryForMatch usually, but let's check raw if needed)
-      // Note: We updated normalizeCandidateSummaryForMatch to merge candidate_applications into selectionProgress.
-      // Let's also check distinct company names on the candidate object itself if it was a flat structure
-      const cComp = normalizeCompanyName(c.companyName || c.applyCompanyName);
-
-      const isMatch = hasProgressMatch || cComp === normCompany;
-
-      // Debug log for potential matches (partial or close strings) to see why they might fail
-      if (c.companyName && c.companyName.includes(companyName.substring(0, 2))) {
-        // console.log("Debug: Potential match check", { candidateId: c.id, cName: c.companyName, cComp, normCompany, isMatch });
-      }
-
-      return isMatch;
-    });
-
-    console.log(`Debug: getFlowCandidates - Found ${found.length} candidates via fallback search for '${companyName}'`);
-    if (found.length === 0) {
-      // Log first 3 candidates to see what their data look like
-      console.log("Debug: Sample candidates data:", candidateSummaries.slice(0, 3));
-    }
-    return found;
-  }
-
-  return [];
-}
-
 function renderCompanyDetail() {
   if (!selectedCompanyId) return;
 
   const company = filteredData.find(c => c.id === selectedCompanyId);
   if (!company) return;
-
-  console.log("Debug: renderCompanyDetail", {
-    companyName: company.company,
-    currentCandidates: company.currentCandidates,
-    candidatesType: typeof company.currentCandidates,
-    isArray: Array.isArray(company.currentCandidates)
-  });
 
   const badge = (text, classes = '', size = 'px-3 py-1 text-xs') =>
     `<span class="${size} rounded-full ${classes} font-semibold inline-flex items-center justify-center">${text}</span>`;
@@ -2082,13 +1923,6 @@ function renderCompanyDetail() {
   const retentionClass = 'bg-emerald-50 text-emerald-700 border border-emerald-100';
   const leadClass = 'bg-amber-50 text-amber-700 border border-amber-100';
   const refundClass = Number(company.refundAmount) > 0 ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-slate-50 text-slate-700 border border-slate-100';
-  const contactNameDisplay = company.contactName || company.contact || '-';
-  const contactEmailDisplay = company.contactEmail || '-';
-  const contactEmailHtml = contactEmailDisplay && contactEmailDisplay !== '-'
-    ? `<a href="mailto:${contactEmailDisplay}" class="text-indigo-600 hover:text-indigo-800 underline">${contactEmailDisplay}</a>`
-    : `<span class="text-slate-400">-</span>`;
-  const feeDetailsDisplay = company.feeDetails || company.feeContract || '';
-  const contractNoteDisplay = company.contractNote || company.contractNotes || '';
   const editing = detailEditMode;
   const desired = company.desiredTalent || {
     salaryRange: [0, 0],
@@ -2106,284 +1940,462 @@ function renderCompanyDetail() {
   const salaryLabel = (salaryMinValue || salaryMaxValue)
     ? `${salaryMinValue || '-'}\u301c${salaryMaxValue || '-'} 万円`
     : '-';
-  const renderDesiredBadge = (t, color) => `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${color} mr-1 mb-1">${t}</span>`;
-  const neutralBadgeClass = 'bg-slate-50 text-slate-700 border border-slate-200';
-
-  const mustDisplay = sanitizeList(desired.mustQualifications).length
-    ? sanitizeList(desired.mustQualifications).map(t => renderDesiredBadge(t, neutralBadgeClass)).join('')
-    : '<span class="text-slate-400">-</span>';
-  const niceDisplay = sanitizeList(desired.niceQualifications).length
-    ? sanitizeList(desired.niceQualifications).map(t => renderDesiredBadge(t, neutralBadgeClass)).join('')
-    : '<span class="text-slate-400">-</span>';
-  const locationDisplay = sanitizeList(desired.locations).length
-    ? sanitizeList(desired.locations).map(t => renderDesiredBadge(t, neutralBadgeClass)).join('')
-    : '<span class="text-slate-400">-</span>';
-  const personalityDisplay = sanitizeList(desired.personality).length
-    ? sanitizeList(desired.personality).map(t => renderDesiredBadge(t, neutralBadgeClass)).join('')
-    : '<span class="text-slate-400">-</span>';
-  const experienceDisplay = sanitizeList(desired.experiences).length
-    ? sanitizeList(desired.experiences).map(t => renderDesiredBadge(t, neutralBadgeClass)).join('')
-    : '<span class="text-slate-400">-</span>';
+  const mustDisplay = sanitizeList(desired.mustQualifications).join(' / ') || '-';
+  const niceDisplay = sanitizeList(desired.niceQualifications).join(' / ') || '-';
+  const locationDisplay = sanitizeList(desired.locations).join(' / ') || '-';
+  const personalityDisplay = sanitizeList(desired.personality).join(' / ') || '-';
+  const experienceDisplay = sanitizeList(desired.experiences).join(' / ') || '-';
   const selectionNoteText = company.selectionNote || '';
   const editActions = editing
     ? `
       <div class="flex items-center gap-2">
-        <button type="button" id="referralDetailSaveBtn" class="referral-primary-btn text-xs px-3 py-1.5">保存</button>
-        <button type="button" id="referralDetailCancelBtn" class="referral-secondary-btn text-xs px-3 py-1.5">キャンセル</button>
+        <button type="button" id="referralDetailSaveBtn" class="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-semibold hover:bg-indigo-500">保存</button>
+        <button type="button" id="referralDetailCancelBtn" class="px-3 py-1.5 border border-slate-300 rounded-md text-xs text-slate-600 hover:bg-slate-100">キャンセル</button>
       </div>
     `
-    : `<button type="button" id="referralDetailEditBtn" class="referral-secondary-btn text-xs px-3 py-1.5">編集</button>`;
+    : `<button type="button" id="referralDetailEditBtn" class="px-3 py-1.5 border border-slate-300 rounded-md text-xs text-slate-600 hover:bg-slate-100">編集</button>`;
 
   const desiredContent = editing
     ? `
-      <div class="space-y-3">
-        <label class="block">
-          <span class="text-xs font-semibold text-slate-600 block mb-1">年収レンジ（万円）</span>
-          <div class="flex items-center gap-2">
-            <input type="number" min="0" id="referralDesiredSalaryMin" class="referral-input text-sm w-full" placeholder="600" value="${salaryMinInput}">
-            <span class="text-xs text-slate-400">〜</span>
-            <input type="number" min="0" id="referralDesiredSalaryMax" class="referral-input text-sm w-full" placeholder="900" value="${salaryMaxInput}">
-          </div>
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-slate-600 block mb-1">必須資格</span>
-          <input type="text" id="referralDesiredMust" class="referral-input text-sm w-full" placeholder="カンマ区切り" value="${listToInputValue(desired.mustQualifications)}">
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-slate-600 block mb-1">歓迎資格</span>
-          <input type="text" id="referralDesiredNice" class="referral-input text-sm w-full" placeholder="カンマ区切り" value="${listToInputValue(desired.niceQualifications)}">
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-slate-600 block mb-1">勤務地</span>
-          <input type="text" id="referralDesiredLocations" class="referral-input text-sm w-full" placeholder="カンマ区切り" value="${listToInputValue(desired.locations)}">
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-slate-600 block mb-1">性格傾向</span>
-          <input type="text" id="referralDesiredPersonality" class="referral-input text-sm w-full" placeholder="カンマ区切り" value="${listToInputValue(desired.personality)}">
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-slate-600 block mb-1">経験</span>
-          <textarea rows="2" id="referralDesiredExperiences" class="referral-input text-sm w-full" placeholder="カンマ区切り">${listToInputValue(desired.experiences)}</textarea>
-        </label>
-      </div>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs font-semibold text-slate-600">年収レンジ（万円）</span>
+        <div class="flex items-center gap-2">
+          <input type="number" min="0" id="referralDesiredSalaryMin" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm w-full" placeholder="600" value="${salaryMinInput}">
+          <span class="text-xs text-slate-400">&#x301c;</span>
+          <input type="number" min="0" id="referralDesiredSalaryMax" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm w-full" placeholder="900" value="${salaryMaxInput}">
+        </div>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs font-semibold text-slate-600">必須資格</span>
+        <input type="text" id="referralDesiredMust" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="カンマ区切り" value="${listToInputValue(desired.mustQualifications)}">
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs font-semibold text-slate-600">歓迎資格</span>
+        <input type="text" id="referralDesiredNice" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="カンマ区切り" value="${listToInputValue(desired.niceQualifications)}">
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs font-semibold text-slate-600">勤務地</span>
+        <input type="text" id="referralDesiredLocations" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="カンマ区切り" value="${listToInputValue(desired.locations)}">
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs font-semibold text-slate-600">性格傾向</span>
+        <input type="text" id="referralDesiredPersonality" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="カンマ区切り" value="${listToInputValue(desired.personality)}">
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs font-semibold text-slate-600">経験</span>
+        <textarea rows="2" id="referralDesiredExperiences" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="カンマ区切り">${listToInputValue(desired.experiences)}</textarea>
+      </label>
     `
     : `
-      <div class="space-y-0 text-sm border-t border-slate-100">
-        <div class="grid grid-cols-[100px_1fr] gap-4 items-start py-3 border-b border-slate-100">
-            <span class="text-xs text-slate-500 font-medium whitespace-nowrap mr-4 w-24">年収レンジ</span>
-            <span class="text-slate-700 font-medium text-right flex-1">${salaryLabel}</span>
-        </div>
-        <div class="grid grid-cols-[100px_1fr] gap-4 items-start py-3 border-b border-slate-100">
-            <span class="text-xs text-slate-500 font-medium whitespace-nowrap mr-4 w-24">必須資格</span>
-            <span class="text-slate-700 text-right flex-1">${mustDisplay}</span>
-        </div>
-        <div class="grid grid-cols-[100px_1fr] gap-4 items-start py-3 border-b border-slate-100">
-            <span class="text-xs text-slate-500 font-medium whitespace-nowrap mr-4 w-24">歓迎資格</span>
-            <span class="text-slate-700 text-right flex-1">${niceDisplay}</span>
-        </div>
-        <div class="grid grid-cols-[100px_1fr] gap-4 items-start py-3 border-b border-slate-100">
-            <span class="text-xs text-slate-500 font-medium whitespace-nowrap mr-4 w-24">勤務地</span>
-            <span class="text-slate-700 text-right flex-1">${locationDisplay}</span>
-        </div>
-        <div class="grid grid-cols-[100px_1fr] gap-4 items-start py-3 border-b border-slate-100">
-            <span class="text-xs text-slate-500 font-medium whitespace-nowrap mr-4 w-24">性格傾向</span>
-            <span class="text-slate-700 text-right flex-1">${personalityDisplay}</span>
-        </div>
-        <div class="grid grid-cols-[100px_1fr] gap-4 items-start py-3 border-b border-slate-100">
-            <span class="text-xs text-slate-500 font-medium whitespace-nowrap mr-4 w-24">経験</span>
-            <span class="text-slate-700 text-right flex-1">${experienceDisplay}</span>
-        </div>
-      </div>
+      <div><span class="font-semibold text-slate-700">年収レンジ：</span>${salaryLabel}</div>
+      <div><span class="font-semibold text-slate-700">必須資格：</span>${mustDisplay}</div>
+      <div><span class="font-semibold text-slate-700">歓迎資格：</span>${niceDisplay}</div>
+      <div><span class="font-semibold text-slate-700">勤務地：</span>${locationDisplay}</div>
+      <div><span class="font-semibold text-slate-700">性格傾向：</span>${personalityDisplay}</div>
+      <div><span class="font-semibold text-slate-700">経験：</span>${experienceDisplay}</div>
     `;
 
   const memoContent = editing
     ? `
-      <label class="block">
-        <span class="text-xs font-semibold text-slate-600 block mb-1">メモ内容</span>
-        <textarea rows="6" id="referralSelectionNote" class="referral-input text-sm w-full" placeholder="選考メモを入力">${selectionNoteText}</textarea>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs font-semibold text-slate-600">メモ内容</span>
+        <textarea rows="6" id="referralSelectionNote" class="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm" placeholder="選考メモを入力">${selectionNoteText}</textarea>
       </label>
-      <div class="mt-2 text-xs text-slate-500">入社前辞退：${company.prejoinDeclines ?? 0}名 (${company.prejoinDeclineReason || '理由未登録'}) / 選考脱落者：${company.dropoutCount ?? 0}名</div>
+      <div class="text-xs text-slate-500">入社前辞退：${company.prejoinDeclines ?? 0}名 (${company.prejoinDeclineReason || '理由未登録'}) / 選考脱落者：${company.dropoutCount ?? 0}名</div>
     `
     : `
-      <div class="whitespace-pre-wrap text-sm text-slate-700">${selectionNoteText || 'メモがありません'}</div>
-      <div class="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-400">入社前辞退：${company.prejoinDeclines ?? 0}名 (${company.prejoinDeclineReason || '理由未登録'}) / 選考脱落者：${company.dropoutCount ?? 0}名</div>
+      <div class="whitespace-pre-wrap text-slate-700">${selectionNoteText || 'メモがありません'}</div>
+      <div class="text-xs text-slate-500">入社前辞退：${company.prejoinDeclines ?? 0}名 (${company.prejoinDeclineReason || '理由未登録'}) / 選考脱落者：${company.dropoutCount ?? 0}名</div>
     `;
 
-  // ---------------------------------------------------------
-  // Helper: Selection Flow Card & Chart (Ported from candidates.js)
-  // ---------------------------------------------------------
   const flowCandidates = getFlowCandidates(company);
-  const flowListHtml = buildHorizontalSteps(flowCandidates); // This function needs to be available or imported
+  const normalizedFlowCandidates = (flowCandidates || []).map(candidate => {
+    if (!candidate) return null;
+    const phaseInfo = resolveCandidatePhaseForFlow(candidate);
+    const stageKey = candidate.stageKey || phaseInfo.stageKey || '';
+    const stageLabel = candidate.stageLabel || phaseInfo.stageLabel || candidate.stage || candidate.phase || '';
+    return {
+      ...candidate,
+      stageKey,
+      stageLabel,
+      stage: stageKey || stageLabel || candidate.stage || '-'
+    };
+  }).filter(Boolean);
+  const toCount = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  };
+  const stageValueMap = {
+    '推薦': company.proposal,
+    '書類': company.docScreen,
+    '一次': company.interview1,
+    '二次': company.interview2,
+    '内定': company.offer,
+    '入社': company.joined
+  };
+  const stages = PHASE_FLOW_ORDER.map((label, idx) => ({
+    key: label,
+    label,
+    value: toCount(stageValueMap[label]),
+    color: PHASE_FLOW_COLORS[idx % PHASE_FLOW_COLORS.length]
+  }));
 
-  // Generate recommended candidates HTML
-  const recommendedHtml = buildRecommendedCandidatesList(company); // Ensure this function is available
+
+
+  const candidateBubble = (c) => `
+    <div class="inline-flex items-center gap-2 px-2 py-1 bg-white border border-slate-200 rounded-full shadow-sm text-[11px] text-slate-700 max-w-[160px] sm:max-w-[220px]">
+      <span class="inline-block w-2 h-2 rounded-full bg-indigo-500"></span>
+      <div class="flex flex-col leading-tight min-w-0">
+        <span class="font-semibold text-[12px] truncate">${c.name}</span>
+        <span class="text-slate-500 truncate">${formatDateString(c.date)}</span>
+      </div>
+      ${c.note ? `<span class="text-slate-500 truncate max-w-[80px] sm:max-w-[120px]">${c.note}</span>` : ''}
+    </div>`;
+
+  const flow = stages.map((s, idx) => {
+    const stageCands = normalizedFlowCandidates.filter(c => (c.stageKey || c.stage) === s.key);
+    const remaining = stageCands.length - 2;
+    const displayCount = Number.isFinite(s.value) ? s.value : 0;
+    const namesHtml = stageCands.length > 0
+      ? `<div class="flex flex-col items-center w-full mt-0.5 overflow-hidden">
+           ${stageCands.slice(0, 2).map(c =>
+        `<button onclick="event.stopPropagation(); window.navigateToCandidate('${c.id}')"
+                      class="text-[9px] sm:text-[10px] leading-tight text-white hover:underline truncate w-full text-center px-1 block mb-0.5">
+                ${c.name}
+              </button>`
+      ).join('')}
+           ${remaining > 0 ? `<span class="text-[8px] sm:text-[9px] text-white/80 leading-none">+${remaining}名</span>` : ''}
+         </div>`
+      : '';
+    return `
+      <div class="flex flex-col items-center min-w-[70px] sm:min-w-[100px] lg:min-w-[120px] flex-shrink-0">
+        <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-full ${s.color} text-white flex flex-col items-center justify-center p-1 shadow-md transition-transform hover:scale-105">
+           <div class="flex items-baseline gap-0.5 ${stageCands.length > 0 ? 'mb-0' : ''}">
+             <span class="text-lg sm:text-xl font-bold leading-none">${displayCount}</span>
+             <span class="text-[10px] sm:text-xs opacity-90">件</span>
+           </div>
+           ${namesHtml}
+        </div>
+        <span class="text-[11px] sm:text-xs lg:text-sm text-slate-700 mt-2 font-medium">${s.label}</span>
+      </div>
+      ${idx < stages.length - 1 ? '<div class="flex items-center justify-center text-slate-300 w-4 sm:w-8 lg:w-10 flex-shrink-0 mb-6" aria-hidden="true"><svg viewBox="0 0 24 24" class="w-4 h-4 sm:w-6 sm:h-6 lg:w-7 lg:h-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg></div>' : ''}
+    `;
+  }).join('');
+
+
+
+  const recommendedHtml = '<div class="text-xs text-slate-400">\u5019\u88dc\u8005\u60c5\u5831\u3092\u53d6\u5f97\u4e2d...</div>';
 
   detail.innerHTML = `
-    <div class="referral-detail-panel">
-      <!-- ヘッダー -->
-      <div class="referral-detail-header">
-        <div>
-          <h2 class="referral-detail-company">${company.company}</h2>
-          <div class="referral-detail-meta">担当者: ${contactNameDisplay}</div>
-          <div class="referral-detail-tags">
-            <span class="referral-detail-tag">${company.industry || '-'}</span>
-            <span class="referral-detail-tag">${company.location || '-'}</span>
-          </div>
+    <div class="border border-indigo-200 border-l-4 border-l-indigo-500 rounded-xl p-4 bg-gradient-to-br from-indigo-50 via-white to-blue-50 space-y-4 shadow-lg text-sm text-slate-800">
+
+      <!-- ヘッダー：会社名と闉じるボタン -->
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex-1 min-w-0">
+          <h2 class="text-2xl font-bold text-indigo-900">${company.company}</h2>
         </div>
-        <button id="closeCompanyDetail" class="referral-detail-close" title="閉じる">✕</button>
+        <button
+          id="closeCompanyDetail"
+          class="flex-shrink-0 p-2 hover:bg-indigo-100 rounded-lg transition text-indigo-700 hover:text-indigo-900"
+          title="闉じる">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
       </div>
 
-      <!-- ボディ -->
-      <div class="referral-detail-body">
-        <!-- 募集ポジション -->
-        <div class="referral-detail-section">
-          <div class="referral-detail-section-title">募集ポジション</div>
-          <div class="text-lg font-bold text-slate-800">${company.highlightPosition || company.jobTitle || '-'}</div>
-        </div>
+      <!-- 基本情報 -->
+      <div class="space-y-2 group relative pr-8">
+        <!-- 編集ボタン -->
+        <button id="basicInfoEditBtn" class="absolute top-0 right-0 p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600 transition" title="基本情報を編集">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+        </button>
 
-        <!-- 指標カード -->
-        <div class="referral-detail-stats">
-          <div class="referral-detail-stat">
-            <div class="referral-detail-stat-value">${company.retention || '-'}</div>
-            <div class="referral-detail-stat-label">定着率</div>
+        <!-- 表示モード -->
+        <div id="basicInfoDisplay" class="space-y-2">
+          <!-- 担当者など -->
+          <div class="flex flex-col gap-1">
+             <div class="flex items-center gap-2">
+               <span class="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200 w-fit flex items-center gap-1">
+                 <span>👤</span>
+                 <span>${company.contactName || company.contact || '担当者未設定'}</span>
+               </span>
+             </div>
+             ${company.contactEmail ? `<div class="text-xs text-slate-500 flex items-center gap-1 ml-1"><span>✉️</span><span>${company.contactEmail}</span></div>` : ''}
           </div>
-          <div class="referral-detail-stat">
-            <div class="referral-detail-stat-value">${company.leadTime || 0}日</div>
-            <div class="referral-detail-stat-label">リードタイム</div>
-          </div>
-          <div class="referral-detail-stat highlight">
-            <div class="referral-detail-stat-value">${company.feeDisplay || '-'}</div>
-            <div class="referral-detail-stat-label">合計Fee</div>
-          </div>
-          <div class="referral-detail-stat">
-            <div class="referral-detail-stat-value">${formatCurrency(company.refundAmount)}</div>
-            <div class="referral-detail-stat-label">返金</div>
-          </div>
-        </div>
-
-        <!-- 採用状況 -->
-        <div class="referral-detail-section">
-          <div class="referral-detail-section-title">採用状況</div>
-          <div class="referral-detail-stats !mb-0">
-            <div class="referral-detail-stat">
-              <div class="referral-detail-stat-value">${company.planHeadcount}<span class="text-sm font-normal text-slate-400 ml-1">名</span></div>
-              <div class="referral-detail-stat-label">採用予定</div>
-            </div>
-            <div class="referral-detail-stat highlight">
-              <div class="referral-detail-stat-value">${company.offer} / ${company.joined}</div>
-              <div class="referral-detail-stat-label">内定 / 入社</div>
-            </div>
-            <div class="referral-detail-stat">
-              <div class="referral-detail-stat-value">${company.remaining}<span class="text-sm font-normal text-slate-400 ml-1">名</span></div>
-              <div class="referral-detail-stat-label">残り人数</div>
-            </div>
+          
+          <!-- 業種・所在地 -->
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-xs">🏢 ${company.industry || '-'}</span>
+            <span class="px-2.5 py-1 rounded-full bg-cyan-100 text-cyan-700 border border-cyan-200 font-semibold text-xs">📍 ${company.location || '-'}</span>
           </div>
         </div>
 
-        <!-- 企業メモ -->
-        <div class="referral-detail-section">
-          <div class="referral-detail-section-title">企業メモ</div>
-          <div class="referral-detail-memo">
-            <div class="font-semibold mb-2">${buildAIInsight(company)}</div>
-            <div class="text-sm">${buildAgencyInsight(company)}</div>
+        <!-- 編集モード -->
+        <div id="basicInfoEditForm" class="hidden space-y-3 bg-white p-3 rounded-lg border border-indigo-100 shadow-sm mt-1">
+           <div class="grid grid-cols-1 gap-2">
+             <label class="block text-xs font-semibold text-slate-600">企業名</label>
+             <input type="text" id="editCompanyInput" class="w-full text-sm border border-slate-300 rounded px-2 py-1" value="${company.company}">
+           </div>
+           <div class="grid grid-cols-2 gap-2">
+             <div>
+               <label class="block text-xs font-semibold text-slate-600">担当者名</label>
+               <input type="text" id="editContactNameInput" class="w-full text-sm border border-slate-300 rounded px-2 py-1" value="${company.contactName || company.contact || ''}">
+             </div>
+             <div>
+               <label class="block text-xs font-semibold text-slate-600">Email</label>
+               <input type="email" id="editContactEmailInput" class="w-full text-sm border border-slate-300 rounded px-2 py-1" value="${company.contactEmail || ''}">
+             </div>
+           </div>
+           <div class="grid grid-cols-2 gap-2">
+             <div>
+               <label class="block text-xs font-semibold text-slate-600">業種</label>
+               <input type="text" id="editIndustryInput" class="w-full text-sm border border-slate-300 rounded px-2 py-1" value="${company.industry || ''}">
+             </div>
+             <div>
+               <label class="block text-xs font-semibold text-slate-600">所在地</label>
+               <input type="text" id="editLocationInput" class="w-full text-sm border border-slate-300 rounded px-2 py-1" value="${company.location || ''}">
+             </div>
+           </div>
+           <div class="flex justify-end gap-2 mt-2">
+             <button id="basicInfoCancelBtn" class="text-xs px-2 py-1.5 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 border border-slate-300 font-medium">キャンセル</button>
+             <button id="basicInfoSaveBtn" class="text-xs px-2 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 border border-indigo-700 font-medium shadow-sm">保存</button>
+           </div>
+        </div>
+      </div>
+
+      <!-- 募集ポジション -->
+      <div class="bg-gradient-to-r from-slate-50 to-blue-50 rounded-lg px-3 py-2 border border-slate-300 shadow-sm">
+        <div class="flex items-center gap-1.5 mb-1">
+          <span class="text-lg">💼</span>
+          <span class="text-xs font-semibold text-slate-700 uppercase tracking-wide">募集ポジション</span>
+        </div>
+        <div class="text-lg font-bold text-slate-900">${company.highlightPosition}</div>
+      </div>
+
+      <!-- 各種指標 -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        <div class="${retentionClass} px-3 py-2 text-center shadow-sm rounded-lg">
+          <div class="text-[10px] mb-0.5 opacity-80">
+            📊 定着率<span class="ml-1 text-[9px] font-normal text-slate-500">（返金発生期間）</span>
           </div>
+          <div class="text-base font-bold">${company.retention}</div>
+        </div>
+        <div class="${leadClass} px-3 py-2 text-center shadow-sm rounded-lg">
+          <div class="text-[10px] mb-0.5 opacity-80">
+            ⏱️ リードタイム<span class="ml-1 text-[9px] font-normal text-slate-500">（推薦から入社までの期間）</span>
+          </div>
+          <div class="text-base font-bold">${company.leadTime}日</div>
+        </div>
+        <div class="bg-gradient-to-br from-indigo-100 to-indigo-50 text-indigo-800 border border-indigo-200 px-3 py-2 text-center shadow-sm rounded-lg">
+          <div class="text-[10px] mb-0.5 opacity-80">💰 合計Fee</div>
+          <div class="text-base font-bold">${company.feeDisplay}</div>
+        </div>
+        <div class="${refundClass} px-3 py-2 text-center shadow-sm rounded-lg">
+          <div class="text-[10px] mb-0.5 opacity-80">${Number(company.refundAmount) > 0 ? '❌' : '✅'} 返金</div>
+          <div class="text-base font-bold">${formatCurrency(company.refundAmount)}</div>
+        </div>
+      </div>
+      
+
+      
+
+      <div class="p-3 border border-blue-200 bg-gradient-to-r from-blue-50 via-white to-cyan-50 rounded-lg leading-relaxed w-full shadow-sm">
+
+        <div class="font-bold text-blue-900 text-sm mb-1.5 flex items-center gap-1.5">
+          <span class="text-base">📝</span>
+          <span>企業メモ</span>
         </div>
 
-        <!-- 募集・選考の進捗 -->
-        <div class="referral-detail-section">
-          <div class="referral-detail-section-title">募集・選考の進捗</div>
-          <div class="bg-slate-50 rounded-xl p-4 border border-slate-200">
-            ${flowListHtml}
-          </div>
+        <div class="text-sm text-slate-800 font-semibold w-full max-w-none">${buildAIInsight(company)}</div>
+
+        <div class="text-slate-800 text-xs mt-1.5">${buildAgencyInsight(company)}</div>
+
+      </div>
+
+
+
+      <div class="space-y-2 pt-1">
+
+        <div class="text-sm font-bold text-slate-900 tracking-wide flex items-center gap-1.5">
+          <span class="text-lg">📈</span>
+          <span>募集・選考の進捗</span>
         </div>
 
-        <!-- 求人情報 -->
-        <div class="referral-detail-section">
-          <div class="flex justify-between items-center mb-4">
-            <div class="referral-detail-section-title !mb-0 !border-0 !pb-0">求人情報</div>
-            ${editActions}
-          </div>
-          <div class="referral-detail-grid">
-            <div class="referral-detail-card">
-              <div class="referral-detail-card-title">欲しい人材</div>
-              <div class="referral-detail-card-content">${desiredContent}</div>
-            </div>
-            <div class="referral-detail-card">
-              <div class="referral-detail-card-title">選考メモ</div>
-              <div class="referral-detail-card-content">${memoContent}</div>
-            </div>
-          </div>
-        </div>
+        <div class="flex flex-nowrap items-start gap-2 sm:gap-3 lg:gap-4 justify-start lg:justify-between overflow-x-auto pb-2 w-full max-w-full bg-white/60 rounded-lg p-3 border border-slate-200">
 
-        <!-- 担当者情報 -->
-        <div class="referral-detail-section">
-          <div class="flex justify-between items-center mb-4">
-            <div class="referral-detail-section-title !mb-0 !border-0 !pb-0">担当者情報</div>
-            <button id="contactInfoEditBtn" class="referral-secondary-btn text-xs px-2 py-1">編集</button>
-          </div>
-          <div class="referral-detail-grid">
-            <div class="referral-detail-card">
-              <div class="referral-detail-card-title">担当者名</div>
-              <div id="contactNameDisplay" class="referral-detail-card-content font-medium text-slate-800">${contactNameDisplay}</div>
-              <input id="contactNameInput" style="display: none;" class="referral-input text-sm w-full mt-2" placeholder="担当者名を入力" value="${company.contactName || ''}">
-            </div>
-            <div class="referral-detail-card">
-              <div class="referral-detail-card-title">メールアドレス</div>
-              <div id="contactEmailDisplay" class="referral-detail-card-content">${contactEmailHtml}</div>
-              <input id="contactEmailInput" type="email" style="display: none;" class="referral-input text-sm w-full mt-2" placeholder="example@company.com" value="${company.contactEmail || ''}">
-            </div>
-          </div>
-          <div id="contactInfoEditActions" style="display: none; margin-top: 12px; justify-content: flex-end; gap: 8px;">
-            <button id="contactInfoCancelBtn" class="referral-secondary-btn text-xs px-3 py-1.5">キャンセル</button>
-            <button id="contactInfoSaveBtn" class="referral-primary-btn text-xs px-3 py-1.5">保存</button>
-          </div>
-        </div>
+          ${flow}
 
-        <!-- 契約情報 -->
-        <div class="referral-detail-section">
-          <div class="flex justify-between items-center mb-4">
-            <div class="referral-detail-section-title !mb-0 !border-0 !pb-0">契約情報</div>
-            <button id="contractInfoEditBtn" class="referral-secondary-btn text-xs px-2 py-1">編集</button>
-          </div>
-          <div class="referral-detail-grid">
-            <div class="referral-detail-card">
-              <div class="referral-detail-card-title">返金保証期間</div>
-              <div id="warrantyPeriodDisplay" class="referral-detail-card-content font-medium text-slate-800">${company.warrantyPeriod || '-'}</div>
-              <input id="warrantyPeriodInput" style="display: none;" class="referral-input text-sm w-full mt-2" placeholder="例：3ヶ月" value="${company.warrantyPeriod || ''}">
-            </div>
-            <div class="referral-detail-card">
-              <div class="referral-detail-card-title">Fee契約詳細</div>
-              <div id="feeContractDisplay" class="referral-detail-card-content">${feeDetailsDisplay || '-'}</div>
-              <input id="feeContractInput" style="display: none;" class="referral-input text-sm w-full mt-2" placeholder="詳細を入力" value="${feeDetailsDisplay || ''}">
-            </div>
-            <div class="referral-detail-card" style="grid-column: span 2;">
-              <div class="referral-detail-card-title">その他メモ</div>
-              <div id="contractNotesDisplay" class="referral-detail-card-content whitespace-pre-wrap">${contractNoteDisplay || '-'}</div>
-              <textarea id="contractNotesInput" style="display: none;" class="referral-input text-sm w-full mt-2" rows="3" placeholder="メモを入力">${contractNoteDisplay || ''}</textarea>
-            </div>
-          </div>
-          <div id="contractInfoEditActions" style="display: none; margin-top: 12px; justify-content: flex-end; gap: 8px;">
-            <button id="contractInfoCancelBtn" class="referral-secondary-btn text-xs px-3 py-1.5">キャンセル</button>
-            <button id="contractInfoSaveBtn" class="referral-primary-btn text-xs px-3 py-1.5">保存</button>
-          </div>
-        </div>
-
-
-        <!-- AIマッチング候補者 -->
-        <div class="referral-detail-section">
-          <div class="referral-detail-section-title">AIマッチング候補者 (Top 3)</div>
-          <div id="referralRecommendedCandidates" class="referral-detail-grid !grid-cols-3">
-            ${recommendedHtml}
-          </div>
         </div>
 
       </div>
+
+
+
+      
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-2.5 text-center">
+
+        <div class="p-3 border border-slate-300 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 shadow-sm hover:shadow-md transition">
+
+          <div class="text-[10px] font-semibold text-slate-600 uppercase tracking-wide">採用予定</div>
+
+          <div class="text-2xl font-bold text-slate-900 mt-1">${company.planHeadcount}<span class="text-sm text-slate-600">名</span></div>
+
+        </div>
+
+        <div class="p-3 border border-blue-300 rounded-lg bg-gradient-to-br from-blue-50 to-blue-100 shadow-sm hover:shadow-md transition">
+
+          <div class="text-[10px] font-semibold text-blue-700 uppercase tracking-wide">内定 / 入社</div>
+
+          <div class="text-2xl font-bold text-blue-900 mt-1">${company.offer} <span class="text-blue-600">/</span> ${company.joined}</div>
+
+        </div>
+
+        <div class="p-3 border border-slate-300 rounded-lg bg-gradient-to-br from-slate-50 to-blue-50 shadow-sm hover:shadow-md transition">
+
+          <div class="text-[10px] font-semibold text-slate-700 uppercase tracking-wide">残り人数</div>
+
+          <div class="text-2xl font-bold text-slate-900 mt-1">${company.remaining}<span class="text-sm text-slate-600">名</span></div>
+
+        </div>
+      </div>
+      <!-- 求人情報 -->
+      <div class="bg-white/50 rounded-xl p-4 border border-slate-200">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-base font-bold text-slate-800 flex items-center gap-2">
+            <span class="text-xl">🎯</span>
+            <span>求人情報</span>
+          </div>
+          ${editActions}
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 text-sm">
+          <!-- 欲しい人材 -->
+          <div class="p-3 bg-gradient-to-br from-blue-50 to-white rounded-lg border border-blue-200 shadow-sm">
+            <div class="flex items-center justify-between mb-2">
+              <div class="font-bold text-blue-900 text-sm flex items-center gap-1.5">
+                <span>👥</span>
+                <span>欲しい人材</span>
+              </div>
+              ${editing ? '<span class="text-[10px] text-slate-500">カンマ区切り</span>' : ''}
+            </div>
+            ${desiredContent}
+          </div>
+
+          <!-- 選考メモ -->
+          <div class="p-3 bg-gradient-to-br from-slate-50 to-white rounded-lg border border-slate-300 shadow-sm">
+            <div class="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+              <span>📋</span>
+              <span>選考メモ</span>
+            </div>
+            ${memoContent}
+          </div>
+        </div>
+      </div>
+
+      <!-- 契約情報 -->
+      <div class="bg-gradient-to-br from-slate-50 via-blue-50 to-slate-50 rounded-xl p-4 border border-slate-300 shadow-md">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+            <span class="text-xl">📝</span>
+            <span>契約情報（人材会社 ⇔ 顧客企業間）</span>
+          </h3>
+          <button 
+            id="contractInfoEditBtn" 
+            class="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition">
+            📝 編集
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <!-- 返金保証期間 -->
+          <div class="p-3 bg-white rounded-lg border border-slate-300 shadow-sm">
+            <div class="text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
+              <span>⏰</span>
+              <span>返金保証期間</span>
+            </div>
+            <div id="warrantyPeriodDisplay" class="text-sm text-slate-800 min-h-[60px] leading-relaxed">
+              ${company.warrantyPeriod ? `${company.warrantyPeriod}日` : '-'}
+            </div>
+            <textarea 
+              id="warrantyPeriodInput" 
+              class="hidden w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[60px]" 
+              placeholder="例: 90日、3ヶ月など">${company.warrantyPeriod || ''}</textarea>
+          </div>
+
+          <!-- Fee契約内容 -->
+          <div class="p-3 bg-white rounded-lg border border-slate-300 shadow-sm">
+            <div class="text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
+              <span>💰</span>
+              <span>Fee契約内容</span>
+            </div>
+            <div id="feeContractDisplay" class="text-sm text-slate-800 whitespace-pre-wrap min-h-[60px] leading-relaxed">
+              ${company.feeContract || '-'}
+            </div>
+            <textarea 
+              id="feeContractInput" 
+              class="hidden w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[60px]" 
+              placeholder="Fee契約の詳細を入力">${company.feeContract || ''}</textarea>
+          </div>
+
+          <!-- その他契約メモ -->
+          <div class="p-3 bg-white rounded-lg border border-slate-300 shadow-sm">
+            <div class="text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
+              <span>📌</span>
+              <span>その他</span>
+            </div>
+            <div id="contractNotesDisplay" class="text-sm text-slate-800 whitespace-pre-wrap min-h-[60px] leading-relaxed">
+              ${company.contractNotes || '-'}
+            </div>
+            <textarea 
+              id="contractNotesInput" 
+              class="hidden w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[60px]" 
+              placeholder="その他の契約に関するメモ">${company.contractNotes || ''}</textarea>
+          </div>
+        </div>
+
+        <!-- 編集時の保存/キャンセルボタン -->
+        <div id="contractInfoEditActions" class="hidden mt-3 flex gap-2 justify-end">
+          <button 
+            id="contractInfoCancelBtn" 
+            class="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition">
+            キャンセル
+          </button>
+          <button 
+            id="contractInfoSaveBtn" 
+            class="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 border border-blue-700 rounded-lg transition">
+            保存
+          </button>
+        </div>
+      </div>
+
+
+
+      <div class="bg-gradient-to-br from-slate-100 via-blue-50 to-slate-50 rounded-lg p-3 border border-slate-300 shadow-sm">
+
+         <h4 class="text-xs font-bold text-indigo-900 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+           <span class="text-base">🤖</span>
+           <span>AIマッチング候補者 (Top 3)</span>
+         </h4>
+
+         <div class="grid grid-cols-1 md:grid-cols-3 gap-2" id="referralRecommendedCandidates">
+
+           ${recommendedHtml}
+
+         </div>
+
+      </div>
+
     </div>
+
   `;
 
   renderRecommendedCandidates(company);
 
   attachDetailEditHandlers(company);
+  attachContractInfoEditHandlers(company);
+  attachContactInfoEditHandlers(company);
 
   // Add close button handler
   const closeBtn = document.getElementById('closeCompanyDetail');
@@ -2450,7 +2462,6 @@ function attachDetailEditHandlers(company) {
 
   // Contract information edit handlers
   attachContractInfoEditHandlers(company);
-  attachContactInfoEditHandlers(company);
 
 }
 
@@ -2466,29 +2477,29 @@ function attachContractInfoEditHandlers(company) {
 
   editBtn.addEventListener('click', () => {
     // Show edit mode
-    document.getElementById('warrantyPeriodDisplay').style.display = 'none';
-    document.getElementById('warrantyPeriodInput').style.display = 'block';
-    document.getElementById('feeContractDisplay').style.display = 'none';
-    document.getElementById('feeContractInput').style.display = 'block';
-    document.getElementById('contractNotesDisplay').style.display = 'none';
-    document.getElementById('contractNotesInput').style.display = 'block';
+    document.getElementById('warrantyPeriodDisplay').classList.add('hidden');
+    document.getElementById('warrantyPeriodInput').classList.remove('hidden');
+    document.getElementById('feeContractDisplay').classList.add('hidden');
+    document.getElementById('feeContractInput').classList.remove('hidden');
+    document.getElementById('contractNotesDisplay').classList.add('hidden');
+    document.getElementById('contractNotesInput').classList.remove('hidden');
 
-    editBtn.style.display = 'none';
-    editActions.style.display = 'flex';
+    editBtn.classList.add('hidden');
+    editActions.classList.remove('hidden');
   });
 
   if (cancelBtn) {
     cancelBtn.addEventListener('click', () => {
       // Cancel edit mode
-      document.getElementById('warrantyPeriodDisplay').style.display = 'block';
-      document.getElementById('warrantyPeriodInput').style.display = 'none';
-      document.getElementById('feeContractDisplay').style.display = 'block';
-      document.getElementById('feeContractInput').style.display = 'none';
-      document.getElementById('contractNotesDisplay').style.display = 'block';
-      document.getElementById('contractNotesInput').style.display = 'none';
+      document.getElementById('warrantyPeriodDisplay').classList.remove('hidden');
+      document.getElementById('warrantyPeriodInput').classList.add('hidden');
+      document.getElementById('feeContractDisplay').classList.remove('hidden');
+      document.getElementById('feeContractInput').classList.add('hidden');
+      document.getElementById('contractNotesDisplay').classList.remove('hidden');
+      document.getElementById('contractNotesInput').classList.add('hidden');
 
-      editBtn.style.display = 'block';
-      editActions.style.display = 'none';
+      editBtn.classList.remove('hidden');
+      editActions.classList.add('hidden');
 
       // Reset values
       renderCompanyDetail();
@@ -2498,39 +2509,43 @@ function attachContractInfoEditHandlers(company) {
   if (saveBtn) {
     saveBtn.addEventListener('click', async () => {
       const warrantyPeriod = document.getElementById('warrantyPeriodInput').value.trim();
-      const feeDetails = document.getElementById('feeContractInput').value.trim();
-      const contractNote = document.getElementById('contractNotesInput').value.trim();
+      const feeContract = document.getElementById('feeContractInput').value.trim();
+      const contractNotes = document.getElementById('contractNotesInput').value.trim();
 
-      const payload = buildContractUpdatePayload(company, {
+      const payload = {
+        id: company.id,
         warrantyPeriod: warrantyPeriod || null,
-        feeDetails: feeDetails || null,
-        contractNote: contractNote || null
-      });
+        feeContract: feeContract || null,
+        contractNotes: contractNotes || null
+      };
 
       try {
-        await saveContractInfo(payload);
-        applyClientProfileEdits(company.id, {
-          warrantyPeriod: warrantyPeriod || null,
-          feeDetails: feeDetails || null,
-          contractNote: contractNote || null,
-          feeContract: feeDetails || null,
-          contractNotes: contractNote || null
-        });
+        // Save to backend (placeholder - adjust based on actual API)
+        console.log('Saving contract info:', payload);
+
+        // Update local data
+        const companyIndex = allData.findIndex(c => c.id === company.id);
+        if (companyIndex !== -1) {
+          allData[companyIndex].warrantyPeriod = warrantyPeriod || null;
+          allData[companyIndex].feeContract = feeContract || null;
+          allData[companyIndex].contractNotes = contractNotes || null;
+        }
 
         // Exit edit mode and refresh display
-        document.getElementById('warrantyPeriodDisplay').style.display = 'block';
-        document.getElementById('warrantyPeriodInput').style.display = 'none';
-        document.getElementById('feeContractDisplay').style.display = 'block';
-        document.getElementById('feeContractInput').style.display = 'none';
-        document.getElementById('contractNotesDisplay').style.display = 'block';
-        document.getElementById('contractNotesInput').style.display = 'none';
+        document.getElementById('warrantyPeriodDisplay').classList.remove('hidden');
+        document.getElementById('warrantyPeriodInput').classList.add('hidden');
+        document.getElementById('feeContractDisplay').classList.remove('hidden');
+        document.getElementById('feeContractInput').classList.add('hidden');
+        document.getElementById('contractNotesDisplay').classList.remove('hidden');
+        document.getElementById('contractNotesInput').classList.add('hidden');
 
-        editBtn.style.display = 'block';
-        editActions.style.display = 'none';
+        editBtn.classList.remove('hidden');
+        editActions.classList.add('hidden');
 
         // Refresh the detail view
         renderCompanyDetail();
-        renderTable();
+
+        alert('契約情報を保存しました');
       } catch (error) {
         console.error('Failed to save contract info:', error);
         alert('保存に失敗しました');
@@ -2539,70 +2554,76 @@ function attachContractInfoEditHandlers(company) {
   }
 }
 
-function attachContactInfoEditHandlers(company) {
-  const editBtn = document.getElementById('contactInfoEditBtn');
-  const cancelBtn = document.getElementById('contactInfoCancelBtn');
-  const saveBtn = document.getElementById('contactInfoSaveBtn');
-  const editActions = document.getElementById('contactInfoEditActions');
 
-  if (!editBtn) return;
+function attachContactInfoEditHandlers(company) {
+  const editBtn = document.getElementById('basicInfoEditBtn');
+  const cancelBtn = document.getElementById('basicInfoCancelBtn');
+  const saveBtn = document.getElementById('basicInfoSaveBtn');
+  const form = document.getElementById('basicInfoEditForm');
+  const display = document.getElementById('basicInfoDisplay');
+
+  if (!editBtn || !form || !display) return;
 
   editBtn.addEventListener('click', () => {
-    document.getElementById('contactNameDisplay').style.display = 'none';
-    document.getElementById('contactNameInput').style.display = 'block';
-    document.getElementById('contactEmailDisplay').style.display = 'none';
-    document.getElementById('contactEmailInput').style.display = 'block';
-
-    editBtn.style.display = 'none';
-    editActions.style.display = 'flex';
+    display.classList.add('hidden');
+    form.classList.remove('hidden');
+    editBtn.classList.add('hidden');
   });
 
+  const closeEdit = () => {
+    display.classList.remove('hidden');
+    form.classList.add('hidden');
+    editBtn.classList.remove('hidden');
+  };
+
   if (cancelBtn) {
-    cancelBtn.addEventListener('click', () => {
-      document.getElementById('contactNameDisplay').style.display = 'block';
-      document.getElementById('contactNameInput').style.display = 'none';
-      document.getElementById('contactEmailDisplay').style.display = 'block';
-      document.getElementById('contactEmailInput').style.display = 'none';
-
-      editBtn.style.display = 'block';
-      editActions.style.display = 'none';
-
-      renderCompanyDetail();
-    });
+    cancelBtn.addEventListener('click', closeEdit);
   }
 
   if (saveBtn) {
     saveBtn.addEventListener('click', async () => {
-      const contactName = document.getElementById('contactNameInput').value.trim();
-      const contactEmail = document.getElementById('contactEmailInput').value.trim();
+      const name = document.getElementById('editCompanyInput').value.trim();
+      const contactName = document.getElementById('editContactNameInput').value.trim();
+      const contactEmail = document.getElementById('editContactEmailInput').value.trim();
+      const industry = document.getElementById('editIndustryInput').value.trim();
+      const location = document.getElementById('editLocationInput').value.trim();
 
-      const payload = buildContactUpdatePayload(company, {
+      const payload = {
+        id: company.id,
+        name: name || null,
+        companyName: name || null,
         contactName: contactName || null,
-        contactEmail: contactEmail || null
-      });
+        contactEmail: contactEmail || null,
+        industry: industry || null,
+        location: location || null
+      };
 
       try {
-        await saveContactInfo(payload);
-        applyClientProfileEdits(company.id, {
-          contactName: contactName || null,
-          contactEmail: contactEmail || null,
-          contact: contactName || contactEmail || '-'
-        });
+        saveBtn.disabled = true;
+        saveBtn.textContent = '保存中...';
 
-        document.getElementById('contactNameDisplay').style.display = 'block';
-        document.getElementById('contactNameInput').style.display = 'none';
-        document.getElementById('contactEmailDisplay').style.display = 'block';
-        document.getElementById('contactEmailInput').style.display = 'none';
+        await saveReferralDetail(payload);
 
-        editBtn.style.display = 'block';
-        editActions.style.display = 'none';
+        // ローカルデータの更新
+        const companyIndex = allData.findIndex(c => c.id === company.id);
+        if (companyIndex !== -1) {
+          allData[companyIndex].name = name;
+          allData[companyIndex].company = name;
+          allData[companyIndex].contactName = contactName;
+          allData[companyIndex].contact = contactName; // 互換性維持
+          allData[companyIndex].contactEmail = contactEmail;
+          allData[companyIndex].industry = industry;
+          allData[companyIndex].location = location;
+        }
 
         renderCompanyDetail();
-        renderTable();
+        alert('基本情報を保存しました');
 
       } catch (error) {
-        console.error('Failed to save contact info:', error);
-        alert('保存に失敗しました');
+        console.error('Failed to save basic info:', error);
+        alert('保存に失敗しました: ' + error.message);
+        saveBtn.disabled = false;
+        saveBtn.textContent = '保存';
       }
     });
   }
@@ -2686,9 +2707,9 @@ function buildDetailUpdatePayload(companyId, edits) {
 
 
 
-async function saveCompanyDetail(payload) {
+async function saveReferralDetail(payload) {
 
-  const res = await fetch(CLIENTS_PROFILE_API_URL, {
+  const res = await fetch(CLIENTS_API_URL, {
 
     method: 'PUT',
 
@@ -2712,63 +2733,6 @@ async function saveCompanyDetail(payload) {
 
   return res.json().catch(() => ({}));
 
-}
-
-function normalizeOptionalText(value) {
-  if (value === undefined || value === null) return null;
-  const text = String(value).trim();
-  if (!text || text === '-' || text === 'ー') return null;
-  return text;
-}
-
-function buildContactUpdatePayload(company, updates = {}) {
-  return {
-    id: company?.id,
-    contactName: normalizeOptionalText(updates.contactName),
-    contactEmail: normalizeOptionalText(updates.contactEmail)
-  };
-}
-
-function buildContractUpdatePayload(company, updates = {}) {
-  return {
-    id: company?.id,
-    warrantyPeriod: updates.warrantyPeriod ?? null,
-    feeDetails: normalizeOptionalText(updates.feeDetails),
-    contractNote: normalizeOptionalText(updates.contractNote)
-  };
-}
-
-async function saveContactInfo(payload) {
-  return saveClientUpdate(payload);
-}
-
-async function saveContractInfo(payload) {
-  return saveClientUpdate(payload);
-}
-
-async function saveClientUpdate(payload) {
-  const res = await fetch(CLIENTS_PROFILE_API_URL, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  if (!res.ok) {
-    const errorBody = await res.text().catch(() => '');
-    throw new Error(`HTTP Error: ${res.status} ${errorBody}`);
-  }
-
-  return res.json().catch(() => ({}));
-}
-
-function applyClientProfileEdits(companyId, updates = {}) {
-  const applyTo = (list) => {
-    const index = list.findIndex((item) => item.id === companyId);
-    if (index !== -1) Object.assign(list[index], updates);
-  };
-
-  applyTo(allData);
-  applyTo(filteredData);
 }
 
 
@@ -2803,7 +2767,7 @@ async function handleDetailSave(company) {
 
   try {
 
-    await saveCompanyDetail(payload);
+    await saveReferralDetail(payload);
 
     applyDetailEdits(company, edits);
 
@@ -2905,14 +2869,6 @@ function initializeCreateForm() {
 
 }
 
-function updateUI() {
-  renderTable();
-  renderCompanyDetail();
-  updatePaginationInfo();
-  updateFilterCount();
-  updateReferralSortIndicators();
-}
-
 
 
 
@@ -2940,14 +2896,12 @@ function resetCreateForm(clearStatus = false) {
     'referralCreateCompany', 'referralCreateJobTitle', 'referralCreatePlanHeadcount',
 
     'referralCreateIndustry', 'referralCreateLocation', 'referralCreateFee',
-    'referralCreateContactName', 'referralCreateContactEmail',
 
     'referralCreateSalaryMin', 'referralCreateSalaryMax',
 
     'referralCreateMust', 'referralCreateNice', 'referralCreateLocations',
 
     'referralCreatePersonality', 'referralCreateExperiences',
-    'referralCreateWarrantyPeriod', 'referralCreateFeeContract', 'referralCreateContractNotes',
 
     'referralCreateSelectionNote'
 
@@ -2998,112 +2952,62 @@ function collectCreateFormData() {
   const personality = parseListValue(readInputValue('referralCreatePersonality'));
 
   const experiences = parseListValue(readInputValue('referralCreateExperiences'));
-  const warrantyPeriod = readInputValue('referralCreateWarrantyPeriod');
-  const feeDetails = readInputValue('referralCreateFeeContract');
-  const contractNote = readInputValue('referralCreateContractNotes');
 
 
 
   if (!company && !jobTitle) {
-
     return { error: '企業名と募集職種を入力してください' };
-
   }
 
   if (!company) {
-
     return { error: '企業名を入力してください' };
-
   }
 
   if (!jobTitle) {
-
     return { error: '募集職種を入力してください' };
-
   }
 
 
 
   return {
-
     company,
-
     jobTitle,
-
     industry,
-
     location,
-
-    planHeadcount,
-
-    feeAmount,
-
-    selectionNote,
-
-    salaryMin,
-
-    salaryMax,
-
-    mustQualifications,
-
-    niceQualifications,
-
-    desiredLocations,
-
-    personality,
-
-    experiences,
     contactName,
     contactEmail,
-    warrantyPeriod,
-    feeDetails,
-    contractNote
-
+    planHeadcount,
+    feeAmount,
+    selectionNote,
+    salaryMin,
+    salaryMax,
+    mustQualifications,
+    niceQualifications,
+    desiredLocations,
+    personality,
+    experiences
   };
-
 }
 
 
-
 function buildCreatePayload(data) {
-
   const hasSalary = data.salaryMin !== null || data.salaryMax !== null;
-
   const salaryRange = hasSalary ? [data.salaryMin || 0, data.salaryMax || 0] : null;
 
-
-
   return {
-
     name: data.company,
-
     companyName: data.company,
-
     industry: data.industry || null,
-
     location: data.location || null,
-
-    jobCategories: data.jobTitle || null,
-
-    plannedHiresCount: data.planHeadcount ?? null,
-
-    feeAmount: data.feeAmount ?? null,
-
     contactName: data.contactName || null,
     contactEmail: data.contactEmail || null,
-
-    warrantyPeriod: data.warrantyPeriod || null,
-    feeDetails: data.feeDetails || null,
-    contractNote: data.contractNote || null,
-
+    jobCategories: data.jobTitle || null,
+    plannedHiresCount: data.planHeadcount ?? null,
+    feeAmount: data.feeAmount ?? null,
     salaryRange,
-
     mustQualifications: data.mustQualifications ?? [],
-
     niceQualifications: data.niceQualifications ?? [],
-
     desiredLocations: data.desiredLocations ?? [],
-
     personalityTraits: data.personality ?? [],
 
     requiredExperience: data.experiences ?? [],
@@ -3118,7 +3022,7 @@ function buildCreatePayload(data) {
 
 async function createReferralCompany(payload) {
 
-  const res = await fetch(CLIENTS_PROFILE_API_URL, {
+  const res = await fetch(CLIENTS_API_URL, {
 
     method: 'POST',
 
@@ -3225,8 +3129,6 @@ async function handleCreateSubmit() {
     selectedCompanyId = created.id;
 
     detailEditMode = false;
-
-    updateJobFilterOptions();
 
     applyFilters();
 
@@ -3366,10 +3268,6 @@ function initializeSort() {
 
 }
 
-function attachPagination() {
-  initializePagination();
-}
-
 
 
 function initializePagination() {
@@ -3390,14 +3288,7 @@ function updatePaginationInfo() {
 
   const total = Math.ceil(filteredData.length / pageSize) || 1;
 
-  const pageInfo = document.getElementById('referralPageInfo');
-  if (pageInfo) {
-    pageInfo.textContent = `${currentPage} / ${total}`;
-  }
-  const prevBtn = document.getElementById('referralPrevBtn');
-  const nextBtn = document.getElementById('referralNextBtn');
-  if (prevBtn) prevBtn.disabled = currentPage <= 1;
-  if (nextBtn) nextBtn.disabled = currentPage >= total;
+  document.getElementById('referralPageInfo').textContent = `${currentPage} / ${total}`;
 
 }
 
@@ -3405,18 +3296,10 @@ function updatePaginationInfo() {
 
 function updateFilterCount() {
 
-  const filterCount = document.getElementById('referralFilterCount');
-  if (filterCount) {
-    filterCount.textContent = `${filteredData.length}社`;
-  }
+  document.getElementById('referralFilterCount').textContent = `${filteredData.length}社`;
 
 }
 
-
-
-function attachExport() {
-  initializeExport();
-}
 
 
 function initializeExport() {
@@ -3450,12 +3333,6 @@ function initializeExport() {
 // AIマッチング機能（サイドパネル用）
 
 // ==========================================
-
-function attachMatchingHandlers() {
-  initializeMatchingTabs();
-  initializeMatching();
-}
-
 
 function initializeMatchingTabs() {
 
@@ -3648,18 +3525,18 @@ export async function mount(appElement) {
 
   try {
 
-    initializeCreateForm();
-
-    initReferralCandidateModal();
-
     await loadReferralData();
 
     await loadCandidateSummaries();
 
-    updateUI();
+    initializeCreateForm();
 
-    initializeSort();
+    initReferralCandidateModal();
+
+    renderTable();
+
     attachFilters();
+
     attachPagination();
 
     attachRowClickHandlers();
@@ -3679,121 +3556,4 @@ export async function mount(appElement) {
 
   }
 
-}
-
-function attachFilters() {
-  const ids = [
-    "referralDateStart",
-    "referralDateEnd",
-    "referralJobFilter",
-    "referralCompanyFilter",
-    "referralSortSelect",
-    "referralPageSize"
-  ];
-
-  ids.forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener("change", () => {
-      currentPage = 1;
-      applyFilters();
-      updateUI();
-    });
-  });
-
-  const resetBtn = document.getElementById("referralFilterReset");
-  if (resetBtn) {
-    resetBtn.addEventListener("click", () => {
-      const start = document.getElementById("referralDateStart");
-      const end = document.getElementById("referralDateEnd");
-      const job = document.getElementById("referralJobFilter");
-      const company = document.getElementById("referralCompanyFilter");
-
-      if (start) start.value = "";
-      if (end) end.value = "";
-      if (job) job.value = "";
-      if (company) company.value = "";
-
-      selectedCompanyId = null;
-      currentPage = 1;
-      applyFilters();
-      updateUI();
-    });
-  }
-}
-
-// ==========================================
-// 補助関数: 選考フロー可視化 & AIマッチング
-// ==========================================
-
-function buildHorizontalSteps(flowCandidates) {
-  if (!flowCandidates || flowCandidates.length === 0) {
-    return `<div class="p-4 text-center text-slate-400 text-sm">進行中の選考はありません</div>`;
-  }
-
-  return flowCandidates.map(candidate => {
-    const status = candidate.status || candidate.selectionStatus || '';
-
-    const steps = [
-      { label: '推薦', reached: true },
-      { label: '書類', reached: status.includes('書類') || status.includes('面接') || status.includes('内定') || status.includes('入社') },
-      { label: '一次', reached: status.includes('一次') || status.includes('二次') || status.includes('最終') || status.includes('内定') || status.includes('入社') },
-      { label: '二次', reached: status.includes('二次') || status.includes('最終') || status.includes('内定') || status.includes('入社') },
-      { label: '最終', reached: status.includes('最終') || status.includes('内定') || status.includes('入社') },
-      { label: '内定', reached: status.includes('内定') || status.includes('入社') },
-      { label: '入社', reached: status.includes('入社') }
-    ];
-
-    let activeIndex = 0;
-    if (status.includes('書類')) activeIndex = 1;
-    if (status.includes('一次')) activeIndex = 2;
-    if (status.includes('二次')) activeIndex = 3;
-    if (status.includes('最終')) activeIndex = 4;
-    if (status.includes('内定')) activeIndex = 5;
-    if (status.includes('入社')) activeIndex = 6;
-
-    const stepsHtml = steps.map((step, idx) => {
-      const isCompleted = idx <= activeIndex;
-      const isCurrent = idx === activeIndex;
-
-      let circleClass = "bg-slate-200 text-slate-400";
-      let barClass = "bg-slate-200";
-
-      if (isCompleted) {
-        circleClass = isCurrent ? "bg-indigo-600 text-white ring-2 ring-indigo-200" : "bg-indigo-600 text-white";
-        barClass = "bg-indigo-600";
-      }
-
-      const barHtml = idx < steps.length - 1
-        ? `<div class="absolute top-1/2 left-1/2 w-full h-0.5 -translate-y-1/2 -z-10 ${barClass}"></div>`
-        : '';
-
-      return `
-        <div class="relative flex-1 flex flex-col items-center group">
-           ${barHtml}
-           <div class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold z-10 ${circleClass}">
-             ${idx + 1}
-           </div>
-           <div class="mt-1 text-[10px] font-medium ${isCompleted ? 'text-indigo-800' : 'text-slate-400'}">${step.label}</div>
-        </div>
-      `;
-    }).join('');
-
-    return `
-      <div class="bg-white border border-slate-100 rounded-lg p-3 mb-3 last:mb-0 shadow-sm">
-        <div class="flex justify-between items-center mb-2">
-            <div class="font-bold text-sm text-slate-700">${candidate.candidateName || '候補者名不明'}</div>
-            <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">${status || 'ステータス不明'}</span>
-        </div>
-        <div class="flex items-center justify-between relative">
-            ${stepsHtml}
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function buildRecommendedCandidatesList(company) {
-  // プレースホルダー実装（実際のAIマッチングロジックに置き換え予定）
-  return `<div class="col-span-3 text-center text-sm text-slate-400 py-6">マッチング候補者なし</div>`;
 }

@@ -1,12 +1,12 @@
-let form;
-let statusElement;
-let testButton;
-let updatedAtElement;
+import { getSession } from '../../scripts/auth.js';
+
 let screeningForm;
 let screeningStatusElement;
 let screeningUpdatedAtElement;
 let screeningEditToggle;
 let screeningEditMode = false;
+let screeningSummaryList;
+let screeningSummaryNote;
 
 const DEFAULT_SCREENING_RULES = {
   minAge: "",
@@ -16,25 +16,17 @@ const DEFAULT_SCREENING_RULES = {
 };
 let currentScreeningRules = { ...DEFAULT_SCREENING_RULES };
 
-const SETTINGS_API_BASE = "https://uqg1gdotaa.execute-api.ap-northeast-1.amazonaws.com/dev";
+const SETTINGS_API_BASE = "https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod";
 const SCREENING_RULES_ENDPOINT = `${SETTINGS_API_BASE}/settings-screening-rules`;
 
 export function mount() {
-  form = document.getElementById("kintoneSettingsForm");
-  statusElement = document.getElementById("kintoneSettingsStatus");
-  testButton = document.getElementById("kintoneTestButton");
-  updatedAtElement = document.getElementById("kintoneSettingsUpdatedAt");
   screeningForm = document.getElementById("screeningRulesForm");
   screeningStatusElement = document.getElementById("screeningRulesStatus");
   screeningUpdatedAtElement = document.getElementById("screeningRulesUpdatedAt");
   screeningEditToggle = document.getElementById("screeningRulesEditToggle");
+  screeningSummaryList = document.getElementById("screeningRulesSummaryList");
+  screeningSummaryNote = document.getElementById("screeningRulesSummaryNote");
 
-  if (form) {
-    form.addEventListener("submit", handleSave);
-  }
-  if (testButton) {
-    testButton.addEventListener("click", handleTestConnection);
-  }
   if (screeningForm) {
     screeningForm.addEventListener("submit", handleScreeningSave);
   }
@@ -49,17 +41,12 @@ export function mount() {
   if (maxUnlimited) {
     maxUnlimited.addEventListener("change", updateAgeLimitState);
   }
-  loadSettings();
+
   loadScreeningRules();
 }
 
 export function unmount() {
-  if (form) {
-    form.removeEventListener("submit", handleSave);
-  }
-  if (testButton) {
-    testButton.removeEventListener("click", handleTestConnection);
-  }
+
   if (screeningForm) {
     screeningForm.removeEventListener("submit", handleScreeningSave);
   }
@@ -76,106 +63,14 @@ export function unmount() {
   }
 }
 
-async function loadSettings() {
-  try {
-    const response = await fetch("/api/settings/kintone");
-    if (!response.ok) {
-      throw new Error("設定の取得に失敗しました");
-    }
-    const data = await response.json();
-    if (!data || !data.exists) {
-      showStatus("まだ設定が登録されていません。", "info");
-      form?.reset();
-      updateUpdatedAt(null);
-      return;
-    }
-    if (form) {
-      form.kintoneSubdomain.value = data.kintoneSubdomain || "";
-      form.kintoneAppId.value = data.kintoneAppId || "";
-      form.kintoneApiToken.value = "";
-    }
-    updateUpdatedAt(data.updatedAt);
-    showStatus("保存済みの設定を読み込みました。", "success");
-  } catch (error) {
-    console.error(error);
-    showStatus("設定の読み込みに失敗しました。", "error");
-  }
-}
 
-async function handleSave(event) {
-  event.preventDefault();
-  if (!form) return;
-
-  const body = {
-    kintoneSubdomain: form.kintoneSubdomain.value.trim(),
-    kintoneAppId: form.kintoneAppId.value.trim(),
-    kintoneApiToken: form.kintoneApiToken.value.trim(),
-  };
-
-  if (!body.kintoneSubdomain || !body.kintoneAppId) {
-    showStatus("サブドメインとアプリIDを入力してください。", "error");
-    return;
-  }
-
-  try {
-    const response = await fetch("/api/settings/kintone", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result?.error || "保存に失敗しました。");
-    }
-    form.kintoneApiToken.value = "";
-    await loadSettings();
-    showStatus("設定を保存しました。", "success");
-  } catch (error) {
-    console.error(error);
-    showStatus(error.message || "保存に失敗しました。", "error");
-  }
-}
-
-async function handleTestConnection() {
-  if (!form) return;
-  const payload = {
-    kintoneSubdomain: form.kintoneSubdomain.value.trim(),
-    kintoneAppId: form.kintoneAppId.value.trim(),
-    kintoneApiToken:
-      form.kintoneApiToken.value.trim() || undefined,
-  };
-
-  if (!payload.kintoneSubdomain || !payload.kintoneAppId) {
-    showStatus("サブドメインとアプリIDを入力してください。", "error");
-    return;
-  }
-  if (!payload.kintoneApiToken) {
-    showStatus("接続テストには API トークンを入力してください。", "error");
-    return;
-  }
-
-  try {
-    showStatus("接続テストを実行中...", "info");
-    const response = await fetch("/api/settings/kintone/test", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result?.error || "接続に失敗しました。");
-    }
-    showStatus(result.message || "接続テストに成功しました。", "success");
-  } catch (error) {
-    console.error(error);
-    showStatus(error.message || "接続テストに失敗しました。", "error");
-  }
-}
 
 async function loadScreeningRules() {
   if (!screeningForm) return;
   try {
-    const response = await fetch(SCREENING_RULES_ENDPOINT);
+    const session = getSession();
+    const headers = session?.token ? { Authorization: `Bearer ${session.token}` } : {};
+    const response = await fetch(SCREENING_RULES_ENDPOINT, { headers });
     if (!response.ok) {
       throw new Error("設定の取得に失敗しました。");
     }
@@ -220,9 +115,15 @@ async function handleScreeningSave(event) {
   };
 
   try {
+    const session = getSession();
+    const token = session?.token;
+
     const response = await fetch(SCREENING_RULES_ENDPOINT, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
       body: JSON.stringify(body),
     });
     const result = await response.json();
@@ -287,6 +188,7 @@ function applyScreeningRules(rules) {
 
   updateAgeLimitState();
   setScreeningEditMode(false, { silent: true });
+  updateScreeningSummary(normalized);
 }
 
 function collectCheckedLevels() {
@@ -386,6 +288,54 @@ function normalizeCommaText(value) {
     .join(", ");
 }
 
+function normalizeNationalityLabel(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const normalized = text.toLowerCase();
+  if (normalized === "japan" || normalized === "jpn" || normalized === "jp" || normalized === "japanese") {
+    return "日本";
+  }
+  if (text === "日本国" || text === "日本国籍" || text === "日本人" || text === "日本国民") return "日本";
+  return text;
+}
+
+function isJapaneseNationalityLabel(value) {
+  return normalizeNationalityLabel(value) === "日本";
+}
+
+function updateScreeningSummary(rules) {
+  if (!screeningSummaryList) return;
+  const minUnlimited = isUnlimitedMinAge(rules.minAge);
+  const maxUnlimited = isUnlimitedMaxAge(rules.maxAge);
+  const ageParts = [];
+  if (!minUnlimited && rules.minAge !== "" && rules.minAge !== null) ageParts.push(`${rules.minAge}歳以上`);
+  if (!maxUnlimited && rules.maxAge !== "" && rules.maxAge !== null) ageParts.push(`${rules.maxAge}歳以下`);
+  const ageText = ageParts.length ? ageParts.join("・") : "制限なし";
+
+  const jlptLevels = (rules.allowedJlptLevels || []).map((level) => String(level).trim()).filter(Boolean);
+  const jlptText = jlptLevels.length
+    ? `言語レベル: ${jlptLevels.join(", ")}`
+    : "言語レベル: 未設定（非日本は全員無効）";
+
+  const nationalities = parseListValue(rules.targetNationalities).map(normalizeNationalityLabel);
+  const nonJapaneseTargets = nationalities.filter((value) => value && !isJapaneseNationalityLabel(value));
+  const nationalityText = nonJapaneseTargets.length
+    ? `非日本国籍の対象: ${nonJapaneseTargets.join(", ")}`
+    : "非日本国籍の対象: 指定なし（すべて対象）";
+
+  const lines = [
+    `年齢条件: ${ageText}`,
+    "日本国籍: 年齢条件のみで有効（言語レベル不要）",
+    `日本以外: 年齢条件 + ${jlptText}`,
+    nationalityText,
+  ];
+
+  screeningSummaryList.innerHTML = lines.map((text) => `<li>${text}</li>`).join("");
+  if (screeningSummaryNote) {
+    screeningSummaryNote.textContent = "※ 対象国籍は非日本国籍の絞り込みに使います。日本国籍は自動で有効判定対象です。";
+  }
+}
+
 function showScreeningStatus(message, type = "info") {
   if (!screeningStatusElement) return;
   screeningStatusElement.textContent = message;
@@ -405,24 +355,7 @@ function updateScreeningUpdatedAt(value) {
   screeningUpdatedAtElement.textContent = value ? formatDateTimeJP(value) : "-";
 }
 
-function showStatus(message, type = "info") {
-  if (!statusElement) return;
-  statusElement.textContent = message;
-  statusElement.classList.remove(
-    "settings-status-success",
-    "settings-status-error"
-  );
-  if (type === "success") {
-    statusElement.classList.add("settings-status-success");
-  } else if (type === "error") {
-    statusElement.classList.add("settings-status-error");
-  }
-}
 
-function updateUpdatedAt(value) {
-  if (!updatedAtElement) return;
-  updatedAtElement.textContent = value ? formatDateTimeJP(value) : "-";
-}
 
 function formatDateTimeJP(value) {
   if (!value) return "-";

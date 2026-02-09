@@ -1,3 +1,4 @@
+<link rel="stylesheet" href="pages/goal-settings/goal-settings.css">
 <div class="settings-page" id="settingsPage">
   <div class="settings-section">
     <div class="settings-tab-group" data-settings-tab-group="settings">
@@ -15,64 +16,14 @@
           <div class="settings-section-subrow">
             <div class="settings-radio-group" id="evaluationRuleGroup">
               <label class="settings-radio">
-                <input type="radio" name="evaluationRule" value="monthly" />
-                <span>月次評価（毎月1日〜末日）</span>
-              </label>
-              <label class="settings-radio">
-                <input type="radio" name="evaluationRule" value="master-month" />
-                <span>月次評価（マスターキー専用：毎月16日〜翌月15日）</span>
-              </label>
-              <label class="settings-radio">
-                <input type="radio" name="evaluationRule" value="half-month" />
-                <span>半月評価（1〜15日／16〜末日）</span>
-              </label>
-              <label class="settings-radio">
-                <input type="radio" name="evaluationRule" value="weekly" />
-                <span>週で評価</span>
-              </label>
-              <label class="settings-radio">
-                <input type="radio" name="evaluationRule" value="quarterly" />
-                <span>四半期</span>
-              </label>
-              <label class="settings-radio">
-                <input type="radio" name="evaluationRule" value="custom-month" />
-                <span>月（カスタム：毎月○日〜毎月○日）</span>
+                <input type="radio" name="evaluationRule" value="monthly" checked />
+                <span>月（1日から月末）</span>
               </label>
             </div>
             <!-- <button type="button" id="saveEvaluationRuleButton" class="settings-primary-button">期間設定を保存</button> -->
           </div>
         </div>
-
-        <div class="settings-advanced-options">
-          <div class="settings-option-row" data-option="weekly" hidden>
-            <label class="settings-inline-select">
-              <span>週の開始曜日</span>
-              <select id="startWeekdaySelect">
-                <option value="monday">月曜日開始</option>
-                <option value="sunday">日曜日開始</option>
-              </select>
-            </label>
-          </div>
-          <div class="settings-option-row" data-option="quarterly" hidden>
-            <label class="settings-inline-select">
-              <span>会計年度の開始月</span>
-              <select id="fiscalStartMonthSelect">
-                <option value="1">1月始まり</option>
-                <option value="4">4月始まり</option>
-              </select>
-            </label>
-          </div>
-          <div class="settings-option-row" data-option="custom-month" hidden>
-            <label class="settings-inline-select">
-              <span>毎月の開始日（1〜31）</span>
-              <input type="number" id="customStartDayInput" min="1" max="31" value="1" />
-            </label>
-            <div class="settings-inline-select readonly">
-              <span>毎月の終了日</span>
-              <span id="customEndDayLabel">自動計算（開始日の前日）</span>
-            </div>
-          </div>
-        </div>
+        <!-- Advanced options removed -->
 
         <div class="settings-card-actions">
           <button type="button" id="saveEvaluationRuleButton" class="settings-primary-button">期間設定を保存</button>
@@ -117,7 +68,7 @@
       <div class="settings-card">
         <div class="settings-card-headline">
           <div class="settings-section-header-row">
-            <h4 class="settings-section-title">ページ別率目標設定</h4>
+            <h4 class="settings-section-title">ページ別目標設定</h4>
             <p class="settings-muted">各画面で表示される「率」の目標値を設定します。目標に対する達成度に応じて表示色が変わります。</p>
           </div>
           <div class="settings-section-subrow">
@@ -129,58 +80,101 @@
         </div>
 
         <div class="settings-rate-groups">
+          <!-- 紹介先実績管理画面 -->
+          <div class="settings-rate-group">
+            <h5 class="settings-rate-group-title">紹介先実績管理画面</h5>
+            <div class="settings-rate-grid">
+              <label class="settings-rate-field">
+                <span>定着率（返金発生期間）</span>
+                <p class="settings-rate-note">分子：返金発生期間以上勤続した人数（返金が発生しなかった人数） / 分母：入社数</p>
+                <div class="settings-rate-input-wrap">
+                  <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
+                    data-rate-key="clientRetentionRate" />
+                  <span class="settings-rate-unit">%</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
           <!-- 広告管理画面 -->
           <div class="settings-rate-group">
             <h5 class="settings-rate-group-title">広告管理画面</h5>
-            <div class="settings-rate-grid">
-              <label class="settings-rate-field">
-                <span>有効応募率</span>
-                <div class="settings-rate-input-wrap">
-                  <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="adValidApplicationRateTarget" />
-                  <span class="settings-rate-unit">%</span>
-                </div>
-              </label>
-              <label class="settings-rate-field">
-                <span>初回面談設定率</span>
-                <div class="settings-rate-input-wrap">
-                  <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="adInitialInterviewRateTarget" />
-                  <span class="settings-rate-unit">%</span>
-                </div>
-              </label>
-              <label class="settings-rate-field">
-                <span>内定率</span>
-                <div class="settings-rate-input-wrap">
-                  <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="adOfferRateTarget" />
-                  <span class="settings-rate-unit">%</span>
-                </div>
-              </label>
-              <label class="settings-rate-field">
-                <span>入社率</span>
-                <div class="settings-rate-input-wrap">
-                  <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="adHireRateTarget" />
-                  <span class="settings-rate-unit">%</span>
-                </div>
-              </label>
-              <label class="settings-rate-field">
-                <span>決定率</span>
-                <div class="settings-rate-input-wrap">
-                  <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="adDecisionRateTarget" />
-                  <span class="settings-rate-unit">%</span>
-                </div>
-              </label>
-              <label class="settings-rate-field">
-                <span>定着率（保障期間）</span>
-                <div class="settings-rate-input-wrap">
-                  <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="adRetentionRateTarget" />
-                  <span class="settings-rate-unit">%</span>
-                </div>
-              </label>
+
+            <div class="settings-rate-subgroup">
+              <h6 class="settings-rate-subgroup-title">共通・有効応募数基準</h6>
+              <div class="settings-rate-grid">
+                <label class="settings-rate-field">
+                  <span>有効応募率</span>
+                  <p class="settings-rate-note">分子：有効応募数 / 分母：応募数</p>
+                  <div class="settings-rate-input-wrap">
+                    <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
+                      data-rate-key="adValidAppRate" />
+                    <span class="settings-rate-unit">%</span>
+                  </div>
+                </label>
+                <label class="settings-rate-field">
+                  <span>初回面談設定率</span>
+                  <p class="settings-rate-note">分子：初回面談設定数 / 分母：有効応募数</p>
+                  <div class="settings-rate-input-wrap">
+                    <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
+                      data-rate-key="adInterviewSetupRate" />
+                    <span class="settings-rate-unit">%</span>
+                  </div>
+                </label>
+                <label class="settings-rate-field">
+                  <span>内定率（有効応募数基準）</span>
+                  <p class="settings-rate-note">分子：内定数 / 分母：有効応募数</p>
+                  <div class="settings-rate-input-wrap">
+                    <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
+                      data-rate-key="adOfferRateTarget" />
+                    <span class="settings-rate-unit">%</span>
+                  </div>
+                </label>
+                <label class="settings-rate-field">
+                  <span>入社率（有効応募数基準）</span>
+                  <p class="settings-rate-note">分子：入社数 / 分母：有効応募数（決定率）</p>
+                  <div class="settings-rate-input-wrap">
+                    <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
+                      data-rate-key="adHireRateTarget" />
+                    <span class="settings-rate-unit">%</span>
+                  </div>
+                </label>
+                <label class="settings-rate-field">
+                  <span>定着率（返金発生期間）</span>
+                  <p class="settings-rate-note">分子：返金発生期間以上勤続した人数（返金が発生しなかった人数） / 分母：入社数</p>
+                  <div class="settings-rate-input-wrap">
+                    <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
+                      data-rate-key="adRetentionRate" />
+                    <span class="settings-rate-unit">%</span>
+                  </div>
+                </label>
+                <!-- 決定率は入社率（有効応募数基準）と重複するため削除または統合 -->
+                <input type="hidden" data-rate-key="adDecisionRateTarget" />
+              </div>
+            </div>
+
+            <div class="settings-rate-subgroup" style="margin-top: 16px;">
+              <h6 class="settings-rate-subgroup-title">段階別基準（Step）</h6>
+              <div class="settings-rate-grid">
+                <label class="settings-rate-field">
+                  <span>内定率（段階別基準）</span>
+                  <p class="settings-rate-note">分子：内定数 / 分母：初回面談実施数</p>
+                  <div class="settings-rate-input-wrap">
+                    <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
+                      data-rate-key="adOfferRateTargetStep" />
+                    <span class="settings-rate-unit">%</span>
+                  </div>
+                </label>
+                <label class="settings-rate-field">
+                  <span>入社率（段階別基準）</span>
+                  <p class="settings-rate-note">分子：入社数 / 分母：内定承諾数（または内定数）</p>
+                  <div class="settings-rate-input-wrap">
+                    <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
+                      data-rate-key="adHireRateTargetStep" />
+                    <span class="settings-rate-unit">%</span>
+                  </div>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -190,48 +184,46 @@
             <div class="settings-rate-grid">
               <label class="settings-rate-field">
                 <span>接触率</span>
+                <p class="settings-rate-note">分子：接触数 / 分母：架電数</p>
                 <div class="settings-rate-input-wrap">
                   <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="teleapoContactRateTarget" />
+                    data-rate-key="teleapoContactRate" />
                   <span class="settings-rate-unit">%</span>
                 </div>
               </label>
               <label class="settings-rate-field">
                 <span>設定率</span>
+                <p class="settings-rate-note">分子：設定数 / 分母：接触数</p>
                 <div class="settings-rate-input-wrap">
                   <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="teleapoSetRateTarget" />
+                    data-rate-key="teleapoSetupRate" />
                   <span class="settings-rate-unit">%</span>
                 </div>
               </label>
               <label class="settings-rate-field">
-                <span>着座率</span>
+                <span>着座率（分母：設定数）</span>
+                <p class="settings-rate-note">分子：面談実施数 / 分母：設定数</p>
                 <div class="settings-rate-input-wrap">
                   <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="teleapoShowRateTarget" />
+                    data-rate-key="teleapoAttendanceRate" />
+                  <span class="settings-rate-unit">%</span>
+                </div>
+              </label>
+              <label class="settings-rate-field">
+                <span>着座率（分母：接触数）</span>
+                <p class="settings-rate-note">分子：面談実施数 / 分母：接触数</p>
+                <div class="settings-rate-input-wrap">
+                  <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
+                    data-rate-key="teleapoAttendanceRateContact" />
                   <span class="settings-rate-unit">%</span>
                 </div>
               </label>
               <label class="settings-rate-field">
                 <span>通電率</span>
+                <p class="settings-rate-note">分子：通電数 / 分母：架電数</p>
                 <div class="settings-rate-input-wrap">
                   <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="teleapoConnectRateTarget" />
-                  <span class="settings-rate-unit">%</span>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <!-- 紹介先実績管理画面 -->
-          <div class="settings-rate-group">
-            <h5 class="settings-rate-group-title">紹介先実績管理画面</h5>
-            <div class="settings-rate-grid">
-              <label class="settings-rate-field">
-                <span>定着率（返金発生期間）</span>
-                <div class="settings-rate-input-wrap">
-                  <input type="number" min="0" max="100" step="0.1" class="settings-rate-input"
-                    data-rate-key="referralRetentionRateTarget" />
+                    data-rate-key="teleapoConnectionRate" />
                   <span class="settings-rate-unit">%</span>
                 </div>
               </label>

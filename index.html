@@ -4,26 +4,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>業務ダッシュボード</title>
+  <title>Agent Key</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            // App Primary (Intelligent Blue)
+            primary: {
+              DEFAULT: '#0071C1',
+              50: '#E0F2FF',
+              100: '#B8DFFF',
+              200: '#8AC9FF',
+              300: '#5CB3FF',
+              400: '#2E9DFF',
+              500: '#0071C1',
+              600: '#005A99',
+              700: '#004B87',
+              800: '#003366',
+              900: '#001F3D',
+            },
+            // App Accent (Teal)
+            accent: {
+              DEFAULT: '#00a99d',
+              light: '#e6f7f6',
+              dark: '#008577',
+            },
+          },
+        },
+      },
+    }
+  </script>
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap"
     rel="stylesheet" />
   <link rel="stylesheet" href="styles/tokens.css" />
-  <link rel="stylesheet" href="styles/base.css?v=20260130" />
+  <link rel="stylesheet" href="styles/base.css?v=20260203_new" />
   <link rel="stylesheet" href="styles/utilities.css" />
+  <link rel="stylesheet" href="chatbot/frontend/widget.css" />
 </head>
 
-<body class="bg-slate-100">
+<body>
   <div class="flex min-h-screen transition-all duration-300">
-    <aside id="sidebar" class="w-64 bg-slate-900 text-slate-100 flex flex-col transition-all duration-300 ease-in-out">
+    <aside id="sidebar" class="w-64 text-slate-100 flex flex-col transition-all duration-300 ease-in-out"
+      style="background: linear-gradient(180deg, #0d1b2a 0%, #1b263b 100%);">
       <div class="px-6 py-5 border-b border-slate-700 flex items-start justify-between gap-3">
         <div class="sidebar-title-wrapper">
-          <p class="text-sm uppercase tracking-wide text-slate-400 sidebar-title-text">
-            Recruiting Ops
-          </p>
-          <h1 class="text-xl font-semibold mt-2 sidebar-title-text">
-            業務ダッシュボード
+          <h1 class="text-xl font-bold mt-1 sidebar-title-text">
+            Agent Key
           </h1>
         </div>
         <button type="button" id="sidebarToggle"
@@ -63,13 +92,13 @@
               <li>
                 <button type="button" data-target="yield-personal"
                   class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
-                  <span class="nav-label">自分の実績</span>
+                  <span class="nav-label">個人成績</span>
                 </button>
               </li>
               <li>
                 <button type="button" data-target="yield-company"
                   class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
-                  <span class="nav-label">社内の成績</span>
+                  <span class="nav-label">社内成績</span>
                 </button>
               </li>
               <li>
@@ -128,63 +157,61 @@
               <span class="nav-label">架電管理</span>
             </button>
           </li>
-          <li>
-            <button type="button" data-target="settings" class="nav-link w-full text-left whitespace-nowrap transition"
-              aria-current="false">
+          <li class="nav-group" data-nav-group="settings">
+            <button type="button" class="nav-link nav-group-toggle w-full text-left whitespace-nowrap transition"
+              data-submenu-toggle="settings" aria-expanded="false">
               <span class="nav-icon" aria-hidden="true">
                 <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
                   <path
                     d="M10 2a2 2 0 0 1 1.91 1.41l.13.42 1.16.23a2 2 0 0 1 1.47 1.47l.23 1.16.42.13A2 2 0 0 1 16 8v4a2 2 0 0 1-1.41 1.91l-.42.13-.23 1.16a2 2 0 0 1-1.47 1.47l-1.16.23-.13.42A2 2 0 0 1 10 18H8a2 2 0 0 1-1.91-1.41l-.13-.42-1.16-.23a2 2 0 0 1-1.47-1.47l-.23-1.16-.42-.13A2 2 0 0 1 2 12V8a2 2 0 0 1 1.41-1.91l.42-.13.23-1.16a2 2 0 0 1 1.47-1.47l1.16-.23.13-.42A2 2 0 0 1 8 2zm0 4.5a3.5 3.5 0 1 0 3.5 3.5A3.5 3.5 0 0 0 10 6.5Zm0 2a1.5 1.5 0 1 1-1.5 1.5A1.5 1.5 0 0 1 10 8.5Z" />
                 </svg>
               </span>
-              <span class="nav-label">システム設定</span>
+              <span class="nav-label">設定</span>
+              <span class="nav-caret" aria-hidden="true">▾</span>
             </button>
-          </li>
-          <li>
-            <button type="button" data-target="goal-settings"
-              class="nav-link w-full text-left whitespace-nowrap transition" aria-current="false">
-              <span class="nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
-                  <path
-                    d="M10 2a2 2 0 0 1 1.91 1.41l.13.42 1.16.23a2 2 0 0 1 1.47 1.47l.23 1.16.42.13A2 2 0 0 1 16 8v4a2 2 0 0 1-1.41 1.91l-.42.13-.23 1.16a2 2 0 0 1-1.47 1.47l-1.16.23-.13.42A2 2 0 0 1 10 18H8a2 2 0 0 1-1.91-1.41l-.13-.42-1.16-.23a2 2 0 0 1-1.47-1.47l-.23-1.16-.42-.13A2 2 0 0 1 2 12V8a2 2 0 0 1 1.41-1.91l.42-.13.23-1.16a2 2 0 0 1 1.47-1.47l1.16-.23.13-.42A2 2 0 0 1 8 2zm0 4.5a3.5 3.5 0 1 0 3.5 3.5A3.5 3.5 0 0 0 10 6.5Zm0 2a1.5 1.5 0 1 1-1.5 1.5A1.5 1.5 0 0 1 10 8.5Z" />
-                </svg>
-              </span>
-              <span class="nav-label">評価・目標設定</span>
-            </button>
-          </li>
-          <li>
-            <button type="button" data-target="members" class="nav-link w-full text-left whitespace-nowrap transition"
-              aria-current="false">
-              <span class="nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
-                  <path
-                    d="M10 10.5a3.5 3.5 0 1 0-3.5-3.5A3.5 3.5 0 0 0 10 10.5Zm0 2c-3.33 0-6 1.52-6 3.4V17h12v-1.1c0-1.88-2.67-3.4-6-3.4ZM15 6a2 2 0 1 1 2 2 2 2 0 0 1-2-2Zm0 3.25a4 4 0 0 1 2.91 1.06A4 4 0 0 1 19 13.7V15h-2v-1.3c0-.9-.92-1.7-2-1.7Z" />
-                </svg>
-              </span>
-              <span class="nav-label">メンバー</span>
-            </button>
-          </li>
-          <li>
-            <button type="button" data-action="logout" class="nav-link w-full text-left whitespace-nowrap transition">
-              <span class="nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
-                  <path d="M8 3a2 2 0 0 0-2 2v3h2V5h7v10H8v-3H6v3a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H8z" />
-                  <path d="M3.293 9.293 1.586 11l1.707 1.707L5 11.999 4.002 11H10v-2H4.002L5 8.001 3.293 9.293z" />
-                </svg>
-              </span>
-              <span class="nav-label">ログアウト</span>
-            </button>
+            <ul class="nav-submenu" data-submenu="settings">
+              <li>
+                <button type="button" data-target="settings"
+                  class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
+                  <span class="nav-label">有効応募基準設定</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" data-target="goal-settings"
+                  class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
+                  <span class="nav-label">評価・目標設定</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" data-target="members"
+                  class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
+                  <span class="nav-label">メンバー設定</span>
+                </button>
+              </li>
+              <li>
+                <!-- ログアウトはユーザー表示の横に移動 -->
+              </li>
+            </ul>
           </li>
         </ul>
       </nav>
-      <div id="sidebarUserBadgeSlot" class="sidebar-user-slot"></div>
+      <div class="sidebar-user-slot">
+        <div id="sidebarUserBadgeSlot"></div>
+        <button type="button" class="sidebar-logout-button" data-action="logout" aria-label="ログアウト">
+          <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 sidebar-logout-icon" aria-hidden="true">
+            <path d="M8 3a2 2 0 0 0-2 2v3h2V5h7v10H8v-3H6v3a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H8z" />
+            <path d="M3.293 9.293 1.586 11l1.707 1.707L5 11.999 4.002 11H10v-2H4.002L5 8.001 3.293 9.293z" />
+          </svg>
+          <span class="sidebar-logout-label">ログアウト</span>
+        </button>
+      </div>
     </aside>
 
     <div class="flex-1 flex flex-col main-layout">
-      <header class="bg-white border-b border-slate-200 page-header">
+      <header class="page-header">
         <div class="flex flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
-            <h2 id="pageTitle" class="text-2xl font-semibold text-slate-900">
+            <h2 id="pageTitle" class="text-2xl font-semibold">
               歩留管理（総合）
             </h2>
           </div>
@@ -208,16 +235,63 @@
         </div>
       </header>
 
-      <main id="app" class="flex-1 p-6 overflow-auto bg-slate-50">
+      <main id="app" class="flex-1 overflow-auto">
         <!-- Dynamic page content will be loaded here -->
       </main>
     </div>
   </div>
 
+  <!-- HelpChat widget -->
+  <div id="helpchat-widget" class="helpchat-widget">
+    <button id="helpchat-trigger" class="helpchat-trigger" aria-label="ヘルプを開く">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="11" width="18" height="10" rx="2" />
+        <circle cx="12" cy="5" r="2" />
+        <path d="M12 7v4" />
+        <line x1="8" y1="16" x2="8" y2="16" />
+        <line x1="16" y1="16" x2="16" y2="16" />
+      </svg>
+    </button>
+
+    <div id="helpchat-drawer" class="helpchat-drawer" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="helpchat-header">
+        <h2 class="helpchat-title">ヘルプチャット</h2>
+        <button id="helpchat-close" class="helpchat-close" aria-label="閉じる">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <div id="helpchat-messages" class="helpchat-messages" role="log" aria-live="polite"></div>
+      <div id="helpchat-options" class="helpchat-options"></div>
+
+      <div id="helpchat-input-area" class="helpchat-input-area helpchat-hidden">
+        <input type="text" id="helpchat-input" class="helpchat-input" placeholder="キーワードを入力..." autocomplete="off" />
+        <button id="helpchat-send" class="helpchat-send" aria-label="送信">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      </div>
+      <div class="helpchat-resize-handle" data-resize="n"></div>
+      <div class="helpchat-resize-handle" data-resize="w"></div>
+      <div class="helpchat-resize-handle" data-resize="nw"></div>
+    </div>
+  </div>
   <script type="module">
     import { boot } from './scripts/router.js?v=20260120_2';
     boot();
   </script>
+  <script>
+    window.HelpChatWidgetConfig = {
+      apiBase: 'http://127.0.0.1:5001/api/v1/helpchat'
+    };
+  </script>
+  <script src="chatbot/frontend/widget.js?v=20260204_1" defer></script>
 </body>
 
 </html>

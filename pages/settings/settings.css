@@ -3,15 +3,33 @@
   margin: 0 auto;
 }
 
+/* Page Header */
+.settings-page-header {
+  margin-bottom: 24px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 16px;
+}
+
+.settings-page-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
 .settings-card {
-  background-color: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.85rem;
-  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
-  padding: 1.5rem;
+  background-color: var(--app-surface-elevated);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  /* 角丸8px */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  /* 薄い影 */
+  padding: 32px;
+  /* パディング拡大 */
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 2rem;
+  /* カード内要素間隔拡大 */
 }
 
 .settings-card-header {
@@ -21,10 +39,11 @@
   gap: 1rem;
 }
 
-.settings-card-header h3 {
+.settings-card-header h4 {
   font-size: 1.1rem;
   font-weight: 600;
   color: #0f172a;
+  margin: 0 0 8px 0;
 }
 
 .settings-header-meta {
@@ -39,16 +58,54 @@
   gap: 1.25rem;
 }
 
+.settings-screening-summary {
+  border: none;
+  /* 枠線削除 */
+  background: #f9fafb;
+  /* 薄いグレー背景 */
+  border-radius: 8px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.settings-screening-summary-title {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 0.95rem;
+}
+
+.settings-screening-summary-list {
+  list-style: disc;
+  padding-left: 1.2rem;
+  color: #475569;
+  font-size: 0.85rem;
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.settings-screening-summary-note {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0;
+}
+
 .settings-form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  /* 幅拡張 */
+  gap: 2.5rem;
+  /* フォーム間隔拡大 (24px-32px相当) */
+  margin-top: 1rem;
 }
 
 .settings-field {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 8px;
+  /* ラベルと入力欄の間隔調整 */
   color: #475569;
   font-size: 0.9rem;
 }
@@ -58,17 +115,18 @@
 }
 
 .settings-input {
-  border: 1px solid #cbd5f5;
-  border-radius: 0.6rem;
-  padding: 0.65rem 0.85rem;
-  font-size: 0.95rem;
+  height: 40px;
+  border: 1px solid #d6d6d6;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 14px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .settings-input:focus {
   outline: none;
-  border-color: #818cf8;
-  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.25);
+  border-color: var(--app-primary);
+  box-shadow: 0 0 0 3px var(--app-primary-light);
 }
 
 .settings-field small {
@@ -95,23 +153,23 @@
 }
 
 .settings-btn.primary {
-  background-color: #4338ca;
-  color: #fff;
-  border-color: #4338ca;
+  background-color: var(--app-primary);
+  color: var(--app-text-inverse);
+  border-color: var(--app-primary);
 }
 
 .settings-btn.primary:hover {
-  background-color: #3730a3;
+  background-color: var(--app-primary-dark);
 }
 
 .settings-btn.subtle {
-  background-color: #eef2ff;
-  border-color: #c7d2fe;
-  color: #4338ca;
+  background-color: var(--app-primary-light);
+  border-color: var(--app-border-dark);
+  color: var(--app-primary);
 }
 
 .settings-btn.subtle:hover {
-  background-color: #e0e7ff;
+  background-color: var(--app-info-light);
 }
 
 .settings-form:not(.is-editing) .screening-edit-only {
