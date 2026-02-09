@@ -3016,6 +3016,7 @@ function buildCandidateDetailPayload(candidate) {
     selectionProgress: candidate.selectionProgress,
     afterAcceptance: candidate.afterAcceptance,
     refundInfo: candidate.refundInfo,
+    moneyInfo: candidate.moneyInfo,
     actionInfo,
     csChecklist: candidate.csChecklist,
   };

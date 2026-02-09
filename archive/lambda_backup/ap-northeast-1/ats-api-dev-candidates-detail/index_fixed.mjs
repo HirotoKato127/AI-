@@ -561,7 +561,6 @@ export const handler = async (event) => {
                             } else if (hasPlacementValues) {
                                 await client.query(`
                                     INSERT INTO placements (candidate_application_id, fee_amount, refund_amount, order_date, withdraw_date, order_reported, refund_reported, created_at, updated_at)
-                                    // $1::int, $2::int ... のように型を明示します
 VALUES ($1::int, $2::int, $3::int, $4::date, $5::date, COALESCE($6::boolean, false), COALESCE($7::boolean, false), NOW(), NOW())
                                 `, [applicationId, feeAmount, refundAmount, orderDate, withdrawDate, orderReported, refundReported]);
                             }
