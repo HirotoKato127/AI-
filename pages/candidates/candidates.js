@@ -298,6 +298,7 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     clientId: row.clientId ?? row.client_id ?? null,
     companyName: row.companyName ?? row.company_name ?? "",
     route: row.route ?? row.applyRoute ?? row.apply_route ?? row.mediaName ?? row.media_name ?? "",
+    proposalDate: row.proposalDate ?? row.proposal_date ?? null,
     recommendationDate: row.recommendationDate ?? row.recommended_at ?? null,
     interviewSetupDate: row.interviewSetupDate ?? row.first_interview_set_at ?? null,
     interviewDate: row.interviewDate ?? row.first_interview_at ?? null,
@@ -4001,10 +4002,13 @@ function renderSelectionProgressSection(candidate) {
           <!-- スケジュール (7 cols) -->
           <div class="lg:col-span-7 grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-3 rounded">
              <div class="col-span-2 md:col-span-1">
+                <label class="block text-xs font-medium text-slate-500 mb-1">提案日</label>
+                ${renderTableInput(r.proposalDate, `${pathPrefix}.proposalDate`, "date", "selection")}
+             </div>
+             <div class="col-span-2 md:col-span-1">
                 <label class="block text-xs font-medium text-slate-500 mb-1">推薦日</label>
                 ${renderTableInput(r.recommendationDate, `${pathPrefix}.recommendationDate`, "date", "selection")}
              </div>
-             <div class="col-span-2 md:col-span-1"></div> <!-- Spacer -->
              <div class="col-span-2 md:col-span-1"></div> <!-- Spacer -->
              <div class="col-span-2 md:col-span-1"></div> <!-- Spacer -->
 
@@ -4119,6 +4123,7 @@ function normalizeSelectionRow(row) {
     companyName: row.companyName,
     route: row.route ?? row.source,
     status: resolveSelectionStageValue(row) || row.status, // Pill表示用
+    proposalDate: row.proposalDate ?? row.proposal_date,
     recommendationDate: row.recommendationDate,
     firstInterviewAdjustDate: row.firstInterviewAdjustDate ?? row.firstInterviewSetAt ?? row.interviewSetupDate,
     firstInterviewDate: row.firstInterviewDate ?? row.firstInterviewAt ?? row.interviewDate,
@@ -4160,6 +4165,7 @@ function renderSelectionFlowCard(rawRow) {
 
   // Flow Steps Definition
   const steps = [
+    { label: "提案", date: r.proposalDate, sub: null, keywords: ["提案"] },
     { label: "推薦", date: r.recommendationDate, sub: null, keywords: ["推薦", "書類"] },
     { label: "一次面接", date: r.firstInterviewDate, sub: r.firstInterviewAdjustDate ? `(調) ${formatDateJP(r.firstInterviewAdjustDate)}` : null, keywords: ["一次"] },
     { label: "二次面接", date: r.secondInterviewDate, sub: r.secondInterviewAdjustDate ? `(調) ${formatDateJP(r.secondInterviewAdjustDate)}` : null, keywords: ["二次"] },
@@ -5177,4 +5183,3 @@ if (document.readyState === "loading") {
 
 // Debug Log
 console.log("Candidate Detail Event Handlers Initialized");
-
