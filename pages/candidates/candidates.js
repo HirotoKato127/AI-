@@ -420,6 +420,8 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     companyName: row.companyName ?? row.company_name ?? "",
     feeAmount: row.feeAmount ?? row.fee_amount ?? "",
     refundAmount: row.refundAmount ?? row.refund_amount ?? "",
+    orderDate: row.orderDate ?? row.order_date ?? null,
+    withdrawDate: row.withdrawDate ?? row.withdraw_date ?? null,
     joinDate: row.joinDate ?? row.join_date ?? null,
     preJoinWithdrawDate: row.preJoinWithdrawDate ?? row.pre_join_withdraw_date ?? null,
     postJoinQuitDate: row.postJoinQuitDate ?? row.post_join_quit_date ?? null,
@@ -778,6 +780,18 @@ function syncMoneyInfoFromSelectionProgress(candidate) {
       const refundAmount = normalizeMoneyNumber(row.refundAmount ?? row.refund_amount);
       next.refundAmount = refundAmount;
       next.refund_amount = refundAmount;
+    }
+
+    if (hasOwn(row, "orderDate") || hasOwn(row, "order_date")) {
+      const orderDate = row.orderDate ?? row.order_date ?? null;
+      next.orderDate = orderDate;
+      next.order_date = orderDate;
+    }
+
+    if (hasOwn(row, "withdrawDate") || hasOwn(row, "withdraw_date")) {
+      const withdrawDate = row.withdrawDate ?? row.withdraw_date ?? null;
+      next.withdrawDate = withdrawDate;
+      next.withdraw_date = withdrawDate;
     }
 
     if (hasOwn(row, "orderReported") || hasOwn(row, "order_reported")) {
@@ -4481,6 +4495,25 @@ function renderTeleapoLogsSection(candidate) {
 function renderMoneySection(candidate) {
   const editing = detailEditState.money;
   const progress = candidate.selectionProgress || [];
+  const moneyRows = Array.isArray(candidate.moneyInfo) ? candidate.moneyInfo : [];
+  const moneyMap = new Map();
+  moneyRows.forEach((row = {}) => {
+    const appId = row.applicationId ?? row.application_id;
+    if (appId === null || appId === undefined || appId === "") return;
+    moneyMap.set(String(appId), row);
+  });
+
+  const resolveMoneyValue = (item, keys) => {
+    const appId = item.id ?? item.applicationId ?? item.application_id;
+    const money = moneyMap.get(String(appId)) || {};
+    for (const key of keys) {
+      if (hasOwn(item, key)) return item[key];
+    }
+    for (const key of keys) {
+      if (hasOwn(money, key)) return money[key];
+    }
+    return null;
+  };
 
   // 受注情報の抽出 (内定承諾 or 入社 or 入社後辞退)
   const orderRows = progress
@@ -4501,8 +4534,9 @@ function renderMoneySection(candidate) {
 
   const renderOrderRow = (row) => {
     const idx = row.originalIndex;
-    const feeAmount = row.feeAmount;
-    const orderReported = row.orderReported;
+    const feeAmount = resolveMoneyValue(row, ["feeAmount", "fee_amount"]);
+    const orderDate = resolveMoneyValue(row, ["orderDate", "order_date"]);
+    const orderReported = resolveMoneyValue(row, ["orderReported", "order_reported"]);
 
     // 編集中かつ、まだ確定していない(編集中は常に編集可で良いか)
     const canEdit = editing;
@@ -4516,10 +4550,15 @@ function renderMoneySection(candidate) {
       ? renderTableSelect(buildBooleanOptions(orderReported), `selectionProgress.${idx}.orderReported`, "money", "boolean")
       : renderBooleanPill(orderReported, { trueLabel: "済", falseLabel: "未" });
 
+    const orderDateCell = canEdit
+      ? renderTableInput(orderDate, `selectionProgress.${idx}.orderDate`, "date", "money")
+      : `<span class="detail-value">${escapeHtml(formatDateJP(orderDate))}</span>`;
+
     return `
       <tr>
         <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
         <td>${feeCell}</td>
+        <td>${orderDateCell}</td>
         <td class="text-center">${reportCell}</td>
       </tr>
     `;
@@ -4527,8 +4566,9 @@ function renderMoneySection(candidate) {
 
   const renderRefundRow = (row) => {
     const idx = row.originalIndex;
-    const refundAmount = row.refundAmount;
-    const refundReported = row.refundReported;
+    const refundAmount = resolveMoneyValue(row, ["refundAmount", "refund_amount"]);
+    const withdrawDate = resolveMoneyValue(row, ["withdrawDate", "withdraw_date"]);
+    const refundReported = resolveMoneyValue(row, ["refundReported", "refund_reported"]);
 
     // 退職日等の判定
     const retirementDate = row.earlyTurnoverDate || row.postJoinQuitDate || row.preJoinWithdrawDate;
@@ -4544,10 +4584,15 @@ function renderMoneySection(candidate) {
       ? renderTableSelect(buildBooleanOptions(refundReported), `selectionProgress.${idx}.refundReported`, "money", "boolean")
       : renderBooleanPill(refundReported, { trueLabel: "済", falseLabel: "未" });
 
+    const withdrawDateCell = canEdit
+      ? renderTableInput(withdrawDate, `selectionProgress.${idx}.withdrawDate`, "date", "money")
+      : `<span class="detail-value">${escapeHtml(formatDateJP(withdrawDate))}</span>`;
+
     return `
       <tr>
         <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
         <td>${amountCell}</td>
+        <td>${withdrawDateCell}</td>
         <td><span class="detail-value">${escapeHtml(formatDateJP(retirementDate))}</span></td>
         <td><span class="detail-value">${escapeHtml(stage)}</span></td>
         <td class="text-center">${reportCell}</td>
@@ -4557,11 +4602,11 @@ function renderMoneySection(candidate) {
 
   const orderBody = orderRows.length > 0
     ? orderRows.map(renderOrderRow).join("")
-    : `<tr><td colspan="3" class="detail-empty-row text-center py-3">受注対象の案件はありません。</td></tr>`;
+    : `<tr><td colspan="4" class="detail-empty-row text-center py-3">受注対象の案件はありません。</td></tr>`;
 
   const refundBody = refundRows.length > 0
     ? refundRows.map(renderRefundRow).join("")
-    : `<tr><td colspan="5" class="detail-empty-row text-center py-3">返金・減額対象の案件はありません。</td></tr>`;
+    : `<tr><td colspan="6" class="detail-empty-row text-center py-3">返金・減額対象の案件はありません。</td></tr>`;
 
   const orderTable = `
     <div class="detail-table-wrapper mb-6">
@@ -4569,9 +4614,10 @@ function renderMoneySection(candidate) {
       <table class="detail-table">
         <thead>
           <tr>
-            <th class="w-1/3">企業名</th>
-            <th class="w-1/3">受注金額（税抜）</th>
-            <th class="w-1/3 text-center">受注報告</th>
+            <th class="w-1/4">企業名</th>
+            <th class="w-1/4">受注金額（税抜）</th>
+            <th class="w-1/4">受注日</th>
+            <th class="w-1/4 text-center">受注報告</th>
           </tr>
         </thead>
         <tbody>${orderBody}</tbody>
@@ -4585,8 +4631,9 @@ function renderMoneySection(candidate) {
       <table class="detail-table">
         <thead>
           <tr>
-            <th class="w-1/4">企業名</th>
-            <th class="w-1/4">返金・減額（税抜）</th>
+            <th class="w-1/6">企業名</th>
+            <th class="w-1/6">返金・減額（税抜）</th>
+            <th class="w-1/6">返金日</th>
             <th class="w-1/6">退職/辞退日</th>
             <th class="w-1/6">区分</th>
             <th class="w-1/6 text-center">返金報告</th>
