@@ -22,13 +22,22 @@ const DEFAULT_CALC_MODE = 'cohort';
 const DEFAULT_RATE_CALC_MODE = 'base';
 const RATE_CALC_MODE_STORAGE_KEY = 'yieldRateCalcMode.v1';
 const YIELD_UI_VERSION = '20260211_01';
+const MODE_SCOPE_KEYS = ['personalMonthly', 'personalPeriod', 'companyMonthly', 'companyPeriod', 'companyTerm', 'employee'];
 
 if (typeof window !== 'undefined') {
   window.__yieldVersion = YIELD_UI_VERSION;
 }
 
 async function fetchJson(url, params = {}) {
-  const query = new URLSearchParams(params);
+  const normalizedParams = { ...(params || {}) };
+  const isMsRequest = String(normalizedParams.ms || '') === '1' || normalizedParams.ms === true;
+  if (isMsRequest) {
+    // MS集計は常に発生月計上（event/period）で統一する
+    normalizedParams.calcMode = 'period';
+    normalizedParams.countBasis = 'event';
+    normalizedParams.timeBasis = 'event';
+  }
+  const query = new URLSearchParams(normalizedParams);
   const res = await fetch(`${url}?${query.toString()}`, {
     headers: { Accept: 'application/json' },
     cache: 'no-store'
@@ -216,16 +225,32 @@ function normalizeCalcMode(value) {
   return String(value || '').toLowerCase() === 'cohort' ? 'cohort' : 'period';
 }
 
-function getCalcMode() {
-  return normalizeCalcMode(state?.calcMode || DEFAULT_CALC_MODE);
+function resolveModeScope(scope) {
+  const key = String(scope || '').trim();
+  return key || 'default';
+}
+
+function getCalcMode(scope = 'default') {
+  const key = resolveModeScope(scope);
+  const scoped = key !== 'default' ? state?.calcModes?.[key] : null;
+  return normalizeCalcMode(scoped || state?.calcMode || DEFAULT_CALC_MODE);
+}
+
+function setCalcMode(scope, mode) {
+  const key = resolveModeScope(scope);
+  const normalized = normalizeCalcMode(mode);
+  if (!state.calcModes) state.calcModes = {};
+  state.calcModes[key] = normalized;
+  if (key === 'default') state.calcMode = normalized;
+  return normalized;
 }
 
 function getCalcModeLabel(mode = getCalcMode()) {
   return normalizeCalcMode(mode) === 'cohort' ? '応募月計上' : '発生月計上';
 }
 
-function buildCalcModeParams() {
-  const mode = getCalcMode();
+function buildCalcModeParams(scope = 'default') {
+  const mode = getCalcMode(scope);
   const basis = mode === 'cohort' ? 'application' : 'event';
   return {
     calcMode: mode,
@@ -234,12 +259,36 @@ function buildCalcModeParams() {
   };
 }
 
+function buildMsCalcModeParams() {
+  return {
+    calcMode: 'period',
+    countBasis: 'event',
+    timeBasis: 'event'
+  };
+}
+
 function normalizeRateCalcMode(value) {
   return String(value || '').toLowerCase() === 'step' ? 'step' : 'base';
 }
 
-function getRateCalcMode() {
-  return normalizeRateCalcMode(state?.rateCalcMode || DEFAULT_RATE_CALC_MODE);
+function getRateModeStorageKey(scope = 'default') {
+  const key = resolveModeScope(scope);
+  return `${RATE_CALC_MODE_STORAGE_KEY}.${key}`;
+}
+
+function getRateCalcMode(scope = 'default') {
+  const key = resolveModeScope(scope);
+  const scoped = key !== 'default' ? state?.rateCalcModes?.[key] : null;
+  return normalizeRateCalcMode(scoped || state?.rateCalcMode || DEFAULT_RATE_CALC_MODE);
+}
+
+function setRateCalcMode(scope, mode) {
+  const key = resolveModeScope(scope);
+  const normalized = normalizeRateCalcMode(mode);
+  if (!state.rateCalcModes) state.rateCalcModes = {};
+  state.rateCalcModes[key] = normalized;
+  if (key === 'default') state.rateCalcMode = normalized;
+  return normalized;
 }
 
 function getRateCalcModeLabel(mode = getRateCalcMode()) {
@@ -404,7 +453,7 @@ async function resolveUserDepartmentKey() {
 }
 
 
-async function fetchPersonalKpiFromApi({ startDate, endDate, planned = false }) {
+async function fetchPersonalKpiFromApi({ startDate, endDate, planned = false, calcModeScope = 'personalMonthly' }) {
   const advisorUserId = await resolveAdvisorUserId();
   console.log('[yield] fetch personal kpi', { startDate, endDate, advisorUserId, planned });
   const params = {
@@ -414,7 +463,7 @@ async function fetchPersonalKpiFromApi({ startDate, endDate, planned = false }) 
     advisorUserId,
     granularity: 'summary',
     groupBy: 'none',
-    ...buildCalcModeParams()
+    ...buildCalcModeParams(calcModeScope)
   };
   if (planned) params.planned = '1';
   const json = await fetchJson(`${KPI_API_BASE}${KPI_YIELD_PATH}`, params);
@@ -437,14 +486,14 @@ async function fetchPersonalKpiFromApi({ startDate, endDate, planned = false }) 
   return kpi;
 }
 
-async function fetchCompanyKpiFromApi({ startDate, endDate, msMode = false }) {
+async function fetchCompanyKpiFromApi({ startDate, endDate, msMode = false, calcModeScope = 'companyMonthly' }) {
   const params = {
     from: startDate,
     to: endDate,
     scope: 'company',
     granularity: 'summary',
     groupBy: 'none',
-    ...buildCalcModeParams()
+    ...(msMode ? buildMsCalcModeParams() : buildCalcModeParams(calcModeScope))
   };
   if (msMode) {
     params.ms = '1';
@@ -471,14 +520,14 @@ async function fetchCompanyKpiFromApi({ startDate, endDate, msMode = false }) {
 
 const dailyYieldCache = new Map();
 
-async function fetchDailyYieldFromApi({ startDate, endDate, advisorUserId, msMode = false }) {
+async function fetchDailyYieldFromApi({ startDate, endDate, advisorUserId, msMode = false, calcModeScope = 'employee' }) {
   const params = {
     from: startDate,
     to: endDate,
     scope: 'company',
     granularity: 'day',
     groupBy: 'advisor',
-    ...buildCalcModeParams()
+    ...(msMode ? buildMsCalcModeParams() : buildCalcModeParams(calcModeScope))
   };
   if (msMode) {
     params.ms = '1';
@@ -501,13 +550,13 @@ async function fetchDailyYieldFromApi({ startDate, endDate, advisorUserId, msMod
   };
 }
 
-async function fetchYieldTrendFromApi({ startDate, endDate, scope, advisorUserId, granularity = 'month' }) {
+async function fetchYieldTrendFromApi({ startDate, endDate, scope, advisorUserId, granularity = 'month', calcModeScope = 'companyMonthly' }) {
   const params = {
     from: startDate,
     to: endDate,
     scope,
     granularity,
-    ...buildCalcModeParams()
+    ...buildCalcModeParams(calcModeScope)
   };
   if (Number.isFinite(advisorUserId) && advisorUserId > 0) {
     params.advisorUserId = advisorUserId;
@@ -520,13 +569,13 @@ async function fetchYieldTrendFromApi({ startDate, endDate, scope, advisorUserId
   };
 }
 
-async function fetchYieldBreakdownFromApi({ startDate, endDate, scope, advisorUserId, dimension }) {
+async function fetchYieldBreakdownFromApi({ startDate, endDate, scope, advisorUserId, dimension, calcModeScope = 'companyMonthly' }) {
   const params = {
     from: startDate,
     to: endDate,
     scope,
     dimension,
-    ...buildCalcModeParams()
+    ...buildCalcModeParams(calcModeScope)
   };
   if (Number.isFinite(advisorUserId) && advisorUserId > 0) {
     params.advisorUserId = advisorUserId;
@@ -614,20 +663,20 @@ async function fetchMarketingValidApplicationsDaily({ startDate, endDate }) {
   }
 }
 
-async function fetchCompanyEmployeeKpis({ startDate, endDate }) {
+async function fetchCompanyEmployeeKpis({ startDate, endDate, calcModeScope = 'employee' }) {
   const json = await fetchJson(`${KPI_API_BASE}${KPI_YIELD_PATH}`, {
     from: startDate,
     to: endDate,
     scope: 'company',
     granularity: 'summary',
     groupBy: 'advisor',
-    ...buildCalcModeParams()
+    ...buildCalcModeParams(calcModeScope)
   });
   const items = Array.isArray(json?.items) ? json.items : [];
   return mergeMembersWithKpiItems(items);
 }
 
-async function fetchCompanyEmployeePlannedKpis({ baseDate }) {
+async function fetchCompanyEmployeePlannedKpis({ baseDate, calcModeScope = 'employee' }) {
   const date = baseDate || isoDate(new Date());
   const json = await fetchJson(`${KPI_API_BASE}${KPI_YIELD_PATH}`, {
     from: date,
@@ -636,17 +685,17 @@ async function fetchCompanyEmployeePlannedKpis({ baseDate }) {
     granularity: 'summary',
     groupBy: 'advisor',
     planned: '1',
-    ...buildCalcModeParams()
+    ...buildCalcModeParams(calcModeScope)
   });
   const items = Array.isArray(json?.items) ? json.items : [];
   return mergeMembersWithKpiItems(items);
 }
 
-function mapEmployeeKpiItems(items) {
+function mapEmployeeKpiItems(items, { rateModeScope = 'employee' } = {}) {
   return (Array.isArray(items) ? items : []).map(item => ({
     advisorUserId: item?.advisorUserId,
     name: item?.name || `ID:${item?.advisorUserId}`,
-    ...normalizeKpi(item?.kpi || {})
+    ...normalizeKpi(item?.kpi || {}, { rateModeScope })
   }));
 }
 
@@ -701,20 +750,25 @@ function ensureCompanyDailyEmployeeId() {
   }
 }
 
-async function ensureDailyYieldData(periodId, { msMode = false } = {}) {
+async function ensureDailyYieldData(periodId, { msMode = false, calcModeScope = 'employee', rangeOverride = null } = {}) {
   if (!periodId) return null;
   const period = state.evaluationPeriods.find(item => item.id === periodId);
   if (!period) return null;
+  const rangeStartDate = rangeOverride?.startDate || period.startDate;
+  const rangeEndDate = rangeOverride?.endDate || period.endDate;
+  if (!rangeStartDate || !rangeEndDate) return null;
   const advisorUserId = await resolveAdvisorUserId();
-  const cacheKey = `${periodId}:${advisorUserId || 'none'}:${getCalcMode()}:${msMode ? 'ms' : 'default'}`;
+  const effectiveCalcMode = msMode ? 'period' : getCalcMode(calcModeScope);
+  const cacheKey = `${periodId}:${rangeStartDate}:${rangeEndDate}:${advisorUserId || 'none'}:${effectiveCalcMode}:${msMode ? 'ms' : 'default'}`;
   if (dailyYieldCache.has(cacheKey)) return dailyYieldCache.get(cacheKey);
   try {
     // 営業向けのKPIデータを取得
     const payload = await fetchDailyYieldFromApi({
-      startDate: period.startDate,
-      endDate: period.endDate,
+      startDate: rangeStartDate,
+      endDate: rangeEndDate,
       advisorUserId,
-      msMode
+      msMode,
+      calcModeScope
     });
     dailyYieldCache.set(cacheKey, payload);
     applyDailyYieldResponse(periodId, payload);
@@ -726,8 +780,8 @@ async function ensureDailyYieldData(periodId, { msMode = false } = {}) {
     if (deptKey === 'cs') {
       // CS: teleapoデータを取得してマージ
       const csData = await fetchCsTeleapoDaily({
-        startDate: period.startDate,
-        endDate: period.endDate,
+        startDate: rangeStartDate,
+        endDate: rangeEndDate,
         callerUserId: advisorUserId
       });
       if (csData && Object.keys(csData).length > 0) {
@@ -744,8 +798,8 @@ async function ensureDailyYieldData(periodId, { msMode = false } = {}) {
     } else if (deptKey === 'marketing') {
       // Marketing: 有効応募数データを取得してマージ
       const marketingData = await fetchMarketingValidApplicationsDaily({
-        startDate: period.startDate,
-        endDate: period.endDate
+        startDate: rangeStartDate,
+        endDate: rangeEndDate
       });
       if (marketingData && Object.keys(marketingData).length > 0) {
         const existingData = state.personalDailyData[periodId] || {};
@@ -1229,8 +1283,8 @@ const GOAL_CONFIG = {
   }
 };
 
-function getRateDetailPipeline() {
-  return getRateCalcMode() === 'step' ? RATE_DETAIL_PIPELINE_STEP : RATE_DETAIL_PIPELINE_BASE;
+function getRateDetailPipeline(scope = 'default') {
+  return getRateCalcMode(scope) === 'step' ? RATE_DETAIL_PIPELINE_STEP : RATE_DETAIL_PIPELINE_BASE;
 }
 
 const COHORT_NUMERATOR_MAP = {
@@ -1302,6 +1356,14 @@ const state = {
   loadSeq: 0,
   calcMode: DEFAULT_CALC_MODE,
   rateCalcMode: DEFAULT_RATE_CALC_MODE,
+  calcModes: MODE_SCOPE_KEYS.reduce((acc, key) => {
+    acc[key] = DEFAULT_CALC_MODE;
+    return acc;
+  }, {}),
+  rateCalcModes: MODE_SCOPE_KEYS.reduce((acc, key) => {
+    acc[key] = DEFAULT_RATE_CALC_MODE;
+    return acc;
+  }, {}),
   kpiTargets: {}, // New field
   kpi: {
     today: {},
@@ -1598,89 +1660,176 @@ function toggleEmployeeSections(shouldShow) {
 function initializeCalcModeControls() {
   const selects = Array.from(document.querySelectorAll('[data-calc-mode-select]'));
   if (!selects.length) return;
-  const initial = normalizeCalcMode(selects[0].value || state.calcMode || DEFAULT_CALC_MODE);
-  state.calcMode = initial;
+  const byScope = new Map();
   selects.forEach(select => {
-    select.value = initial;
+    const scope = resolveModeScope(select.dataset.calcModeScope);
+    if (!byScope.has(scope)) byScope.set(scope, []);
+    byScope.get(scope).push(select);
+  });
+  byScope.forEach((group, scope) => {
+    const initial = normalizeCalcMode(group[0]?.value || getCalcMode(scope) || DEFAULT_CALC_MODE);
+    setCalcMode(scope, initial);
+    group.forEach(select => {
+      select.value = initial;
+    });
   });
   selects.forEach(select => {
     select.addEventListener('change', () => {
+      const scope = resolveModeScope(select.dataset.calcModeScope);
       const next = normalizeCalcMode(select.value);
-      if (next === state.calcMode) return;
-      state.calcMode = next;
-      dailyYieldCache.clear();
-      state.personalDailyData = {};
-      state.companyDailyData = {};
+      if (next === getCalcMode(scope)) return;
+      setCalcMode(scope, next);
       selects.forEach(other => {
-        if (other !== select) other.value = next;
+        if (other === select) return;
+        if (resolveModeScope(other.dataset.calcModeScope) === scope) other.value = next;
       });
-      loadYieldData();
-      reloadDashboardData('personal');
-      reloadDashboardData('company');
+      void refreshDataByModeScope(scope, { calcChanged: true });
     });
   });
 }
 
 function updateRateModeLabels() {
-  const mode = getRateCalcMode();
-  const label = getRateCalcModeLabel(mode);
   document.querySelectorAll('[data-rate-calc-mode-select]').forEach(el => {
-    el.value = mode;
+    const scope = resolveModeScope(el.dataset.rateModeScope);
+    el.value = getRateCalcMode(scope);
   });
   document.querySelectorAll('[data-rate-mode-label]').forEach(el => {
-    el.textContent = label;
+    const scope = resolveModeScope(el.dataset.rateModeScope);
+    el.textContent = getRateCalcModeLabel(getRateCalcMode(scope));
   });
   document.querySelectorAll('[data-rate-mode-toggle]').forEach(button => {
-    button.setAttribute('aria-pressed', mode === 'step' ? 'true' : 'false');
+    const scope = resolveModeScope(button.dataset.rateModeScope);
+    button.setAttribute('aria-pressed', getRateCalcMode(scope) === 'step' ? 'true' : 'false');
   });
 }
 
-function applyRateMode(nextMode, { syncSelects = true } = {}) {
+function applyRateMode(nextMode, { scope = 'default', syncSelects = true } = {}) {
+  const scopeKey = resolveModeScope(scope);
   const next = normalizeRateCalcMode(nextMode);
-  if (next === state.rateCalcMode) return;
-  state.rateCalcMode = next;
+  if (next === getRateCalcMode(scopeKey)) return;
+  setRateCalcMode(scopeKey, next);
   try {
-    localStorage.setItem(RATE_CALC_MODE_STORAGE_KEY, next);
+    localStorage.setItem(getRateModeStorageKey(scopeKey), next);
   } catch (error) {
     console.warn('[yield] failed to persist rate calc mode', error);
   }
   if (syncSelects) {
     document.querySelectorAll('[data-rate-calc-mode-select]').forEach(select => {
-      select.value = next;
+      if (resolveModeScope(select.dataset.rateModeScope) === scopeKey) {
+        select.value = next;
+      }
     });
   }
   updateRateModeLabels();
-  loadYieldData();
-  reloadDashboardData('personal');
-  reloadDashboardData('company');
+  void refreshDataByModeScope(scopeKey, { calcChanged: false });
+}
+
+async function refreshDataByModeScope(scope, { calcChanged = true } = {}) {
+  const scopeKey = resolveModeScope(scope);
+  try {
+    if (scopeKey === 'personalMonthly') {
+      if (calcChanged) {
+        const summaryData = await loadPersonalSummaryKPIData();
+        if (summaryData?.monthly) {
+          renderPersonalMonthlySection(summaryData.monthly);
+          return;
+        }
+      }
+      renderPersonalMonthlySection(state.kpi.monthly || {});
+      return;
+    }
+
+    if (scopeKey === 'personalPeriod') {
+      if (calcChanged) {
+        const periodData = await loadPersonalKPIData();
+        if (periodData?.period) {
+          renderPersonalPeriodSection(periodData.period);
+          return;
+        }
+      }
+      renderPersonalPeriodSection(state.kpi.personalPeriod || {});
+      return;
+    }
+
+    if (scopeKey === 'companyMonthly') {
+      if (calcChanged) {
+        const data = await loadCompanyKPIData();
+        if (data) {
+          renderCompanyMonthly(data);
+          return;
+        }
+      }
+      renderCompanyMonthly(state.kpi.companyMonthly || {});
+      return;
+    }
+
+    if (scopeKey === 'companyPeriod') {
+      if (calcChanged) {
+        const data = await loadCompanyPeriodKPIData();
+        if (data) return;
+      }
+      renderCompanyPeriod(state.kpi.companyPeriod || {});
+      return;
+    }
+
+    if (scopeKey === 'companyTerm') {
+      await loadCompanyTermEmployeeKpi();
+      renderCompanyTermTables();
+      return;
+    }
+
+    if (scopeKey === 'employee') {
+      await loadEmployeeData(state.ranges.employee.startDate ? state.ranges.employee : {});
+      return;
+    }
+
+    loadYieldData();
+  } catch (error) {
+    console.error('[yield] failed to refresh scoped mode data:', { scope: scopeKey, error });
+  }
 }
 
 function initializeRateModeControls() {
   const selects = Array.from(document.querySelectorAll('[data-rate-calc-mode-select]'));
   const toggles = Array.from(document.querySelectorAll('[data-rate-mode-toggle]'));
   if (!selects.length && !toggles.length) return;
-  let stored = null;
-  try {
-    stored = localStorage.getItem(RATE_CALC_MODE_STORAGE_KEY);
-  } catch (error) {
-    console.warn('[yield] rate calc mode storage unavailable', error);
-  }
-  state.rateCalcMode = normalizeRateCalcMode(stored || state.rateCalcMode || DEFAULT_RATE_CALC_MODE);
+
+  const scopes = new Set([
+    ...selects.map(select => resolveModeScope(select.dataset.rateModeScope)),
+    ...toggles.map(button => resolveModeScope(button.dataset.rateModeScope))
+  ]);
+  scopes.forEach(scope => {
+    let stored = null;
+    try {
+      stored = localStorage.getItem(getRateModeStorageKey(scope));
+      if (!stored && scope === 'default') {
+        stored = localStorage.getItem(RATE_CALC_MODE_STORAGE_KEY);
+      }
+    } catch (error) {
+      console.warn('[yield] rate calc mode storage unavailable', error);
+    }
+    const fromSelect = selects.find(select => resolveModeScope(select.dataset.rateModeScope) === scope)?.value;
+    setRateCalcMode(scope, stored || fromSelect || getRateCalcMode(scope) || DEFAULT_RATE_CALC_MODE);
+  });
   updateRateModeLabels();
   selects.forEach(select => {
     select.addEventListener('change', (e) => {
-      applyRateMode(e.target.value, { syncSelects: false });
+      const scope = resolveModeScope(select.dataset.rateModeScope);
+      applyRateMode(e.target.value, { scope, syncSelects: false });
       // Update other selects
       selects.forEach(other => {
-        if (other !== select) other.value = state.rateCalcMode;
+        if (other !== select && resolveModeScope(other.dataset.rateModeScope) === scope) {
+          other.value = getRateCalcMode(scope);
+        }
       });
     });
   });
   toggles.forEach(button => {
     if (button.dataset.bound) return;
     button.addEventListener('click', () => {
-      const next = state.rateCalcMode === 'step' ? 'base' : 'step';
-      applyRateMode(next);
+      const scope = resolveModeScope(button.dataset.rateModeScope);
+      const next = getRateCalcMode(scope) === 'step' ? 'base' : 'step';
+      applyRateMode(next, { scope });
     });
     button.dataset.bound = 'true';
   });
@@ -2084,8 +2233,18 @@ function renderRates(section, data) {
 function renderRateDetails(section, data) {
   const cardIds = RATE_CARD_IDS[section];
   if (!cardIds) return;
-  const isCohort = getCalcMode() === 'cohort';
-  const pipeline = getRateDetailPipeline();
+  const modeScopeBySection = {
+    personalMonthly: 'personalMonthly',
+    personalPeriod: 'personalPeriod',
+    companyMonthly: 'companyMonthly',
+    companyPeriod: 'companyPeriod',
+    companyTerm: 'companyTerm',
+    employee: 'employee'
+  };
+  const scope = modeScopeBySection[section] || 'default';
+  const isCohort = getCalcMode(scope) === 'cohort';
+  const pipeline = getRateDetailPipeline(scope);
+  const modeLabel = getCalcModeLabel(getCalcMode(scope));
   cardIds.forEach((cardId, index) => {
     const detail = pipeline[index];
     if (!detail) return;
@@ -2095,7 +2254,7 @@ function renderRateDetails(section, data) {
       isCohort && numeratorKey && data && data[numeratorKey] !== undefined
         ? data[numeratorKey]
         : data?.[detail.keyA];
-    writeRateDetailInline(card, detail.labelA, numeratorValue, detail.labelB, data?.[detail.keyB]);
+    writeRateDetailInline(card, detail.labelA, numeratorValue, detail.labelB, data?.[detail.keyB], modeLabel);
   });
 }
 
@@ -2142,31 +2301,38 @@ function renderPersonalSummary(rangeData, monthOverride) {
 
 function renderPersonalKpis(todayData, summaryData, periodData) {
   const today = normalizeTodayKpi(todayData);
-  const monthly = normalizeKpi(summaryData?.monthly || summaryData?.period || summaryData || {});
-  const period = normalizeKpi(periodData?.period || periodData || {});
+  const monthly = summaryData?.monthly || summaryData?.period || summaryData || {};
+  const period = periodData?.period || periodData || {};
 
   state.kpi.today = today;
-  state.kpi.monthly = monthly;
-  state.kpi.personalPeriod = period;
 
   initGoalInputs('monthly');
   renderGoalValues('monthly');
 
   renderCounts('today', today);
+  renderPersonalMonthlySection(monthly);
+  renderPersonalPeriodSection(period);
+}
 
+function renderPersonalMonthlySection(data) {
+  const monthly = normalizeKpi(data || {}, { rateModeScope: 'personalMonthly' });
+  state.kpi.monthly = monthly;
   renderCounts('personalMonthly', monthly);
   renderRates('personalMonthly', monthly);
   renderRateDetails('personalMonthly', monthly);
   renderGoalProgress('monthly', monthly);
   renderDeltaBadges('personalMonthly', monthly, {}, { includeRates: true });
-
-  renderCounts('personalPeriod', period);
-  renderRates('personalPeriod', period);
-  renderRateDetails('personalPeriod', period);
-
   renderPersonalSummary(monthly, monthly);
   updatePersonalPeriodLabels();
   syncEvaluationPeriodLabels();
+}
+
+function renderPersonalPeriodSection(data) {
+  const period = normalizeKpi(data || {}, { rateModeScope: 'personalPeriod' });
+  state.kpi.personalPeriod = period;
+  renderCounts('personalPeriod', period);
+  renderRates('personalPeriod', period);
+  renderRateDetails('personalPeriod', period);
 }
 
 
@@ -2174,7 +2340,7 @@ function renderCompanyMonthly(data) {
   const titleEl = document.getElementById('companySummaryTitle');
   if (titleEl) titleEl.textContent = getCompanySummaryTitleText();
 
-  state.kpi.companyMonthly = normalizeKpi(data || {});
+  state.kpi.companyMonthly = normalizeKpi(data || {}, { rateModeScope: 'companyMonthly' });
   renderCounts('companyMonthly', state.kpi.companyMonthly);
   renderRates('companyMonthly', state.kpi.companyMonthly);
   renderRateDetails('companyMonthly', state.kpi.companyMonthly);
@@ -2184,7 +2350,7 @@ function renderCompanyMonthly(data) {
 }
 
 function renderCompanyPeriod(data) {
-  state.kpi.companyPeriod = normalizeKpi(data || {});
+  state.kpi.companyPeriod = normalizeKpi(data || {}, { rateModeScope: 'companyPeriod' });
   renderCounts('companyPeriod', state.kpi.companyPeriod);
   renderRates('companyPeriod', state.kpi.companyPeriod);
   renderRateDetails('companyPeriod', state.kpi.companyPeriod);
@@ -2424,7 +2590,7 @@ async function loadPersonalKPIData() {
     const startDate = state.ranges.personalPeriod.startDate || fallbackRange.startDate;
     const endDate = state.ranges.personalPeriod.endDate || fallbackRange.endDate;
     if (!startDate || !endDate) return null;
-    const kpi = await fetchPersonalKpiFromApi({ startDate, endDate });
+    const kpi = await fetchPersonalKpiFromApi({ startDate, endDate, calcModeScope: 'personalPeriod' });
     if (kpi) return { period: kpi };
   } catch (error) {
     console.error('Failed to load personal KPI data (api):', error);
@@ -2449,7 +2615,7 @@ async function loadPersonalSummaryKPIData() {
     const startDate = period?.startDate;
     const endDate = period?.endDate;
     if (!startDate || !endDate) return null;
-    const kpi = await fetchPersonalKpiFromApi({ startDate, endDate });
+    const kpi = await fetchPersonalKpiFromApi({ startDate, endDate, calcModeScope: 'personalMonthly' });
     if (kpi) return { monthly: kpi };
   } catch (error) {
     console.log('Failed to load personal summary KPI data (api):', error);
@@ -2475,7 +2641,7 @@ async function loadPersonalSummaryKPIData() {
 async function loadTodayPersonalKPIData() {
   try {
     const todayStr = isoDate(new Date());
-    const kpi = await fetchPersonalKpiFromApi({ startDate: todayStr, endDate: todayStr, planned: true });
+    const kpi = await fetchPersonalKpiFromApi({ startDate: todayStr, endDate: todayStr, planned: true, calcModeScope: 'personalMonthly' });
     if (kpi) return { today: kpi };
   } catch (error) {
     console.log('Failed to load today personal KPI data (api):', error);
@@ -2516,7 +2682,7 @@ async function loadCompanyKPIData() {
   try {
     const range = getCompanySummaryRange();
     if (!range.startDate || !range.endDate) return null;
-    const kpi = await fetchCompanyKpiFromApi({ startDate: range.startDate, endDate: range.endDate });
+    const kpi = await fetchCompanyKpiFromApi({ startDate: range.startDate, endDate: range.endDate, calcModeScope: 'companyMonthly' });
     if (kpi) return kpi;
   } catch (error) {
     console.log('Failed to load company KPI data (api):', error);
@@ -2542,7 +2708,7 @@ async function loadCompanyPeriodKPIData() {
     const endDate = state.ranges.companyPeriod.endDate;
     if (!startDate || !endDate) return null;
 
-    const kpi = await fetchCompanyKpiFromApi({ startDate, endDate });
+    const kpi = await fetchCompanyKpiFromApi({ startDate, endDate, calcModeScope: 'companyPeriod' });
     if (kpi) {
       renderCompanyPeriod(kpi);
       return kpi;
@@ -2570,8 +2736,8 @@ async function loadCompanyPeriodKPIData() {
 async function loadCompanyTodayEmployeeKpi() {
   const todayStr = isoDate(new Date());
   const todayPeriodId = goalSettingsService.resolvePeriodIdByDate(todayStr, state.evaluationPeriods);
-  const items = await fetchCompanyEmployeeKpis({ startDate: todayStr, endDate: todayStr });
-  const rows = mapEmployeeKpiItems(items);
+  const items = await fetchCompanyEmployeeKpis({ startDate: todayStr, endDate: todayStr, calcModeScope: 'employee' });
+  const rows = mapEmployeeKpiItems(items, { rateModeScope: 'employee' });
   const advisorIds = rows
     .map(row => row.advisorUserId)
     .filter(id => Number.isFinite(id) && id > 0);
@@ -2612,8 +2778,8 @@ async function loadCompanyTermEmployeeKpi() {
     return [];
   }
 
-  const items = await fetchCompanyEmployeeKpis({ startDate: period.startDate, endDate: period.endDate });
-  const rows = mapEmployeeKpiItems(items);
+  const items = await fetchCompanyEmployeeKpis({ startDate: period.startDate, endDate: period.endDate, calcModeScope: 'companyTerm' });
+  const rows = mapEmployeeKpiItems(items, { rateModeScope: 'companyTerm' });
   const members = await ensureMembersList();
   const advisorIdSet = new Set(
     members
@@ -2695,7 +2861,7 @@ async function loadAndRenderPersonalDaily() {
       const start = new Date(year, month - 1, 1);
       const end = new Date(year, month, 0);
       try {
-        const data = await fetchPersonalKpiFromApi({ startDate: isoDate(start), endDate: isoDate(end) });
+        const data = await fetchPersonalKpiFromApi({ startDate: isoDate(start), endDate: isoDate(end), calcModeScope: 'personalPeriod' });
         monthlyDataMap[monthStr] = data || {};
       } catch (err) {
         console.error(`Failed to load month data for ${monthStr}`, err);
@@ -2718,7 +2884,7 @@ async function loadAndRenderPersonalDaily() {
     if (!period) return;
 
     await Promise.all([
-      ensureDailyYieldData(periodId),
+      ensureDailyYieldData(periodId, { calcModeScope: 'personalPeriod' }),
       goalSettingsService.loadPersonalDailyTargets(periodId, advisorName)
     ]);
     const deptKey = await resolveUserDepartmentKey();
@@ -2815,7 +2981,7 @@ async function renderPersonalTableRates(startDate, endDate) {
   if (!panel) return;
 
   try {
-    const kpi = await fetchPersonalKpiFromApi({ startDate, endDate });
+    const kpi = await fetchPersonalKpiFromApi({ startDate, endDate, calcModeScope: 'personalPeriod' });
     if (!kpi) {
       panel.innerHTML = '';
       return;
@@ -3395,7 +3561,7 @@ async function loadAndRenderCompanyDaily() {
   const periodId = state.companyDailyPeriodId;
   if (!periodId) return;
 
-  await ensureDailyYieldData(periodId);
+  await ensureDailyYieldData(periodId, { calcModeScope: 'employee' });
   renderCompanyDailyEmployeeOptions();
   ensureCompanyDailyEmployeeId();
 
@@ -4760,7 +4926,10 @@ async function loadAndRenderCompanyMs() {
 
   let payload;
   try {
-    payload = await ensureDailyYieldData(periodId, { msMode: true });
+    payload = await ensureDailyYieldData(periodId, {
+      msMode: true,
+      rangeOverride: msOverallRange
+    });
   } catch (error) {
     console.warn('[yield] failed to load daily yield data for MS', error);
     renderCompanyMsTable();
@@ -4782,12 +4951,9 @@ async function loadAndRenderCompanyMs() {
   const dailyTotalsFromPayload = payload?.employees?.length
     ? buildCompanyMsDailyTotalsFromEmployees(payload.employees, allEmployeeIds)
     : {};
-  const fallbackIds = allEmployeeIds.length
-    ? allEmployeeIds
-    : getCompanyDailyEmployees().map(emp => String(emp?.id ?? '')).filter(id => id);
-  const dailyTotals = Object.keys(dailyTotalsFromPayload).length
-    ? dailyTotalsFromPayload
-    : buildCompanyMsDailyTotals(periodId, fallbackIds);
+  // MS表示は、MS専用で取得した payload のみを実績ソースにする。
+  // 通常の日別データ（非MS）へフォールバックすると、集計基準が混在して見えるため禁止。
+  const dailyTotals = dailyTotalsFromPayload;
   await goalSettingsService.loadCompanyPeriodTarget(periodId);
   const companyTarget = goalSettingsService.getCompanyPeriodTarget(periodId) || {};
   if (typeof goalSettingsService.loadPersonalPeriodTargetsBulk === 'function') {
@@ -4799,7 +4965,8 @@ async function loadAndRenderCompanyMs() {
       const revenueKpi = await fetchCompanyKpiFromApi({
         startDate: ranges.revenueRange.startDate,
         endDate: ranges.revenueRange.endDate,
-        msMode: true
+        msMode: true,
+        calcModeScope: 'companyMonthly'
       });
       revenueActual = normalizeCounts(revenueKpi || {}).revenue;
     } catch (error) {
@@ -4856,12 +5023,12 @@ async function loadEmployeeData(rangeFilters = {}) {
 
     const todayStr = isoDate(new Date());
     const [items, plannedItems, members] = await Promise.all([
-      fetchCompanyEmployeeKpis({ startDate: range.startDate, endDate: range.endDate }),
-      fetchCompanyEmployeePlannedKpis({ baseDate: todayStr }),
+      fetchCompanyEmployeeKpis({ startDate: range.startDate, endDate: range.endDate, calcModeScope: 'employee' }),
+      fetchCompanyEmployeePlannedKpis({ baseDate: todayStr, calcModeScope: 'employee' }),
       ensureMembersList()
     ]);
-    const rows = mapEmployeeKpiItems(items);
-    const plannedRows = mapEmployeeKpiItems(plannedItems);
+    const rows = mapEmployeeKpiItems(items, { rateModeScope: 'employee' });
+    const plannedRows = mapEmployeeKpiItems(plannedItems, { rateModeScope: 'employee' });
     const plannedMap = new Map(
       plannedRows.map(row => [String(row?.advisorUserId ?? ''), row])
     );
@@ -4927,7 +5094,7 @@ function calcRate(numerator, denominator) {
   return Math.round((num(numerator) / denom) * 100);
 }
 
-function computeRateValues(counts = {}, mode = getRateCalcMode()) {
+function computeRateValues(counts = {}, mode = getRateCalcMode('default')) {
   const normalizedMode = normalizeRateCalcMode(mode);
   return RATE_CALC_STEPS.reduce((acc, step) => {
     const denomKey = normalizedMode === 'step' ? step.stepDenom : 'newInterviews';
@@ -4949,7 +5116,7 @@ function buildPrevCounts(prev = {}) {
   };
 }
 
-function computePrevRateValues(prevCounts = {}, mode = getRateCalcMode()) {
+function computePrevRateValues(prevCounts = {}, mode = getRateCalcMode('default')) {
   const rates = computeRateValues(prevCounts, mode);
   return {
     prevProposalRate: rates.proposalRate,
@@ -4993,11 +5160,12 @@ function normalizePrev(src = {}) {
   };
 }
 
-function normalizeKpi(src = {}) {
+function normalizeKpi(src = {}, { rateModeScope = 'default' } = {}) {
   const counts = normalizeCounts(src);
   const prev = normalizePrev(src);
-  const computedRates = computeRateValues(counts, getRateCalcMode());
-  const computedPrevRates = computePrevRateValues(buildPrevCounts(prev), getRateCalcMode());
+  const rateMode = getRateCalcMode(rateModeScope);
+  const computedRates = computeRateValues(counts, rateMode);
+  const computedPrevRates = computePrevRateValues(buildPrevCounts(prev), rateMode);
   return {
     ...counts,
     ...normalizeRates(src),
@@ -5257,7 +5425,7 @@ function setCardAchievementProgress(achvElement, percentValue) {
   card.style.setProperty('--achv-progress', `${normalized}%`);
 }
 
-function writeRateDetailInline(cardEl, labelA, valA, labelB, valB) {
+function writeRateDetailInline(cardEl, labelA, valA, labelB, valB, modeLabel = '') {
   if (!cardEl) return;
   let subtext = cardEl.querySelector('.kpi-v2-subtext');
   if (!subtext) {
@@ -5275,7 +5443,6 @@ function writeRateDetailInline(cardEl, labelA, valA, labelB, valB) {
       }
     }
   }
-  const modeLabel = getCalcModeLabel();
   const prefix = modeLabel ? `${modeLabel} ` : '';
   subtext.textContent = `${prefix}${labelA} ${num(valA)} / ${labelB} ${num(valB)}`;
 }
@@ -5599,6 +5766,7 @@ async function reloadDashboardData(scope) {
   const range = getDashboardRange(scope);
   const advisorUserId = scope === 'personal' ? await resolveAdvisorUserId() : null;
   const granularity = getDashboardTrendGranularity(scope);
+  const calcModeScope = scope === 'personal' ? 'personalMonthly' : 'companyMonthly';
   try {
     const [trend, job, gender, age, media] = await Promise.all([
       fetchYieldTrendFromApi({
@@ -5606,35 +5774,40 @@ async function reloadDashboardData(scope) {
         endDate: range.endDate,
         scope,
         advisorUserId,
-        granularity
+        granularity,
+        calcModeScope
       }),
       fetchYieldBreakdownFromApi({
         startDate: range.startDate,
         endDate: range.endDate,
         scope,
         advisorUserId,
-        dimension: 'job'
+        dimension: 'job',
+        calcModeScope
       }),
       fetchYieldBreakdownFromApi({
         startDate: range.startDate,
         endDate: range.endDate,
         scope,
         advisorUserId,
-        dimension: 'gender'
+        dimension: 'gender',
+        calcModeScope
       }),
       fetchYieldBreakdownFromApi({
         startDate: range.startDate,
         endDate: range.endDate,
         scope,
         advisorUserId,
-        dimension: 'age'
+        dimension: 'age',
+        calcModeScope
       }),
       scope === 'company'
         ? fetchYieldBreakdownFromApi({
           startDate: range.startDate,
           endDate: range.endDate,
           scope,
-          dimension: 'media'
+          dimension: 'media',
+          calcModeScope
         })
         : Promise.resolve(null)
     ]);
