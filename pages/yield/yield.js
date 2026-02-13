@@ -699,7 +699,7 @@ function mapEmployeeKpiItems(items, { rateModeScope = 'employee' } = {}) {
   }));
 }
 
-function applyDailyYieldResponse(periodId, payload) {
+function applyDailyYieldResponse(periodId, payload, { msMode = false } = {}) {
   if (!periodId || !payload) return;
   const personalDaily =
     payload?.personal?.daily ||
@@ -731,8 +731,9 @@ function applyDailyYieldResponse(periodId, payload) {
   employees.forEach(emp => {
     const id = String(emp?.advisorUserId ?? emp?.id ?? '');
     if (!id) return;
-    if (!state.companyDailyData[id]) state.companyDailyData[id] = {};
-    state.companyDailyData[id][periodId] = emp?.daily || emp?.dailyData || {};
+    const targetStore = msMode ? state.companyDailyDataMs : state.companyDailyData;
+    if (!targetStore[id]) targetStore[id] = {};
+    targetStore[id][periodId] = emp?.daily || emp?.dailyData || {};
   });
 }
 
@@ -771,7 +772,7 @@ async function ensureDailyYieldData(periodId, { msMode = false, calcModeScope = 
       calcModeScope
     });
     dailyYieldCache.set(cacheKey, payload);
-    applyDailyYieldResponse(periodId, payload);
+    applyDailyYieldResponse(periodId, payload, { msMode });
     ensureCompanyDailyEmployeeId();
 
     // ★ロールに応じて追加のデータを取得
@@ -1386,6 +1387,7 @@ const state = {
   personalMs: {},
   personalDailyData: {},
   companyDailyData: {},
+  companyDailyDataMs: {},
   companyDailyEmployees: [],
   ranges: {
     personalPeriod: {},
@@ -3638,7 +3640,9 @@ function getAutoCalculatedActual(memberId, date, metricKey) {
   const snakeKey = dataKey.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 
   const periodId = state.companyMsPeriodId;
-  const dailyData = state.companyDailyData[String(memberId)]?.[periodId]?.[date];
+  const dailyData =
+    state.companyDailyDataMs[String(memberId)]?.[periodId]?.[date] ??
+    state.companyDailyData[String(memberId)]?.[periodId]?.[date];
 
   if (dailyData) {
     // データがあれば返す。優先順位: camelCase -> snake_case
@@ -4720,10 +4724,13 @@ async function loadPersonalMsData() {
     return;
   }
 
-  await ensureDailyYieldData(periodId, { msMode: true });
+  const ranges = resolveCompanyMsRanges(period);
+  await ensureDailyYieldData(periodId, {
+    msMode: true,
+    rangeOverride: ranges.msOverallRange || ranges.salesRange
+  });
 
   const members = await ensureMembersList();
-  const ranges = resolveCompanyMsRanges(period);
 
   // 部門別に日付を設定（部門ごとの期間のみ）
   state.personalMs.marketing.dates = enumerateDateRange(ranges.marketingRange?.startDate || '', ranges.marketingRange?.endDate || '');
@@ -5072,7 +5079,7 @@ function normalizeCounts(src = {}) {
     ? num(src.achievementRate) || Math.round((revenue / targetAmount) * 100)
     : num(src.achievementRate) || 0;
   return {
-    newInterviews: num(src.newInterviews ?? src.new_interviews ?? src.proposals),
+    newInterviews: num(src.newInterviews ?? src.new_interviews),
     proposals: num(src.proposals),
     recommendations: num(src.recommendations),
     interviewsScheduled: num(src.interviewsScheduled ?? src.interviews_scheduled),
@@ -6171,11 +6178,14 @@ async function loadAndRenderPersonalMs() {
   }
   const ranges = resolveCompanyMsRanges(period);
   const [payload, members] = await Promise.all([
-    ensureDailyYieldData(periodId, { msMode: true }),
+    ensureDailyYieldData(periodId, {
+      msMode: true,
+      rangeOverride: ranges.msOverallRange || ranges.salesRange
+    }),
     ensureMembersList()
   ]);
 
-  const myUserId = resolveAdvisorUserId();
+  const myUserId = await resolveAdvisorUserId();
   const myEmployee = payload?.employees?.find(e => String(e.advisorUserId) === String(myUserId));
   const myMemberInfo = members.find(m => String(m.id) === String(myUserId));
   const advisorIds = myEmployee ? [String(myUserId)] : [];
