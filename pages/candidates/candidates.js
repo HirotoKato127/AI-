@@ -3061,7 +3061,7 @@ function buildCandidateDetailPayload(candidate) {
     applyCompanyName: candidate.applyCompanyName || companyName,
     applyJobName: candidate.applyJobName || jobName,
     applyRouteText: candidate.applyRouteText || source,
-    applicationNote: candidate.applicationNote || remarks, // 備考入力は applicationNote で行われるため優先
+    applicationNote: candidate.applicationNote ?? remarks, // 備考入力は applicationNote で行われるため優先
     firstInterviewNote: candidate.firstInterviewNote || hearingMemo,
     firstInterviewNote: candidate.firstInterviewNote || hearingMemo,
     recommendationText: candidate.recommendationText,
