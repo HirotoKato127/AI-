@@ -1,4 +1,5 @@
 ﻿import { PRIMARY_API_BASE } from "../../scripts/api/endpoints.js";
+import { getSession } from "../../scripts/auth.js";
 
 // teleapo ???API Gateway? base
 
@@ -8,11 +9,26 @@ const SCREENING_RULES_FALLBACK_ENDPOINT = `${CANDIDATES_API_BASE}/settings/scree
 
 // 一覧は「/candidates」（末尾スラッシュなし）
 const CANDIDATES_LIST_PATH = "/candidates";
+const MEMBERS_LIST_PATH = "/members";
 
 // 詳細は「/candidates/{candidateId}」（末尾スラッシュなし）
 const candidateDetailPath = (id) => `/candidates/${encodeURIComponent(String(id))}`;
 
 const candidatesApi = (path) => `${CANDIDATES_API_BASE}${path}`;
+
+// Candidates detail content exists in both the modal (candidates tab) and the
+// standalone detail page. Keep DOM queries scoped to the currently mounted one.
+let candidateDetailRootId = "candidateDetailContent";
+function setCandidateDetailRootId(id) {
+  candidateDetailRootId = String(id || "candidateDetailContent");
+}
+function getCandidateDetailContainer() {
+  return (
+    document.getElementById(candidateDetailRootId) ||
+    document.getElementById("candidateDetailContent") ||
+    null
+  );
+}
 
 // =========================
 // URLパラメータ（teleapo → candidates の遷移）
@@ -133,17 +149,26 @@ const nextActionCache = new Map();
 const contactPreferredTimeCache = new Map();
 const validityHydrationCache = new Map();
 const validityHydrationInFlight = new Set();
+const detailSaveInFlight = new Set();
 let calendarViewDate = new Date();
 calendarViewDate.setDate(1);
 
-// Deduplicate /clients create requests when multiple saves run quickly.
-const clientCreateInFlight = new Map();
+let clientList = [];
+let clientListFetchPromise = null;
+const CLIENT_AUTOCOMPLETE_LIMIT = 20;
 
 function normalizeContactPreferredTime(value) {
   const text = String(value ?? "").trim();
   if (!text) return "";
   if (["-", "ー", "未設定", "未入力", "未登録", "未指定"].includes(text)) return "";
   return text;
+}
+
+function toIntOrNull(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Number.isInteger(parsed) ? parsed : Math.trunc(parsed);
 }
 
 // =========================
@@ -280,6 +305,7 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     clientId: row.clientId ?? row.client_id ?? null,
     companyName: row.companyName ?? row.company_name ?? "",
     route: row.route ?? row.applyRoute ?? row.apply_route ?? row.mediaName ?? row.media_name ?? "",
+    proposalDate: row.proposalDate ?? row.proposal_date ?? null,
     recommendationDate: row.recommendationDate ?? row.recommended_at ?? null,
     interviewSetupDate: row.interviewSetupDate ?? row.first_interview_set_at ?? null,
     interviewDate: row.interviewDate ?? row.first_interview_at ?? null,
@@ -380,6 +406,11 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     selectionNote: row.selectionNote ?? row.selection_note ?? "",
     status: row.status ?? row.stage_current ?? "",
   }));
+  candidate.selectionProgressDeletedIds = Array.isArray(candidate.selectionProgressDeletedIds)
+    ? candidate.selectionProgressDeletedIds
+      .map((id) => toIntOrNull(id))
+      .filter((id) => id !== null && id > 0)
+    : [];
 
   if (!candidate.companyName && candidate.selectionProgress.length) {
     candidate.companyName = candidate.selectionProgress[0]?.companyName ?? "";
@@ -439,9 +470,9 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
   if (nextActionCacheKey) {
     if (candidate.nextActionDate) {
       nextActionCache.set(nextActionCacheKey, candidate.nextActionDate);
-    } else if (nextActionCache.has(nextActionCacheKey)) {
-      const cached = nextActionCache.get(nextActionCacheKey);
-      if (cached) candidate.nextActionDate = cached;
+    } else {
+      // APIが未設定(null)を返したときは、古いキャッシュ復元を防ぐため削除する
+      nextActionCache.delete(nextActionCacheKey);
     }
   }
   if (candidate.nextActionDate && !candidate.actionInfo.nextActionDate) {
@@ -479,12 +510,66 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
   return candidate;
 }
 
+function normalizeMasterClientRow(client = {}) {
+  const id = client?.id ?? client?.clientId ?? client?.client_id ?? "";
+  const name = client?.name ?? client?.companyName ?? client?.company_name ?? "";
+  return {
+    id: String(id ?? "").trim(),
+    name: String(name ?? "").trim(),
+  };
+}
+
+function mergeMasterClientRows(rows) {
+  const byId = new Map();
+  const byName = new Map();
+
+  (rows || []).forEach((raw) => {
+    const normalized = normalizeMasterClientRow(raw);
+    if (!normalized.name) return;
+
+    if (normalized.id) {
+      const prev = byId.get(normalized.id);
+      if (!prev) {
+        byId.set(normalized.id, normalized);
+      } else {
+        byId.set(normalized.id, {
+          id: normalized.id,
+          name: prev.name || normalized.name,
+        });
+      }
+      byName.set(normalizeClientNameKey(normalized.name), byId.get(normalized.id));
+      return;
+    }
+
+    const nameKey = normalizeClientNameKey(normalized.name);
+    if (!nameKey || byName.has(nameKey)) return;
+    byName.set(nameKey, normalized);
+  });
+
+  const merged = [...byId.values()];
+  byName.forEach((row) => {
+    if (!merged.some((item) => normalizeClientNameKey(item.name) === normalizeClientNameKey(row.name))) {
+      merged.push(row);
+    }
+  });
+
+  return merged.sort((a, b) => String(a.name).localeCompare(String(b.name), "ja"));
+}
+
+function getClientMasterPool() {
+  return mergeMasterClientRows([...(clientList || []), ...(masterClients || [])]);
+}
+
 function updateMastersFromDetail(detail) {
   const masters = detail?.masters;
   if (!masters) return;
-  if (Array.isArray(masters.clients)) masterClients = masters.clients;
-  if (Array.isArray(masters.users)) {
-    masterUsers = masters.users;
+  if (Array.isArray(masters.clients)) {
+    masterClients = mergeMasterClientRows([...(masterClients || []), ...masters.clients]);
+    clientList = mergeMasterClientRows([...(clientList || []), ...masters.clients]);
+  }
+  const users = extractMasterUsersFromPayload(masters);
+  if (users.length > 0) {
+    masterUsers = mergeMasterUserRows([...(masterUsers || []), ...users]);
     allCandidates.forEach((candidate) => syncCandidateAssignees(candidate));
     filteredCandidates.forEach((candidate) => syncCandidateAssignees(candidate));
   }
@@ -504,6 +589,53 @@ function resolveUserIdByName(userName) {
   );
   if (candidates.length !== 1) return null;
   return candidates[0]?.id ?? null;
+}
+
+function normalizeMasterUserRow(user = {}, forcedRole = null) {
+  const id = user?.id ?? user?.userId ?? user?.user_id ?? "";
+  const name = user?.name ?? user?.fullName ?? user?.full_name ?? "";
+  return {
+    id: String(id ?? "").trim(),
+    name: String(name ?? "").trim(),
+    role: normalizeRoleValue(forcedRole ?? user?.role ?? user?.roles?.[0] ?? ""),
+    disabled: Boolean(user?.disabled),
+  };
+}
+
+function mergeMasterUserRows(rows) {
+  const map = new Map();
+  (rows || []).forEach((raw) => {
+    const row = normalizeMasterUserRow(raw);
+    if (!row.id) return;
+    const key = String(row.id);
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, row);
+      return;
+    }
+    map.set(key, {
+      ...prev,
+      name: prev.name || row.name,
+      role: prev.role || row.role,
+      disabled: prev.disabled && row.disabled,
+    });
+  });
+  return Array.from(map.values());
+}
+
+function extractMasterUsersFromPayload(payload) {
+  const users = [];
+  if (Array.isArray(payload?.users)) {
+    users.push(...payload.users.map((u) => normalizeMasterUserRow(u)));
+  }
+  // Backward compatibility: some candidates-detail lambdas return role-specific lists.
+  if (Array.isArray(payload?.csUsers)) {
+    users.push(...payload.csUsers.map((u) => normalizeMasterUserRow(u, "caller")));
+  }
+  if (Array.isArray(payload?.advisorUsers)) {
+    users.push(...payload.advisorUsers.map((u) => normalizeMasterUserRow(u, "advisor")));
+  }
+  return mergeMasterUserRows(users);
 }
 
 function syncCandidateAssignees(candidate) {
@@ -536,7 +668,7 @@ function syncCandidateAssignees(candidate) {
 
 function resolveClientName(clientId) {
   if (!clientId) return "";
-  const found = (masterClients || []).find((client) => String(client.id) === String(clientId));
+  const found = getClientMasterPool().find((client) => String(client.id) === String(clientId));
   return found?.name ?? "";
 }
 
@@ -550,127 +682,160 @@ function normalizeClientNameKey(name) {
 function findClientByName(name) {
   const key = normalizeClientNameKey(name);
   if (!key) return null;
-
-  const lists = [];
-  if (Array.isArray(clientList) && clientList.length) lists.push(clientList);
-  if (Array.isArray(masterClients) && masterClients.length) lists.push(masterClients);
-
-  for (const list of lists) {
-    const found = list.find((client) => {
-      const clientName = client?.name ?? client?.companyName ?? client?.company_name ?? "";
-      return normalizeClientNameKey(clientName) === key;
-    });
-    if (found?.id) return found;
-  }
-  return null;
+  return getClientMasterPool().find((client) => normalizeClientNameKey(client?.name) === key) || null;
 }
 
 function findClientById(id) {
   if (id === null || id === undefined || id === "") return null;
   const needle = String(id);
-
-  const lists = [];
-  if (Array.isArray(clientList) && clientList.length) lists.push(clientList);
-  if (Array.isArray(masterClients) && masterClients.length) lists.push(masterClients);
-
-  for (const list of lists) {
-    const found = list.find((client) => String(client?.id) === needle);
-    if (found?.id) return found;
-  }
-  return null;
-}
-
-async function ensureClientIdByName(name) {
-  const rawName = String(name ?? "").trim();
-  if (!rawName) return null;
-
-  const existing = findClientByName(rawName);
-  if (existing?.id) return existing.id;
-
-  const key = normalizeClientNameKey(rawName);
-  if (!key) return null;
-
-  if (clientCreateInFlight.has(key)) {
-    return clientCreateInFlight.get(key);
-  }
-
-  const createPromise = (async () => {
-    const res = await fetch(candidatesApi("/clients"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ companyName: rawName }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`clients create failed (HTTP ${res.status}): ${text.slice(0, 200)}`);
-    }
-
-    const json = await res.json().catch(() => ({}));
-    const id = json?.id ?? json?.item?.id ?? json?.item?.clientId ?? json?.item?.client_id ?? null;
-    const createdName = json?.item?.name ?? json?.item?.companyName ?? rawName;
-
-    if (!id) {
-      throw new Error("clients create returned no id");
-    }
-
-    if (Array.isArray(clientList)) {
-      const exists = clientList.some((c) => String(c?.id) === String(id));
-      if (!exists) clientList.push({ id, name: createdName });
-    }
-
-    return id;
-  })();
-
-  clientCreateInFlight.set(key, createPromise);
-  try {
-    return await createPromise;
-  } finally {
-    clientCreateInFlight.delete(key);
-  }
+  return getClientMasterPool().find((client) => String(client?.id) === needle) || null;
 }
 
 async function ensureSelectionProgressClientIds(candidate) {
   if (!candidate || !Array.isArray(candidate.selectionProgress)) return;
+  await ensureClientListLoaded();
 
   for (const row of candidate.selectionProgress) {
     const companyName = String(row?.companyName ?? row?.company_name ?? "").trim();
     const clientId = row?.clientId ?? row?.client_id ?? null;
+    if (!companyName && !clientId) continue;
 
-    // If we have no company name, we cannot resolve. Keep clientId if present.
-    if (!companyName) continue;
+    const matchedByName = companyName ? findClientByName(companyName) : null;
+    let resolvedId = clientId ? String(clientId) : null;
 
-    // Backend (Lambda) requires clientId to INSERT new rows.
-    // For existing rows, keep clientId unless we can confidently detect a name change.
-    let resolvedId = null;
-    if (clientId) {
-      const current = findClientById(clientId);
-      const currentName = current?.name ?? current?.companyName ?? current?.company_name ?? "";
-      if (currentName && normalizeClientNameKey(currentName) === normalizeClientNameKey(companyName)) {
-        resolvedId = clientId;
-      } else if (current) {
-        // Name differs from the current clientId mapping; treat companyName as authoritative.
-        resolvedId = await ensureClientIdByName(companyName);
-      } else {
-        // Client list not loaded or missing this id: do not risk auto-creating duplicates.
-        resolvedId = clientId;
-      }
+    if (matchedByName?.id) {
+      resolvedId = String(matchedByName.id);
+      row.companyName = matchedByName.name;
+      row.company_name = matchedByName.name;
+    } else if (!resolvedId) {
+      throw new Error(`企業名「${companyName}」は登録済み紹介先企業に存在しません。候補から選択してください。`);
     } else {
-      resolvedId = await ensureClientIdByName(companyName);
+      const current = findClientById(resolvedId);
+      if (!current) {
+        throw new Error(`企業名「${companyName}」に対応する企業ID(clientId)を解決できませんでした。`);
+      }
+      row.companyName = current.name;
+      row.company_name = current.name;
     }
 
-    if (!resolvedId) {
-      throw new Error(`企業名「${companyName}」に対応する企業ID(clientId)を解決できませんでした。`);
-    }
-
-    // Set both camelCase and snake_case to satisfy different backends.
     row.clientId = resolvedId;
     row.client_id = resolvedId;
-
-    // Keep company name fields consistent for downstream mappers.
-    row.companyName = companyName;
-    row.company_name = companyName;
   }
+}
+
+function buildClientAutocompleteOptions(query) {
+  const pool = getClientMasterPool().filter((client) => String(client?.id ?? "").trim());
+  if (!pool.length) return [];
+
+  const normalizedQuery = normalizeClientNameKey(query);
+  const filtered = normalizedQuery
+    ? pool.filter((client) => normalizeClientNameKey(client.name).includes(normalizedQuery))
+    : pool;
+
+  return filtered.slice(0, CLIENT_AUTOCOMPLETE_LIMIT);
+}
+
+function renderCompanyAutocompleteInput(value, path, sectionKey) {
+  const dataset = path ? `data-detail-field="${path}" data-detail-section="${sectionKey}"` : "";
+  const inputValue = value === 0 ? "0" : formatInputValue(value, "text");
+  return `
+    <div class="company-autocomplete" data-company-autocomplete>
+      <input
+        type="text"
+        class="detail-table-input"
+        value="${escapeHtmlAttr(inputValue)}"
+        ${dataset}
+        data-company-name-input="true"
+        autocomplete="off"
+      >
+      <div class="company-autocomplete-menu is-hidden" data-company-autocomplete-menu></div>
+    </div>
+  `;
+}
+
+function hideCompanyAutocompleteMenu(menu) {
+  if (!menu) return;
+  menu.classList.add("is-hidden");
+  menu.innerHTML = "";
+}
+
+function hideAllCompanyAutocompleteMenus(root = getCandidateDetailContainer() || document) {
+  const menus = root.querySelectorAll("[data-company-autocomplete-menu]");
+  menus.forEach((menu) => hideCompanyAutocompleteMenu(menu));
+}
+
+function updateCompanyAutocompleteMenu(input, query) {
+  if (!input) return;
+  const wrapper = input.closest("[data-company-autocomplete]");
+  const menu = wrapper?.querySelector("[data-company-autocomplete-menu]");
+  if (!menu) return;
+
+  const options = buildClientAutocompleteOptions(query);
+  if (!options.length) {
+    hideCompanyAutocompleteMenu(menu);
+    return;
+  }
+
+  menu.innerHTML = options.map((client) => `
+    <button
+      type="button"
+      class="company-autocomplete-option"
+      data-company-option="true"
+      data-company-option-id="${escapeHtmlAttr(client.id)}"
+      data-company-option-name="${escapeHtmlAttr(client.name)}"
+    >
+      ${escapeHtml(client.name)}
+    </button>
+  `).join("");
+  menu.classList.remove("is-hidden");
+}
+
+function bindSelectionProgressCompany(candidate, fieldPath, companyName, { forceClient = null } = {}) {
+  if (!candidate || !fieldPath) return null;
+  const selectionMatch = fieldPath.match(/^selectionProgress\.(\d+)\.companyName$/);
+  if (!selectionMatch) return null;
+  const index = Number(selectionMatch[1]);
+  if (!Array.isArray(candidate.selectionProgress) || !candidate.selectionProgress[index]) return null;
+
+  const row = candidate.selectionProgress[index];
+  const trimmedName = String(companyName ?? "").trim();
+  const matched = forceClient || findClientByName(trimmedName);
+
+  if (matched?.id) {
+    row.clientId = matched.id;
+    row.client_id = matched.id;
+    row.companyName = matched.name;
+    row.company_name = matched.name;
+    return matched;
+  }
+
+  row.companyName = trimmedName;
+  row.company_name = trimmedName;
+  row.clientId = null;
+  row.client_id = null;
+  return null;
+}
+
+function selectCompanyAutocompleteOption(optionButton) {
+  if (!optionButton) return;
+  const wrapper = optionButton.closest("[data-company-autocomplete]");
+  const input = wrapper?.querySelector("[data-company-name-input]");
+  if (!input) return;
+
+  const selectedName = String(optionButton.dataset.companyOptionName || "").trim();
+  const selectedId = String(optionButton.dataset.companyOptionId || "").trim();
+  if (!selectedName || !selectedId) return;
+
+  input.value = selectedName;
+  const candidate = getSelectedCandidate();
+  if (candidate) {
+    bindSelectionProgressCompany(candidate, input.dataset.detailField, selectedName, {
+      forceClient: { id: selectedId, name: selectedName },
+    });
+  }
+  input.setCustomValidity("");
+  handleDetailFieldChange({ target: input });
+  hideAllCompanyAutocompleteMenus();
 }
 
 function buildSelectOptions(list, selectedValue, { blankLabel = "選択" } = {}) {
@@ -699,14 +864,72 @@ function buildClientOptions(selectedId, selectedName) {
 }
 
 function normalizeRoleValue(role) {
-  return String(role || "").trim().toLowerCase();
+  const raw = String(role || "").trim().toLowerCase();
+  if (!raw) return "";
+  const normalized = raw
+    .replace(/[()（）\[\]【】]/g, " ")
+    .replace(/[・/_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const compact = normalized.replace(/\s+/g, "");
+
+  if (
+    ["advisor", "adviser", "advisoruser", "adviseruser", "member"].includes(compact) ||
+    normalized.includes("アドバイザー") ||
+    normalized.includes("advisor") ||
+    normalized.includes("adviser")
+  ) {
+    return "advisor";
+  }
+  if (
+    ["caller", "cs", "customersuccess", "c.s", "c/s"].includes(compact) ||
+    normalized.includes("カスタマーサクセス") ||
+    normalized.includes("コーラー") ||
+    /(^|\s)cs($|\s)/.test(normalized) ||
+    /(^|\s)caller($|\s)/.test(normalized)
+  ) {
+    return "caller";
+  }
+  if (
+    ["marketing", "marketer"].includes(compact) ||
+    normalized.includes("マーケ")
+  ) {
+    return "marketing";
+  }
+  return compact || normalized;
+}
+
+function buildRoleCountMap(users) {
+  const counts = {};
+  (users || []).forEach((user) => {
+    const role = normalizeRoleValue(user?.role);
+    const key = role || "(empty)";
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  return counts;
 }
 
 function buildUserOptions(selectedId, selectedName = "", { allowedRoles = null, blankLabel = "担当者を選択" } = {}) {
-  let users = Array.isArray(masterUsers) ? [...masterUsers] : [];
+  let users = Array.isArray(masterUsers) ? mergeMasterUserRows(masterUsers) : [];
   const allow = Array.isArray(allowedRoles) ? allowedRoles.map((r) => normalizeRoleValue(r)).filter(Boolean) : null;
+  const roleCounts = buildRoleCountMap(users);
+  const hasRoleInfo = users.some((user) => {
+    const role = normalizeRoleValue(user?.role);
+    return role === "advisor" || role === "caller";
+  });
   if (allow && allow.length > 0) {
     users = users.filter((user) => allow.includes(normalizeRoleValue(user?.role)));
+    if (users.length === 0 && !hasRoleInfo) {
+      // Backward compatibility: if role metadata is missing, do not block assignment.
+      users = Array.isArray(masterUsers) ? mergeMasterUserRows(masterUsers) : [];
+    }
+    if (users.length === 0) {
+      console.warn("[candidates] assignee options empty after role filter", {
+        allowedRoles: allow,
+        masterUsersCount: Array.isArray(masterUsers) ? masterUsers.length : 0,
+        roleCounts,
+      });
+    }
   }
   if (selectedId && !users.some((user) => String(user.id) === String(selectedId))) {
     // Show current value even if it is not selectable (role mismatch, deleted user, etc.).
@@ -735,6 +958,7 @@ function buildBooleanOptions(value, { trueLabel = "報告済み", falseLabel = "
 // マウント / アンマウント
 // =========================
 export function mount() {
+  setCandidateDetailRootId("candidateDetailContent");
   initializeCandidatesFilters();
   initializeSortControl();
   initializeTableInteraction();
@@ -747,6 +971,10 @@ export function mount() {
   loadScreeningRulesForCandidates();
   restoreListContextFromReturnState();
   void loadFilterMasters();
+  // Assignee dropdowns depend on members master. Load best-effort upfront so the list can edit without opening detail.
+  void ensureMasterUsersLoaded();
+  // Selection progress company autocomplete depends on clients master.
+  void ensureClientListLoaded();
   // まず一覧ロード（ページング）
   loadCandidatesData();
   // 初期表示がカレンダーの場合は、カレンダーも別ロード
@@ -768,6 +996,8 @@ export async function mountDetailPage(candidateId) {
     return false;
   }
 
+  setCandidateDetailRootId("candidateDetailContentPage");
+
   // イベントリスナー初期化
   initializeDetailContentListeners();
 
@@ -781,6 +1011,9 @@ export async function mountDetailPage(candidateId) {
 
     const normalized = normalizeCandidate(detail, { source: "detail" });
     updateMastersFromDetail(detail);
+    await ensureClientListLoaded();
+    await ensureMasterUsersLoaded();
+    syncCandidateAssignees(normalized);
 
     // 正規化した候補者をグローバルリストにも追加（編集時に必要）
     const existingIndex = allCandidates.findIndex(c => String(c.id) === String(normalized.id));
@@ -804,6 +1037,7 @@ export function unmountDetailPage() {
   detailSectionKeys.forEach((key) => (detailEditState[key] = false));
   selectedCandidateId = null;
   currentDetailCandidateId = null;
+  setCandidateDetailRootId("candidateDetailContent");
 }
 
 // =========================
@@ -849,7 +1083,57 @@ async function loadFilterMasters() {
       ];
       setFilterSelectOptions("candidatesFilterPhase", orderedPhases);
     }
+
+    // If the backend returns users master, keep it for assignee selects.
+    const usersFromResponse = extractMasterUsersFromPayload(
+      json?.masters && typeof json.masters === "object"
+        ? json.masters
+        : { users: json.users }
+    );
+    const clientsFromResponse = Array.isArray(json?.masters?.clients) ? json.masters.clients : [];
+    if (clientsFromResponse.length > 0) {
+      masterClients = mergeMasterClientRows([...(masterClients || []), ...clientsFromResponse]);
+      clientList = mergeMasterClientRows([...(clientList || []), ...clientsFromResponse]);
+    }
+    if (usersFromResponse.length > 0) {
+      masterUsers = mergeMasterUserRows([...(masterUsers || []), ...usersFromResponse]);
+    }
   } catch (e) {
+    // ignore
+  }
+}
+
+function normalizeMembersResponse(result) {
+  const raw = Array.isArray(result)
+    ? result
+    : (result?.items || result?.members || result?.users || []);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((member) => ({
+      id: member.id ?? member.userId ?? member.user_id ?? "",
+      name: member.name || member.fullName || member.full_name || "",
+      role: normalizeRoleValue(member.role || member.roles?.[0] || ""),
+      disabled: Boolean(member.disabled),
+    }))
+    .filter((member) => String(member.id || "").trim());
+}
+
+async function ensureMasterUsersLoaded() {
+  const currentUsers = Array.isArray(masterUsers) ? mergeMasterUserRows(masterUsers) : [];
+  const roleSet = new Set(currentUsers.map((user) => normalizeRoleValue(user.role)).filter(Boolean));
+  if (currentUsers.length > 0 && roleSet.has("advisor") && roleSet.has("caller")) return;
+  try {
+    const headers = { Accept: "application/json" };
+    const session = typeof window !== "undefined" ? getSession?.() : null;
+    if (session?.token) headers.Authorization = `Bearer ${session.token}`;
+    const res = await fetch(candidatesApi(MEMBERS_LIST_PATH), { headers });
+    if (!res.ok) return;
+    const json = await res.json();
+    const members = normalizeMembersResponse(json);
+    if (members.length > 0) {
+      masterUsers = mergeMasterUserRows([...currentUsers, ...members]);
+    }
+  } catch {
     // ignore
   }
 }
@@ -857,7 +1141,7 @@ async function loadFilterMasters() {
 function initializeSortControl() {
   const sortSelect = document.getElementById("candidatesSortOrder");
   if (!sortSelect) return;
-  // Server-side paging uses a fixed order (created_at DESC). Disable client sorting UI.
+  // Server-side paging handles ordering. Keep UI hidden to avoid "client-sort within a page" confusion.
   sortSelect.value = "desc";
   sortSelect.disabled = true;
   const label = sortSelect.closest("label");
@@ -1564,6 +1848,9 @@ function buildCandidatesQuery(filters, { limit = LIST_PAGE_SIZE, offset = 0, vie
   if (filters.name) p.set("name", filters.name);
   if (filters.company) p.set("company", filters.company);
   if (filters.valid) p.set("valid", filters.valid);
+  // Backend expects `sort` ("asc" | "desc"). The UI stores it as `sortOrder`.
+  // If this isn't sent, the backend's default order applies and the list may not be "newest first".
+  if (filters.sortOrder) p.set("sort", filters.sortOrder);
   if (view) p.set("view", view);
   p.set("limit", String(limit));
   p.set("offset", String(offset));
@@ -1986,8 +2273,8 @@ function buildTableRow(candidate) {
 
       ${renderCheckboxCell(candidate, "validApplication", "有効応募")}
       ${renderTextCell(candidate, "candidateName", { strong: true, readOnly: true })}
-      ${renderTextCell(candidate, "csName", { readOnly: true })}
-      ${renderTextCell(candidate, "advisorName", { readOnly: true })}
+      ${renderAssigneeCell(candidate, { kind: "cs" })}
+      ${renderAssigneeCell(candidate, { kind: "advisor" })}
       ${renderNextActionCell(candidate)}
     </tr>
   `;
@@ -2084,6 +2371,65 @@ function renderTextCell(candidate, field, options = {}) {
   return `<td><input type="${type}" class="table-inline-input" data-field="${field}" value="${escapeHtmlAttr(raw)}"></td>`;
 }
 
+function normalizeNullableId(value) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed ? trimmed : null;
+}
+
+function resolveCurrentRoleView() {
+  const session = typeof getSession === "function" ? getSession() : null;
+  const rawRole = String(session?.role || session?.roles?.[0] || "").toLowerCase();
+  return rawRole.includes("caller") ? "caller" : "advisor";
+}
+
+function validateNextActionRegistration(candidate) {
+  const nextActionDate = String(candidate?.nextActionDate ?? "").trim();
+  const nextActionNote = String(candidate?.nextActionNote ?? "").trim();
+  if (!nextActionDate && !nextActionNote) return;
+
+  if (!nextActionDate || !nextActionNote) {
+    throw new Error("次回アクションを登録するには、日付と内容の両方を入力してください。");
+  }
+
+  const roleView = resolveCurrentRoleView();
+  const advisorUserId = normalizeNullableId(candidate?.advisorUserId);
+  const partnerUserId = normalizeNullableId(candidate?.partnerUserId ?? candidate?.csUserId);
+
+  if (roleView === "caller" && !partnerUserId) {
+    throw new Error("次回アクションを登録するには、担当CSを設定してください。");
+  }
+  if (roleView !== "caller" && !advisorUserId) {
+    throw new Error("次回アクションを登録するには、担当アドバイザーを設定してください。");
+  }
+}
+
+function renderAssigneeCell(candidate, { kind } = {}) {
+  const isCs = kind === "cs";
+  const idField = isCs ? "csUserId" : "advisorUserId";
+  const nameField = isCs ? "csName" : "advisorName";
+  const allowedRoles = isCs ? ["caller"] : ["advisor"];
+  const blankLabel = isCs ? "担当CSを選択" : "担当アドバイザーを選択";
+
+  if (!candidatesEditMode) {
+    const value = candidate?.[nameField] || "-";
+    return `<td>${escapeHtml(value)}</td>`;
+  }
+
+  const selectedId = normalizeNullableId(candidate?.[idField]) ?? "";
+  const selectedName = candidate?.[nameField] || "";
+  const options = buildUserOptions(selectedId, selectedName, { allowedRoles, blankLabel });
+  const html = (options || [])
+    .map((option) => {
+      const optValue = option?.value ?? "";
+      const optLabel = option?.label ?? "";
+      const isDisabled = Boolean(option?.disabled);
+      const isSelected = Boolean(option?.selected);
+      return `<option value="${escapeHtmlAttr(optValue)}" ${isSelected ? "selected" : ""} ${isDisabled ? "disabled" : ""}>${escapeHtml(optLabel)}</option>`;
+    })
+    .join("");
+  return `<td><select class="table-inline-select" data-field="${idField}">${html}</select></td>`;
+}
+
 // =========================
 // 編集モード（一覧インライン）
 // =========================
@@ -2101,6 +2447,9 @@ async function toggleCandidatesEditMode() {
 
   if (!nextState) {
     await persistInlineEdits();
+  } else {
+    // Ensure assignee dropdowns have options in list edit mode.
+    void ensureMasterUsersLoaded();
   }
 }
 
@@ -2119,18 +2468,46 @@ function handleInlineEdit(event) {
   const field = control.dataset.field;
   candidate[field] = control.type === "checkbox" ? control.checked : control.value;
 
+  // Keep assignee display fields in sync when the list uses select-based editing.
+  if (field === "csUserId") {
+    candidate.csUserId = normalizeNullableId(candidate.csUserId);
+    if (candidate.csUserId) {
+      const resolved = resolveUserName(candidate.csUserId);
+      if (resolved) candidate.csName = resolved;
+    }
+    candidate.partnerUserId = candidate.csUserId;
+  }
+  if (field === "advisorUserId") {
+    candidate.advisorUserId = normalizeNullableId(candidate.advisorUserId);
+    if (candidate.advisorUserId) {
+      const resolved = resolveUserName(candidate.advisorUserId);
+      if (resolved) candidate.advisorName = resolved;
+    }
+    // Some views still refer to partnerName as advisor label.
+    candidate.partnerName = candidate.advisorName;
+  }
+
   if (field === "validApplication") {
     candidate.validApplicationComputed = candidate.validApplication;
   }
 
-  markCandidateDirty(candidate.id);
+  markCandidateDirty(candidate.id, field);
 
   if (field === "birthday") candidate.age = calculateAge(candidate.birthday);
 }
 
-function markCandidateDirty(id) {
+function markCandidateDirty(id, field) {
   if (!id) return;
-  pendingInlineUpdates[String(id)] = true;
+  const key = String(id);
+  const current = pendingInlineUpdates[key];
+  if (!current || current === true) {
+    pendingInlineUpdates[key] = {};
+  }
+  if (field) {
+    pendingInlineUpdates[key][field] = true;
+  } else {
+    pendingInlineUpdates[key]._unknown = true;
+  }
 }
 
 async function persistInlineEdits() {
@@ -2142,11 +2519,12 @@ async function persistInlineEdits() {
     const candidate = allCandidates.find((item) => String(item.id) === String(id));
     if (!candidate) continue;
     try {
-      await saveCandidateRecord(candidate);
+      const patch = pendingInlineUpdates[id] || null;
+      await saveCandidateRecord(candidate, { patch });
       delete pendingInlineUpdates[id];
     } catch (e) {
       console.error("候補者の保存に失敗しました。", e);
-      failures[id] = true;
+      failures[id] = pendingInlineUpdates[id] || { _unknown: true };
     }
   }
 
@@ -2193,7 +2571,7 @@ async function fetchCandidateDetailById(id, { includeMaster = true } = {}) {
 }
 
 function setCandidateDetailLoading(message = "読み込み中...") {
-  const container = document.getElementById("candidateDetailContent");
+  const container = getCandidateDetailContainer();
   if (!container) return;
   container.innerHTML = `
     <div class="candidate-detail-empty">
@@ -2265,37 +2643,28 @@ function handleFilterReset() {
   closeCandidateModal({ clearSelection: false });
   handleFilterChange();
 }
-
-
-
-// クライアント一覧（オートコンプリート用）
-let clientList = [];
-
-// =========================
-// 初期化
-// =========================
-document.addEventListener("DOMContentLoaded", async () => {
-  await Promise.all([
-    fetchCandidates(),
-    fetchClients(), // クライアント一覧取得
-  ]);
-
-  // URLパラメータのチェック (id指定があれば詳細を開く)
-  const urlParams = new URLSearchParams(window.location.search);
-  const detailId = urlParams.get("id");
-  if (detailId) {
-    await openCandidateById(detailId);
-  }
-});
-
 async function fetchClients() {
-  try {
-    const res = await fetch(candidatesApi("/clients"));
-    if (!res.ok) throw new Error("Failed to fetch clients");
-    clientList = await res.json();
-  } catch (err) {
-    console.error(err);
-  }
+  const res = await fetch(candidatesApi("/clients"));
+  if (!res.ok) throw new Error("Failed to fetch clients");
+  const rows = await res.json();
+  const merged = mergeMasterClientRows(rows);
+  clientList = mergeMasterClientRows([...(clientList || []), ...merged]);
+  return clientList;
+}
+
+async function ensureClientListLoaded({ force = false } = {}) {
+  if (!force && Array.isArray(clientList) && clientList.length > 0) return clientList;
+  if (clientListFetchPromise) return clientListFetchPromise;
+
+  clientListFetchPromise = fetchClients()
+    .catch((error) => {
+      console.error(error);
+      return clientList;
+    })
+    .finally(() => {
+      clientListFetchPromise = null;
+    });
+  return clientListFetchPromise;
 }
 
 // =========================
@@ -2333,7 +2702,7 @@ function highlightSelectedRow() {
 // 詳細モーダル描画
 // =========================
 function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
-  const container = document.getElementById("candidateDetailContent");
+  const container = getCandidateDetailContainer();
   if (!container) return;
 
   if (!candidate) {
@@ -2500,8 +2869,9 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
 
 // タブナビゲーションの初期化
 function initializeDetailTabs(defaultKey = "nextAction") {
-  const tabs = Array.from(document.querySelectorAll('[data-detail-tab]'));
-  const panels = Array.from(document.querySelectorAll('[data-detail-panel]'));
+  const root = getCandidateDetailContainer() || document;
+  const tabs = Array.from(root.querySelectorAll('[data-detail-tab]'));
+  const panels = Array.from(root.querySelectorAll('[data-detail-panel]'));
   if (!tabs.length || !panels.length) return;
 
   const activate = (key) => {
@@ -2580,7 +2950,7 @@ function getCandidateDetailPlaceholder() {
 }
 
 function setCandidateDetailPlaceholder() {
-  const container = document.getElementById("candidateDetailContent");
+  const container = getCandidateDetailContainer();
   if (container) container.innerHTML = getCandidateDetailPlaceholder();
   currentDetailCandidateId = null;
   resetDetailEditState();
@@ -2679,7 +3049,8 @@ function resolveSelectionStageValue(row = {}) {
 }
 
 function updateSelectionStatusCell(index, status) {
-  const row = document.querySelector(`[data-selection-row="${index}"]`);
+  const root = getCandidateDetailContainer() || document;
+  const row = root.querySelector(`[data-selection-row="${index}"]`);
   if (!row) return;
   const cell = row.querySelector("[data-selection-status]");
   if (!cell) return;
@@ -2719,14 +3090,14 @@ function renderPhasePills(candidate) {
   </div>`;
 }
 
-async function saveCandidateRecord(candidate, { preserveDetailState = true, includeDetail = false } = {}) {
+async function saveCandidateRecord(candidate, { preserveDetailState = true, includeDetail = false, patch = null, editedSection = null } = {}) {
   if (!candidate || !candidate.id) throw new Error("保存対象の候補者が見つかりません。");
 
   // ---------------------------------------------------------
   // DOMからの強制同期処理 (全入力フィールド)
   // Inputイベント漏れを防ぐため、保存直前に画面の値を正として取り込む
   // ---------------------------------------------------------
-  const detailContainer = document.getElementById("candidateDetailContent");
+  const detailContainer = getCandidateDetailContainer();
   if (detailContainer) {
     // 1. 一般フィールド (data-detail-fieldを持つもの)
     const inputs = detailContainer.querySelectorAll("[data-detail-field]");
@@ -2768,7 +3139,9 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
   // ---------------------------------------------------------
   // 選考進捗の実DOMからの強制同期
   // ---------------------------------------------------------
-  const selectionRows = document.querySelectorAll("tr[data-selection-row]");
+  const selectionRows = detailContainer
+    ? detailContainer.querySelectorAll("tr[data-selection-row]")
+    : document.querySelectorAll("tr[data-selection-row]");
   if (selectionRows.length > 0) {
     const newProgress = [];
     selectionRows.forEach((row) => {
@@ -2787,25 +3160,52 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
         const parts = fieldPath.split(".");
         const key = parts[parts.length - 1];
 
-        // Lambda(DB)が期待するキー名へ変換
-        const keyMap = {
-          "recommendationDate": "recommendedAt",
-          "firstInterviewAdjustDate": "firstInterviewSetAt",
-          "firstInterviewDate": "firstInterviewAt",
-          "secondInterviewAdjustDate": "secondInterviewSetAt",
-          "secondInterviewDate": "secondInterviewAt",
-          "finalInterviewAdjustDate": "finalInterviewSetAt",
-          "finalInterviewDate": "finalInterviewAt"
+        // API差分吸収: 画面キー + 互換キーを同時に保持する
+        const keyAliases = {
+          recommendationDate: ["recommendedAt"],
+          firstInterviewAdjustDate: ["firstInterviewSetAt", "interviewSetupDate"],
+          firstInterviewDate: ["firstInterviewAt", "interviewDate"],
+          secondInterviewAdjustDate: ["secondInterviewSetAt", "secondInterviewSetupDate"],
+          secondInterviewDate: ["secondInterviewAt"],
+          finalInterviewAdjustDate: ["finalInterviewSetAt", "finalInterviewSetupDate"],
+          finalInterviewDate: ["finalInterviewAt"],
+          declinedDate: ["preJoinDeclineDate", "preJoinWithdrawDate", "declinedAfterOfferAt"],
+          declinedReason: ["preJoinDeclineReason", "preJoinWithdrawReason", "declinedAfterOfferReason"],
+          earlyTurnoverDate: ["postJoinQuitDate", "earlyTurnoverAt"],
+          earlyTurnoverReason: ["postJoinQuitReason"],
+          closingForecastDate: ["closeExpectedDate", "closingPlanDate", "closingForecastAt"],
+          note: ["selectionNote"],
         };
-        const mappedKey = keyMap[key] || key;
 
-        newData[mappedKey] = input.value;
+        newData[key] = input.value;
+        const aliases = keyAliases[key] || [];
+        aliases.forEach((alias) => {
+          newData[alias] = input.value;
+        });
         if (input.value) hasInput = true;
       });
 
       // スネークケース(フォールバック)
       if (newData.clientId) newData.client_id = newData.clientId;
       if (newData.companyName) newData.company_name = newData.companyName;
+      if (newData.recommendedAt !== undefined) newData.recommended_at = newData.recommendedAt;
+      if (newData.firstInterviewSetAt !== undefined) newData.first_interview_set_at = newData.firstInterviewSetAt;
+      if (newData.firstInterviewAt !== undefined) newData.first_interview_at = newData.firstInterviewAt;
+      if (newData.secondInterviewSetAt !== undefined) newData.second_interview_set_at = newData.secondInterviewSetAt;
+      if (newData.secondInterviewAt !== undefined) newData.second_interview_at = newData.secondInterviewAt;
+      if (newData.finalInterviewSetAt !== undefined) newData.final_interview_set_at = newData.finalInterviewSetAt;
+      if (newData.finalInterviewAt !== undefined) newData.final_interview_at = newData.finalInterviewAt;
+      if (newData.preJoinWithdrawDate !== undefined) newData.pre_join_withdraw_date = newData.preJoinWithdrawDate;
+      if (newData.preJoinWithdrawReason !== undefined) newData.pre_join_withdraw_reason = newData.preJoinWithdrawReason;
+      if (newData.postJoinQuitDate !== undefined) newData.post_join_quit_date = newData.postJoinQuitDate;
+      if (newData.postJoinQuitReason !== undefined) newData.post_join_quit_reason = newData.postJoinQuitReason;
+      if (newData.declinedAfterOfferAt !== undefined) newData.declined_after_offer_at = newData.declinedAfterOfferAt;
+      if (newData.declinedAfterOfferReason !== undefined) newData.declined_after_offer_reason = newData.declinedAfterOfferReason;
+      if (newData.earlyTurnoverAt !== undefined) newData.early_turnover_at = newData.earlyTurnoverAt;
+      if (newData.earlyTurnoverReason !== undefined) newData.early_turnover_reason = newData.earlyTurnoverReason;
+      if (newData.closeExpectedDate !== undefined) newData.close_expected_at = newData.closeExpectedDate;
+      if (newData.closingForecastAt !== undefined) newData.closing_forecast_at = newData.closingForecastAt;
+      if (newData.selectionNote !== undefined) newData.selection_note = newData.selectionNote;
       newData.selection_status = newData.status || newData.selectionStatus;
 
       if (newData.clientId || hasInput) {
@@ -2818,20 +3218,58 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
 
   normalizeCandidate(candidate);
 
+  if (includeDetail && editedSection === "nextAction") {
+    validateNextActionRegistration(candidate);
+  }
+
   // Ensure selection progress rows include clientId (Lambda requires it for INSERT).
-  // This also supports free-text companyName input by resolving/creating clients.
+  // Company names must map to existing registered clients.
   if (includeDetail) {
     await ensureSelectionProgressClientIds(candidate);
   }
 
   const payload = includeDetail
     ? buildCandidateDetailPayload(candidate)
-    : { id: candidate.id, validApplication: resolveValidApplication(candidate) };
+    : (() => {
+      const p = { id: candidate.id };
+      const allowAll = !patch || patch._unknown;
+
+      if (allowAll || patch.validApplication) {
+        p.validApplication = resolveValidApplication(candidate);
+      }
+
+      // Only include assignees if edited (or if patch isn't available).
+      if (allowAll || patch.csUserId || patch.advisorUserId) {
+        const csUserId = normalizeNullableId(candidate.csUserId);
+        const advisorUserId = normalizeNullableId(candidate.advisorUserId);
+        const partnerUserId = normalizeNullableId(candidate.partnerUserId ?? candidate.csUserId);
+
+        p.csUserId = csUserId;
+        p.advisorUserId = advisorUserId;
+        p.partnerUserId = partnerUserId;
+        p.csName = candidate.csName ?? null;
+        p.advisorName = candidate.advisorName ?? null;
+
+        // Backend compatibility (some backends use snake_case)
+        p.cs_user_id = csUserId;
+        p.advisor_user_id = advisorUserId;
+        p.partner_user_id = partnerUserId;
+      }
+
+      return p;
+    })();
 
   // ★ Lambdaが必須とするフラグ
   if (includeDetail) {
     payload.detailMode = true;
     payload.selection_progress = candidate.selectionProgress;
+    const deletedSelectionProgressIds = Array.isArray(candidate.selectionProgressDeletedIds)
+      ? [...new Set(candidate.selectionProgressDeletedIds.map((id) => toIntOrNull(id)).filter((id) => id !== null && id > 0))]
+      : [];
+    if (deletedSelectionProgressIds.length) {
+      payload.deletedSelectionProgressIds = deletedSelectionProgressIds;
+      payload.deleted_selection_progress_ids = deletedSelectionProgressIds;
+    }
   }
 
   // ★ Lambdaが必須とするフラグを確実にセット
@@ -2855,6 +3293,7 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
   }
 
   const updated = normalizeCandidate(await response.json());
+  candidate.selectionProgressDeletedIds = [];
   delete pendingInlineUpdates[String(candidate.id)];
   applyCandidateUpdate(updated, { preserveDetailState });
   return updated;
@@ -3046,16 +3485,23 @@ function batchApplyCandidateUpdates(
 // イベントハンドラ等
 // =========================
 function initializeDetailContentListeners() {
-  const container = document.getElementById("candidateDetailContent");
-  if (!container) return;
-
+  // Detach from all possible detail containers first (modal + standalone page),
+  // then attach to the currently active one.
+  const candidatesModal = document.getElementById("candidateDetailContent");
+  const candidatesPage = document.getElementById("candidateDetailContentPage");
+  const detachTargets = [candidatesModal, candidatesPage].filter(Boolean);
   if (detailContentHandlers.click) {
-    container.removeEventListener("click", detailContentHandlers.click);
+    detachTargets.forEach((el) => el.removeEventListener("click", detailContentHandlers.click));
   }
   if (detailContentHandlers.input) {
-    container.removeEventListener("input", detailContentHandlers.input);
-    container.removeEventListener("change", detailContentHandlers.input);
+    detachTargets.forEach((el) => {
+      el.removeEventListener("input", detailContentHandlers.input);
+      el.removeEventListener("change", detailContentHandlers.input);
+    });
   }
+
+  const container = getCandidateDetailContainer();
+  if (!container) return;
 
   detailContentHandlers.click = handleDetailContentClick;
   detailContentHandlers.input = handleDetailFieldChange;
@@ -3275,13 +3721,15 @@ function cleanupCandidatesEventListeners() {
   }
 
   const detailContent = document.getElementById("candidateDetailContent");
-  if (detailContent) {
-    if (detailContentHandlers.click) detailContent.removeEventListener("click", detailContentHandlers.click);
+  const detailContentPage = document.getElementById("candidateDetailContentPage");
+  const detachTargets = [detailContent, detailContentPage].filter(Boolean);
+  detachTargets.forEach((el) => {
+    if (detailContentHandlers.click) el.removeEventListener("click", detailContentHandlers.click);
     if (detailContentHandlers.input) {
-      detailContent.removeEventListener("input", detailContentHandlers.input);
-      detailContent.removeEventListener("change", detailContentHandlers.input);
+      el.removeEventListener("input", detailContentHandlers.input);
+      el.removeEventListener("change", detailContentHandlers.input);
     }
-  }
+  });
   detailContentHandlers.click = null;
   detailContentHandlers.input = null;
 }
@@ -3289,6 +3737,15 @@ function cleanupCandidatesEventListeners() {
 // ====== Detail Content Handlers ======
 
 function handleDetailContentClick(event) {
+  const companyOption = event.target.closest("[data-company-option]");
+  if (companyOption) {
+    selectCompanyAutocompleteOption(companyOption);
+    return;
+  }
+  if (!event.target.closest("[data-company-autocomplete]")) {
+    hideAllCompanyAutocompleteMenus();
+  }
+
   const editBtn = event.target.closest("[data-section-edit]");
   if (editBtn) {
     toggleDetailSectionEdit(editBtn.dataset.sectionEdit);
@@ -3356,7 +3813,8 @@ function handleDetailContentClick(event) {
 
 function syncDetailSectionInputs(sectionKey) {
   if (!sectionKey) return;
-  const section = document.querySelector(`.candidate-detail-section[data-section="${sectionKey}"], .detail-card[data-section="${sectionKey}"]`);
+  const root = getCandidateDetailContainer() || document;
+  const section = root.querySelector(`.candidate-detail-section[data-section="${sectionKey}"], .detail-card[data-section="${sectionKey}"]`);
   if (!section) {
     console.error(`[candidates] syncDetailSectionInputs: Section not found for key "${sectionKey}". Please reload.`);
     alert("画面の状態が古いため保存できませんでした。ページをリロードしてください。");
@@ -3384,43 +3842,59 @@ async function toggleDetailSectionEdit(sectionKey) {
     if (!candidate) return;
 
     if (wasEditing) {
-      // 編集モード終了時 (保存処理)
-
-      // 1. まず同期 (これでcandidateオブジェクトが更新される)
-      try {
-        syncDetailSectionInputs(sectionKey);
-      } catch (syncError) {
-        console.error("Sync inputs error:", syncError);
-        // エラーでも続行し、下のsaveCandidateRecord内のDOMスクレイピングに賭ける
+      const candidateKey = String(candidate.id || "");
+      if (candidateKey && detailSaveInFlight.has(candidateKey)) {
+        return;
       }
-
-      // 2. 保存実行 (DOMがまだ編集モードの状態で呼ぶ！これによりスクレイピングが機能する)
-      // 状態は保存成功までとりあえず変えないでおく、あるいは保存成功後に変える
-      // ここでは一時的に状態を変えず、保存に成功したら nextState (false) にする
-
+      if (candidateKey) detailSaveInFlight.add(candidateKey);
       try {
-        // 保存時はまだ編集モードのDOMが必要
-        const updated = await saveCandidateRecord(candidate, { preserveDetailState: false, includeDetail: true });
+        // 編集モード終了時 (保存処理)
 
-        // 3. 成功したら状態を閲覧モードへ
-        detailEditState[sectionKey] = false;
+        // 1. まず同期 (これでcandidateオブジェクトが更新される)
+        try {
+          syncDetailSectionInputs(sectionKey);
+        } catch (syncError) {
+          console.error("Sync inputs error:", syncError);
+          // エラーでも続行し、下のsaveCandidateRecord内のDOMスクレイピングに賭ける
+        }
 
-        renderCandidatesTable(filteredCandidates);
-        highlightSelectedRow();
-        renderCandidateDetail(updated, { preserveEditState: false });
+        // 2. 保存実行 (DOMがまだ編集モードの状態で呼ぶ！これによりスクレイピングが機能する)
+        // 状態は保存成功までとりあえず変えないでおく、あるいは保存成功後に変える
+        // ここでは一時的に状態を変えず、保存に成功したら nextState (false) にする
 
-      } catch (error) {
-        console.error("詳細の保存に失敗しました。", error);
-        alert(`保存に失敗しました。ネットワーク状態を確認してください。\n${error.message}`);
-        // 保存失敗時は編集モードのままにする (DOMは残っているので何もしなくてよい)
-        // ただし状態変数は戻す必要なし(まだ変えていないから)
+        try {
+          // 保存時はまだ編集モードのDOMが必要
+          const updated = await saveCandidateRecord(candidate, {
+            preserveDetailState: false,
+            includeDetail: true,
+            editedSection: sectionKey
+          });
 
-        // もし sync で中途半端に更新されていたら？
-        // DOMが残っているのでユーザーは再試行できる。
+          // 3. 成功したら状態を閲覧モードへ
+          detailEditState[sectionKey] = false;
+
+          renderCandidatesTable(filteredCandidates);
+          highlightSelectedRow();
+          renderCandidateDetail(updated, { preserveEditState: false });
+
+        } catch (error) {
+          console.error("詳細の保存に失敗しました。", error);
+          alert(`保存に失敗しました。ネットワーク状態を確認してください。\n${error.message}`);
+          // 保存失敗時は編集モードのままにする (DOMは残っているので何もしなくてよい)
+          // ただし状態変数は戻す必要なし(まだ変えていないから)
+
+          // もし sync で中途半端に更新されていたら？
+          // DOMが残っているのでユーザーは再試行できる。
+        }
+      } finally {
+        if (candidateKey) detailSaveInFlight.delete(candidateKey);
       }
 
     } else {
       // 編集モード開始時
+      if (sectionKey === "selection") {
+        await ensureClientListLoaded();
+      }
       detailEditState[sectionKey] = true;
       renderCandidateDetail(candidate, { preserveEditState: true });
     }
@@ -3482,6 +3956,25 @@ function handleDetailRemoveRow(type, index) {
     }
     case "selectionProgress": {
       const rows = candidate.selectionProgress || [];
+      const removedRow = rows[index];
+      const parseIntOrNull = typeof toIntOrNull === "function" ? toIntOrNull : (value) => {
+        if (value === undefined || value === null || String(value).trim() === "") return null;
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return null;
+        return Number.isInteger(parsed) ? parsed : Math.trunc(parsed);
+      };
+      const removedId = parseIntOrNull(removedRow?.id);
+      if (removedId !== null) {
+        const deletedIds = Array.isArray(candidate.selectionProgressDeletedIds)
+          ? candidate.selectionProgressDeletedIds
+            .map((id) => parseIntOrNull(id))
+            .filter((id) => id !== null && id > 0)
+          : [];
+        if (!deletedIds.includes(removedId)) {
+          deletedIds.push(removedId);
+        }
+        candidate.selectionProgressDeletedIds = deletedIds;
+      }
       rows.splice(index, 1);
       candidate.selectionProgress = rows;
       break;
@@ -3634,6 +4127,22 @@ function handleDetailFieldChange(event) {
   }
 
   updateCandidateFieldValue(candidate, fieldPath, value);
+  if (fieldPath.endsWith(".companyName")) {
+    const matched = bindSelectionProgressCompany(candidate, fieldPath, value);
+    const trimmed = String(value ?? "").trim();
+    if (target.dataset.companyNameInput === "true") {
+      if (event?.type === "input") {
+        updateCompanyAutocompleteMenu(target, trimmed);
+      } else if (event?.type === "change") {
+        hideAllCompanyAutocompleteMenus();
+      }
+    }
+    if (!trimmed || matched?.id) {
+      target.setCustomValidity("");
+    } else {
+      target.setCustomValidity("登録済み紹介先企業から選択してください。");
+    }
+  }
 
   if (fieldPath === "attendanceConfirmed") {
     scheduleDetailAutoSave(candidate);
@@ -3694,6 +4203,13 @@ function handleDetailFieldChange(event) {
       if (fieldPath.endsWith(".clientId")) {
         row.companyName = resolveClientName(row.clientId);
       }
+      if (fieldPath.endsWith(".companyName")) {
+        const matched = findClientByName(row.companyName);
+        if (matched?.id) {
+          row.clientId = matched.id;
+          row.client_id = matched.id;
+        }
+      }
       const status = resolveSelectionStageValue(row);
       row.status = status;
       updateSelectionStatusCell(index, status);
@@ -3705,12 +4221,17 @@ function scheduleDetailAutoSave(candidate) {
   if (!candidate) return;
   if (detailAutoSaveTimer) window.clearTimeout(detailAutoSaveTimer);
   detailAutoSaveTimer = window.setTimeout(async () => {
+    const candidateKey = String(candidate.id || "");
+    if (candidateKey && detailSaveInFlight.has(candidateKey)) return;
+    if (candidateKey) detailSaveInFlight.add(candidateKey);
     try {
       await saveCandidateRecord(candidate, { preserveDetailState: true, includeDetail: true });
       renderCandidatesTable(filteredCandidates);
       highlightSelectedRow();
     } catch (error) {
       console.error("詳細の保存に失敗しました。", error);
+    } finally {
+      if (candidateKey) detailSaveInFlight.delete(candidateKey);
     }
   }, 200);
 }
@@ -3968,7 +4489,7 @@ function renderSelectionProgressSection(candidate) {
           <div class="lg:col-span-3 space-y-3">
             <div class="form-group">
               <label class="block text-xs font-medium text-slate-500 mb-1">企業名</label>
-              ${renderTableInput(r.companyName, `${pathPrefix}.companyName`, "text", "selection", null, "client-list")}
+              ${renderCompanyAutocompleteInput(r.companyName, `${pathPrefix}.companyName`, "selection")}
             </div>
             <div class="form-group">
               <label class="block text-xs font-medium text-slate-500 mb-1">応募経路</label>
@@ -3987,10 +4508,13 @@ function renderSelectionProgressSection(candidate) {
           <!-- スケジュール (7 cols) -->
           <div class="lg:col-span-7 grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-3 rounded">
              <div class="col-span-2 md:col-span-1">
+                <label class="block text-xs font-medium text-slate-500 mb-1">提案日</label>
+                ${renderTableInput(r.proposalDate, `${pathPrefix}.proposalDate`, "date", "selection")}
+             </div>
+             <div class="col-span-2 md:col-span-1">
                 <label class="block text-xs font-medium text-slate-500 mb-1">推薦日</label>
                 ${renderTableInput(r.recommendationDate, `${pathPrefix}.recommendationDate`, "date", "selection")}
              </div>
-             <div class="col-span-2 md:col-span-1"></div> <!-- Spacer -->
              <div class="col-span-2 md:col-span-1"></div> <!-- Spacer -->
              <div class="col-span-2 md:col-span-1"></div> <!-- Spacer -->
 
@@ -4091,9 +4615,6 @@ function renderSelectionProgressSection(candidate) {
       ${addButton}
     </div>
     <div class="selection-card-container">
-      <datalist id="client-list">
-        ${clientList.map(c => `<option value="${escapeHtml(c.name)}"></option>`).join("")}
-      </datalist>
       ${cardsHtml || `<div class="p-8 text-center text-slate-400 bg-slate-50 rounded border border-dashed border-slate-300">企業進捗が登録されていません。<br>「追加」ボタンから登録してください。</div>`}
     </div>
   `;
@@ -4108,16 +4629,17 @@ function normalizeSelectionRow(row) {
     companyName: row.companyName,
     route: row.route ?? row.source,
     status: resolveSelectionStageValue(row) || row.status, // Pill表示用
-    recommendationDate: row.recommendationDate,
+    proposalDate: row.proposalDate ?? row.proposal_date,
+    recommendationDate: row.recommendationDate ?? row.recommended_at,
     firstInterviewAdjustDate: row.firstInterviewAdjustDate ?? row.firstInterviewSetAt ?? row.interviewSetupDate,
     firstInterviewDate: row.firstInterviewDate ?? row.firstInterviewAt ?? row.interviewDate,
     secondInterviewAdjustDate: row.secondInterviewAdjustDate ?? row.secondInterviewSetAt ?? row.secondInterviewSetupDate,
     secondInterviewDate: row.secondInterviewDate ?? row.secondInterviewAt,
     finalInterviewAdjustDate: row.finalInterviewAdjustDate ?? row.finalInterviewSetAt ?? row.finalInterviewSetupDate,
     finalInterviewDate: row.finalInterviewDate ?? row.finalInterviewAt,
-    offerDate: row.offerDate ?? row.offerAt,
-    offerAcceptedDate: row.offerAcceptedDate ?? row.offerAcceptedAt ?? row.acceptanceDate,
-    joinedDate: row.joinedDate ?? row.joinedAt ?? row.onboardingDate,
+    offerDate: row.offerDate ?? row.offer_date ?? row.offerAt,
+    offerAcceptedDate: row.offerAcceptedDate ?? row.offer_accept_date ?? row.offerAcceptedAt ?? row.acceptanceDate,
+    joinedDate: row.joinedDate ?? row.join_date ?? row.joinedAt ?? row.onboardingDate,
     declinedDate:
       row.declinedDate ??
       row.declinedAfterOfferDate ??
@@ -4149,6 +4671,7 @@ function renderSelectionFlowCard(rawRow) {
 
   // Flow Steps Definition
   const steps = [
+    { label: "提案", date: r.proposalDate, sub: null, keywords: ["提案"] },
     { label: "推薦", date: r.recommendationDate, sub: null, keywords: ["推薦", "書類"] },
     { label: "一次面接", date: r.firstInterviewDate, sub: r.firstInterviewAdjustDate ? `(調) ${formatDateJP(r.firstInterviewAdjustDate)}` : null, keywords: ["一次"] },
     { label: "二次面接", date: r.secondInterviewDate, sub: r.secondInterviewAdjustDate ? `(調) ${formatDateJP(r.secondInterviewAdjustDate)}` : null, keywords: ["二次"] },
@@ -4533,10 +5056,12 @@ function renderNextActionSection(candidate) {
 
   // サマリー表示
   let displayTask = currentTask;
-  if (!displayTask && candidate.nextActionDate) {
+  const fallbackDate = String(candidate.nextActionDate || "").trim();
+  const fallbackNote = String(candidate.nextActionContent || candidate.nextActionNote || "").trim();
+  if (!displayTask && fallbackDate && fallbackNote) {
     displayTask = {
-      actionDate: candidate.nextActionDate,
-      actionNote: candidate.nextActionContent || candidate.nextActionNote || "（内容未設定）",
+      actionDate: fallbackDate,
+      actionNote: fallbackNote,
       id: null // 仮想タスク
     };
   }
@@ -5022,7 +5547,8 @@ function formatInputValue(value, type) {
     const day = String(d.getDate()).padStart(2, "0");
     const hh = String(d.getHours()).padStart(2, "0");
     const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${y} -${m} -${day}T${hh}:${mm} `;
+    // HTML datetime-local expects "YYYY-MM-DDTHH:mm"
+    return `${y}-${m}-${day}T${hh}:${mm}`;
   }
   return value;
 }

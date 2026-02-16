@@ -9,7 +9,23 @@ import {
 } from './yield-metrics-from-candidates.js';
 
 // API接続設定
-const YIELD_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
+const DEFAULT_YIELD_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
+const FALLBACK_YIELD_API_BASE = '/api';
+
+function resolveYieldApiBase() {
+  if (typeof window === 'undefined') return DEFAULT_YIELD_API_BASE;
+  const fromWindow = window.YIELD_API_BASE || window.APP_API_BASE || '';
+  let fromStorage = '';
+  try {
+    fromStorage = localStorage.getItem('dashboard.yieldApiBase') || localStorage.getItem('dashboard.apiBase') || '';
+  } catch {
+    fromStorage = '';
+  }
+  const base = String(fromWindow || fromStorage || DEFAULT_YIELD_API_BASE).trim();
+  return base.replace(/\/$/, '');
+}
+
+const YIELD_API_BASE = resolveYieldApiBase();
 const KPI_API_BASE = `${YIELD_API_BASE}/kpi`;
 const MEMBERS_API_BASE = YIELD_API_BASE;
 const MEMBERS_LIST_PATH = '/members';
@@ -29,12 +45,42 @@ if (typeof window !== 'undefined') {
 
 async function fetchJson(url, params = {}) {
   const query = new URLSearchParams(params);
-  const res = await fetch(`${url}?${query.toString()}`, {
-    headers: { Accept: 'application/json' },
-    cache: 'no-store'
-  });
+  const fullUrl = `${url}?${query.toString()}`;
+  const headers = { Accept: 'application/json' };
+  const res = await fetchWithFallback(fullUrl, { headers, cache: 'no-store' });
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
+}
+
+function shouldFallbackStatus(status) {
+  // Remote API is often unavailable (DB timeouts). Retry via local /api mocks for 5xx.
+  return Number(status) >= 500;
+}
+
+function mapToFallbackUrl(url) {
+  const primary = String(YIELD_API_BASE || '').replace(/\/$/, '');
+  const fallback = String(FALLBACK_YIELD_API_BASE || '').replace(/\/$/, '');
+  if (!primary || !fallback) return '';
+  if (primary === fallback) return '';
+  if (url.startsWith(primary)) {
+    return fallback + url.slice(primary.length);
+  }
+  return '';
+}
+
+async function fetchWithFallback(url, options = {}) {
+  try {
+    const res = await fetch(url, options);
+    if (res.ok) return res;
+    if (!shouldFallbackStatus(res.status)) return res;
+    const fallbackUrl = mapToFallbackUrl(url);
+    if (!fallbackUrl) return res;
+    return fetch(fallbackUrl, options);
+  } catch (error) {
+    const fallbackUrl = mapToFallbackUrl(url);
+    if (!fallbackUrl) throw error;
+    return fetch(fallbackUrl, options);
+  }
 }
 
 async function fetchKpiTargetsFromApi(period) {
@@ -42,7 +88,7 @@ async function fetchKpiTargetsFromApi(period) {
     const session = getSession();
     const headers = { Accept: 'application/json' };
     if (session?.token) headers.Authorization = `Bearer ${session.token}`;
-    const res = await fetch(`${MEMBERS_API_BASE}${KPI_TARGETS_PATH}?period=${period}`, { headers });
+    const res = await fetchWithFallback(`${MEMBERS_API_BASE}${KPI_TARGETS_PATH}?period=${period}`, { headers });
     if (res.status === 404) return {};
     if (!res.ok) throw new Error(`kpi targets error ${res.status}`);
     return await res.json();
@@ -61,7 +107,7 @@ async function saveKpiTargetsToApi(period, targets) {
   if (session?.token) headers.Authorization = `Bearer ${session.token}`;
 
   const payload = { period, targets };
-  const res = await fetch(`${MEMBERS_API_BASE}${KPI_TARGETS_PATH}`, {
+  const res = await fetchWithFallback(`${MEMBERS_API_BASE}${KPI_TARGETS_PATH}`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(payload)
@@ -109,7 +155,7 @@ async function ensureMembersList({ force = false } = {}) {
       const session = getSession();
       const headers = { Accept: 'application/json' };
       if (session?.token) headers.Authorization = `Bearer ${session.token}`;
-      const res = await fetch(`${MEMBERS_API_BASE}${MEMBERS_LIST_PATH}`, { headers });
+      const res = await fetchWithFallback(`${MEMBERS_API_BASE}${MEMBERS_LIST_PATH}`, { headers });
       if (!res.ok) throw new Error(`members HTTP ${res.status}`);
       const json = await res.json();
       membersCache = normalizeMembers(json);
@@ -226,7 +272,7 @@ function getCalcModeLabel(mode = getCalcMode()) {
 
 function buildCalcModeParams() {
   const mode = getCalcMode();
-  const basis = mode === 'cohort' ? 'application' : 'event';
+  const basis = mode === 'cohort' ? 'application' : 'occurrence';
   return {
     calcMode: mode,
     countBasis: basis,
@@ -858,40 +904,44 @@ const COUNT_ID_MAP = {
     accepts: 'todayHires'
   },
   personalMonthly: {
-    newInterviews: 'personalProposals',
-    proposals: 'personalRecommendations',
-    recommendations: 'personalInterviewsScheduled',
-    interviewsScheduled: 'personalInterviewsHeld',
-    interviewsHeld: 'personalOffers',
-    offers: 'personalAccepts',
-    accepts: 'personalHires'
+    newInterviews: 'personalNewInterviews',
+    proposals: 'personalProposals',
+    recommendations: 'personalRecommendations',
+    interviewsScheduled: 'personalInterviewsScheduled',
+    interviewsHeld: 'personalInterviewsHeld',
+    offers: 'personalOffers',
+    accepts: 'personalAccepts',
+    hires: 'personalHires'
   },
   personalPeriod: {
-    newInterviews: 'periodProposals',
-    proposals: 'periodRecommendations',
-    recommendations: 'periodInterviewsScheduled',
-    interviewsScheduled: 'periodInterviewsHeld',
-    interviewsHeld: 'periodOffers',
-    offers: 'periodAccepts',
-    accepts: 'periodHires'
+    newInterviews: 'periodNewInterviews',
+    proposals: 'periodProposals',
+    recommendations: 'periodRecommendations',
+    interviewsScheduled: 'periodInterviewsScheduled',
+    interviewsHeld: 'periodInterviewsHeld',
+    offers: 'periodOffers',
+    accepts: 'periodAccepts',
+    hires: 'periodHires'
   },
   companyMonthly: {
-    newInterviews: 'companyProposals',
-    proposals: 'companyRecommendations',
-    recommendations: 'companyInterviewsScheduled',
-    interviewsScheduled: 'companyInterviewsHeld',
-    interviewsHeld: 'companyOffers',
-    offers: 'companyAccepts',
-    accepts: 'companyHires'
+    newInterviews: 'companyNewInterviews',
+    proposals: 'companyProposals',
+    recommendations: 'companyRecommendations',
+    interviewsScheduled: 'companyInterviewsScheduled',
+    interviewsHeld: 'companyInterviewsHeld',
+    offers: 'companyOffers',
+    accepts: 'companyAccepts',
+    hires: 'companyHires'
   },
   companyPeriod: {
-    newInterviews: 'companyPeriodProposals',
-    proposals: 'companyPeriodRecommendations',
-    recommendations: 'companyPeriodInterviewsScheduled',
-    interviewsScheduled: 'companyPeriodInterviewsHeld',
-    interviewsHeld: 'companyPeriodOffers',
-    offers: 'companyPeriodAccepts',
-    accepts: 'companyPeriodHires'
+    newInterviews: 'companyPeriodNewInterviews',
+    proposals: 'companyPeriodProposals',
+    recommendations: 'companyPeriodRecommendations',
+    interviewsScheduled: 'companyPeriodInterviewsScheduled',
+    interviewsHeld: 'companyPeriodInterviewsHeld',
+    offers: 'companyPeriodOffers',
+    accepts: 'companyPeriodAccepts',
+    hires: 'companyPeriodHires'
   }
 };
 
@@ -974,13 +1024,13 @@ const RATE_CARD_IDS = {
 };
 
 const TARGET_TO_GOAL_KEY = {
-  newInterviewsTarget: 'proposals',
-  proposalsTarget: 'recommendations',
-  recommendationsTarget: 'interviewsScheduled',
-  interviewsScheduledTarget: 'interviewsHeld',
-  interviewsHeldTarget: 'offers',
-  offersTarget: 'accepts',
-  acceptsTarget: 'hires',
+  newInterviewsTarget: 'newInterviews',
+  proposalsTarget: 'proposals',
+  recommendationsTarget: 'recommendations',
+  interviewsScheduledTarget: 'interviewsScheduled',
+  interviewsHeldTarget: 'interviewsHeld',
+  offersTarget: 'offers',
+  acceptsTarget: 'accepts',
   proposalRateTarget: 'proposalRate',
   recommendationRateTarget: 'recommendationRate',
   interviewScheduleRateTarget: 'interviewScheduleRate',
@@ -1050,6 +1100,7 @@ const PREV_KEY_MAP = {
   interviewsHeld: 'prevInterviewsHeld',
   offers: 'prevOffers',
   accepts: 'prevAccepts',
+  hires: 'prevHires',
   proposalRate: 'prevProposalRate',
   recommendationRate: 'prevRecommendationRate',
   interviewScheduleRate: 'prevInterviewScheduleRate',
@@ -1197,13 +1248,14 @@ const GOAL_CONFIG = {
     inputPrefix: 'todayGoal-',
     achvPrefix: 'todayAchv-',
     metrics: [
-      { goalKey: 'proposals', dataKey: 'newInterviews' },
-      { goalKey: 'recommendations', dataKey: 'proposals' },
-      { goalKey: 'interviewsScheduled', dataKey: 'recommendations' },
-      { goalKey: 'interviewsHeld', dataKey: 'interviewsScheduled' },
-      { goalKey: 'offers', dataKey: 'interviewsHeld' },
-      { goalKey: 'accepts', dataKey: 'offers' },
-      { goalKey: 'hires', dataKey: 'accepts' }
+      { goalKey: 'newInterviews', dataKey: 'newInterviews' },
+      { goalKey: 'proposals', dataKey: 'proposals' },
+      { goalKey: 'recommendations', dataKey: 'recommendations' },
+      { goalKey: 'interviewsScheduled', dataKey: 'interviewsScheduled' },
+      { goalKey: 'interviewsHeld', dataKey: 'interviewsHeld' },
+      { goalKey: 'offers', dataKey: 'offers' },
+      { goalKey: 'accepts', dataKey: 'accepts' },
+      { goalKey: 'hires', dataKey: 'hires' }
     ]
   },
   monthly: {
@@ -1211,13 +1263,14 @@ const GOAL_CONFIG = {
     inputPrefix: 'monthlyGoal-',
     achvPrefix: 'monthlyAchv-',
     metrics: [
-      { goalKey: 'proposals', dataKey: 'newInterviews' },
-      { goalKey: 'recommendations', dataKey: 'proposals' },
-      { goalKey: 'interviewsScheduled', dataKey: 'recommendations' },
-      { goalKey: 'interviewsHeld', dataKey: 'interviewsScheduled' },
-      { goalKey: 'offers', dataKey: 'interviewsHeld' },
-      { goalKey: 'accepts', dataKey: 'offers' },
-      { goalKey: 'hires', dataKey: 'accepts' },
+      { goalKey: 'newInterviews', dataKey: 'newInterviews' },
+      { goalKey: 'proposals', dataKey: 'proposals' },
+      { goalKey: 'recommendations', dataKey: 'recommendations' },
+      { goalKey: 'interviewsScheduled', dataKey: 'interviewsScheduled' },
+      { goalKey: 'interviewsHeld', dataKey: 'interviewsHeld' },
+      { goalKey: 'offers', dataKey: 'offers' },
+      { goalKey: 'accepts', dataKey: 'accepts' },
+      { goalKey: 'hires', dataKey: 'hires' },
       { goalKey: 'proposalRate', dataKey: 'proposalRate' },
       { goalKey: 'recommendationRate', dataKey: 'recommendationRate' },
       { goalKey: 'interviewScheduleRate', dataKey: 'interviewScheduleRate' },
@@ -1750,14 +1803,6 @@ export async function mount(root) {
   safe('initializeRateModeControls', initializeRateModeControls);
   safe('initializeMsRateToggles', initializeMsRateToggles);
   safe('loadYieldData', loadYieldData);
-
-  // Force load CSS with cache buster
-  if (typeof document !== 'undefined') {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = './pages/yield/yield.css?v=20260205_140149';
-    document.head.appendChild(link);
-  }
 }
 
 export function unmount() { }
@@ -4939,7 +4984,7 @@ function buildPrevCounts(prev = {}) {
     interviewsHeld: num(prev.prevInterviewsHeld),
     offers: num(prev.prevOffers),
     accepts: num(prev.prevAccepts),
-    hires: num(prev.prevAccepts)
+    hires: num(prev.prevHires ?? prev.prevAccepts)
   };
 }
 
@@ -4977,6 +5022,7 @@ function normalizePrev(src = {}) {
     prevInterviewsHeld: num(src.prevInterviewsHeld),
     prevOffers: num(src.prevOffers),
     prevAccepts: num(src.prevAccepts),
+    prevHires: num(src.prevHires ?? src.prevAccepts),
     prevProposalRate: num(src.prevProposalRate),
     prevRecommendationRate: num(src.prevRecommendationRate),
     prevInterviewScheduleRate: num(src.prevInterviewScheduleRate),

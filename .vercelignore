@@ -1,0 +1,14 @@
+# This project is deployed to Vercel as a static site.
+# Ignore local/dev artifacts and server-only code so Vercel won't create Serverless Functions.
+
+api/**
+tmp/**
+backup/**
+archive/**
+logs/**
+node_modules/**
+
+server/**
+db/**
+
+*.log

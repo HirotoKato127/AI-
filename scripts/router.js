@@ -16,8 +16,8 @@ const routes = {
   "yield-personal": () => import("../pages/yield-personal/yield-personal.js?v=20260203_01"),
   "yield-company": () => import("../pages/yield-company/yield-company.js?v=20260203_01"),
   "yield-admin": () => import("../pages/yield-admin/yield-admin.js?v=20260203_01"),
-  candidates: () => import("../pages/candidates/candidates.js?v=20260322_09"),
-  "candidate-detail": () => import("../pages/candidate-detail/candidate-detail.js?v=20260322_01"),
+  candidates: () => import("../pages/candidates/candidates.js?v=20260322_10"),
+  "candidate-detail": () => import("../pages/candidate-detail/candidate-detail.js?v=20260322_10"),
   "ad-performance": () => import("../pages/ad-performance/ad-performance.js?v=20260322_14"),
   teleapo: () => import("../pages/teleapo/teleapo.js?v=20260209_1"),
   referral: () => import("../pages/referral/referral.js?v=20260322_60"),
@@ -46,10 +46,10 @@ const routeMeta = {
 
 // CSS files for specific pages
 const pageCSS = {
-  yield: "pages/yield/yield.css?v=20260203_01",
-  "yield-personal": "pages/yield/yield.css?v=20260203_01",
-  "yield-company": "pages/yield/yield.css?v=20260203_01",
-  "yield-admin": "pages/yield/yield.css?v=20260203_01",
+  yield: "pages/yield/yield.css?v=20260205_140149",
+  "yield-personal": "pages/yield/yield.css?v=20260205_140149",
+  "yield-company": "pages/yield/yield.css?v=20260205_140149",
+  "yield-admin": "pages/yield/yield.css?v=20260205_140149",
   mypage: "pages/mypage/mypage.css?v=20260202_02",
   candidates: "pages/candidates/candidates.css?v=20260322_57",
   "candidate-detail": "pages/candidate-detail/candidate-detail.css?v=20260322_02",
@@ -63,33 +63,234 @@ const pageCSS = {
   login: null, // Uses global styles
 };
 
+const PAGE_HTML_VERSION = "20260213_01";
+const ROUTE_LOADING_OVERLAY_ID = "routeLoadingOverlay";
+const MOUNT_BLOCKING_TIMEOUT_MS = 1200;
+const ROUTE_LOADING_DELAY_MS = 120;
+const ROUTE_LOADING_MAX_MS = 15000;
+const ROUTE_FETCH_TIMEOUT_MS = 15000;
+
 let current = null;
-let currentCSS = null;
+let activePageCSSLink = null;
+let activePageCSSPage = null;
 const BADGE_SELECTORS = ["#sidebarUserBadgeSlot"];
 const BADGE_SELECTOR = "[data-user-badge]";
 const PAGE_TITLE_SELECTOR = "#pageTitle";
 let unsubscribeBadge = null;
+let navigationToken = 0;
+let activeNavigationToken = 0;
+let activeNavigationAbortController = null;
+let routeLoadingDelayTimer = null;
+let routeLoadingMaxTimer = null;
+let routeLoadingPendingCount = 0;
 
 function resolveAsset(path) {
   return new URL(path, import.meta.url).href;
 }
 
-function loadPageCSS(page) {
-  // Remove previous page CSS
-  if (currentCSS) {
-    currentCSS.remove();
-    currentCSS = null;
+function ensureRouteLoadingOverlay() {
+  const overlays = Array.from(document.querySelectorAll(`#${ROUTE_LOADING_OVERLAY_ID}`));
+  let overlay = overlays[0] || null;
+  if (overlays.length > 1) {
+    overlays.slice(1).forEach((node) => node.remove());
+  }
+  if (overlay) return overlay;
+
+  overlay = document.createElement("div");
+  overlay.id = ROUTE_LOADING_OVERLAY_ID;
+  overlay.dataset.routeLoadingOverlay = "true";
+  overlay.setAttribute("aria-live", "polite");
+  overlay.style.cssText = [
+    "position: fixed",
+    "inset: 0",
+    "z-index: 9999",
+    "display: flex",
+    "align-items: center",
+    "justify-content: center",
+    "background: rgba(248, 250, 252, 0.6)",
+    "backdrop-filter: blur(1px)",
+    "font-size: 13px",
+    "font-weight: 600",
+    "color: #1e293b",
+    "letter-spacing: 0.02em"
+  ].join("; ");
+  overlay.innerHTML = `<div style="padding: 10px 14px; border-radius: 10px; background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);">読み込み中...</div>`;
+  overlay.hidden = true;
+  overlay.style.display = "none";
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function setRouteLoadingState(isLoading) {
+  const overlay = ensureRouteLoadingOverlay();
+  if (isLoading) {
+    routeLoadingPendingCount += 1;
+    if (routeLoadingPendingCount > 1) return;
+
+    // ナビゲーションが短時間で終わる場合はオーバーレイ表示を遅延させる
+    routeLoadingDelayTimer = setTimeout(() => {
+      overlay.hidden = false;
+      overlay.setAttribute("aria-hidden", "false");
+      overlay.style.display = "flex";
+    }, ROUTE_LOADING_DELAY_MS);
+
+    // 万が一読み込みが完了しない場合でも、表示貼り付きを防ぐ
+    routeLoadingMaxTimer = setTimeout(() => {
+      console.warn("[router] loading overlay timeout reached, forcing hide");
+      routeLoadingPendingCount = 0;
+      if (routeLoadingDelayTimer) {
+        clearTimeout(routeLoadingDelayTimer);
+        routeLoadingDelayTimer = null;
+      }
+      routeLoadingMaxTimer = null;
+      overlay.hidden = true;
+      overlay.setAttribute("aria-hidden", "true");
+      overlay.style.display = "none";
+    }, ROUTE_LOADING_MAX_MS);
+    return;
   }
 
-  // Load page-specific CSS if exists
-  if (pageCSS[page]) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = resolveAsset(`../${pageCSS[page]}`);
-    link.dataset.pageCSS = page;
-    document.head.appendChild(link);
-    currentCSS = link;
+  if (routeLoadingPendingCount > 0) {
+    routeLoadingPendingCount -= 1;
   }
+  if (routeLoadingPendingCount > 0) return;
+
+  if (routeLoadingDelayTimer) {
+    clearTimeout(routeLoadingDelayTimer);
+    routeLoadingDelayTimer = null;
+  }
+  if (routeLoadingMaxTimer) {
+    clearTimeout(routeLoadingMaxTimer);
+    routeLoadingMaxTimer = null;
+  }
+  overlay.hidden = true;
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.style.display = "none";
+}
+
+function waitForStylesheet(link, page) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const cleanup = () => {
+      link.removeEventListener("load", onLoad);
+      link.removeEventListener("error", onError);
+    };
+    const finish = (handler) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      handler();
+    };
+    const onLoad = () => {
+      finish(() => resolve(link));
+    };
+    const onError = () => {
+      finish(() => reject(new Error(`Failed to load CSS for ${page}`)));
+    };
+
+    link.addEventListener("load", onLoad);
+    link.addEventListener("error", onError);
+
+    // If already loaded from cache before listeners attached.
+    if (link.sheet) {
+      finish(() => resolve(link));
+    }
+  });
+}
+
+async function preparePageCSS(page) {
+  const cssPath = pageCSS[page];
+  if (!cssPath) return null;
+
+  if (activePageCSSPage === page && activePageCSSLink?.isConnected) {
+    return activePageCSSLink;
+  }
+
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = resolveAsset(`../${cssPath}`);
+  link.setAttribute("data-page-css", page);
+  document.head.appendChild(link);
+  try {
+    await waitForStylesheet(link, page);
+  } catch (error) {
+    if (link.isConnected) link.remove();
+    throw error;
+  }
+  return link;
+}
+
+function discardPreparedPageCSS(link) {
+  if (!link) return;
+  if (link === activePageCSSLink) return;
+  if (link.isConnected) link.remove();
+}
+
+function cleanupPageCSSLinks(keepLink = null) {
+  const links = document.querySelectorAll('link[data-page-css], link[data-page-c-s-s]');
+  links.forEach((link) => {
+    if (keepLink && link === keepLink) return;
+    link.remove();
+  });
+}
+
+function commitPageCSS(page, nextLink) {
+  if (!pageCSS[page]) {
+    cleanupPageCSSLinks();
+    activePageCSSLink = null;
+    activePageCSSPage = null;
+    return;
+  }
+
+  if (!nextLink) return;
+  if (nextLink === activePageCSSLink) {
+    cleanupPageCSSLinks(nextLink);
+    return;
+  }
+
+  cleanupPageCSSLinks(nextLink);
+  activePageCSSLink = nextLink;
+  activePageCSSPage = page;
+}
+
+function buildPageHtmlUrl(page) {
+  const htmlUrl = new URL(resolveAsset(`../pages/${page}/index.html`));
+  htmlUrl.searchParams.set("v", PAGE_HTML_VERSION);
+  return htmlUrl.toString();
+}
+
+async function fetchPageHtml(page, signal) {
+  const response = await fetch(buildPageHtmlUrl(page), { cache: "no-cache", signal });
+  if (!response.ok) {
+    throw new Error(`Failed to load ${page} page (${response.status})`);
+  }
+  return response.text();
+}
+
+function sanitizePageHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  template.content.querySelectorAll('link[rel="stylesheet"]').forEach((link) => link.remove());
+  return template.innerHTML;
+}
+
+async function mountPageModule(mod, app, page) {
+  if (!mod?.mount) return;
+  let guardedMountPromise;
+  try {
+    guardedMountPromise = Promise.resolve(mod.mount(app)).catch((error) => {
+      // Keep rendering instead of forcing login. Page modules handle their own error UIs.
+      console.error(`[router] mount error on ${page}:`, error);
+    });
+  } catch (error) {
+    console.error(`[router] mount error on ${page}:`, error);
+    return;
+  }
+
+  await Promise.race([
+    guardedMountPromise,
+    new Promise((resolve) => setTimeout(resolve, MOUNT_BLOCKING_TIMEOUT_MS))
+  ]);
 }
 
 /**
@@ -141,61 +342,86 @@ export function consumePostLoginRedirect() {
 
 export async function navigate(to) {
   const app = document.getElementById("app");
+  if (!app) return;
+  const navToken = ++navigationToken;
+  activeNavigationToken = navToken;
 
-  // ハッシュからクエリパラメータを分離
-  const hashPart = location.hash.replace(/^#\/?/, "");
-  const [pathPart, hashQueryRaw] = hashPart.split("?");
-  const hashQuery = hashQueryRaw ? `?${hashQueryRaw}` : "";
-  const segments = pathPart.split("/").filter(Boolean);
-  const toValue = to ? String(to) : "";
-  const [toPath, toQueryRaw] = toValue.split("?");
-  const rawPage = toPath || segments[0] || "candidates";
-  const toQuery = toQueryRaw ? `?${toQueryRaw}` : "";
-
-  // ルーターガード（beforeNavigate）で実際に表示すべきページを決定
-  const guardedPage = beforeNavigate(rawPage);
-
-  if (guardedPage !== rawPage) {
-    // ハッシュを書き換えて早期リターン（実際の描画は次のnavigate呼び出しで行う）
-    location.hash = `#/${guardedPage}`;
-    return;
+  if (activeNavigationAbortController) {
+    activeNavigationAbortController.abort();
   }
+  const abortController = new AbortController();
+  activeNavigationAbortController = abortController;
+  setRouteLoadingState(true);
+  const routeFetchTimeoutId = setTimeout(() => {
+    abortController.abort();
+  }, ROUTE_FETCH_TIMEOUT_MS);
 
-  const page = guardedPage;
-  const queryPart = guardedPage === rawPage ? (toQuery || (rawPage === segments[0] ? hashQuery : "")) : "";
-
-  // Unmount current page
-  if (current?.unmount) {
-    try {
-      current.unmount();
-    } catch (error) {
-      console.warn("Error unmounting page:", error);
-    }
-  }
+  let page = "login";
+  let preparedPageCSSLink = null;
 
   try {
-    // Load page-specific CSS
-    loadPageCSS(page);
+    // ハッシュからクエリパラメータを分離
+    const hashPart = location.hash.replace(/^#\/?/, "");
+    const [pathPart, hashQueryRaw] = hashPart.split("?");
+    const hashQuery = hashQueryRaw ? `?${hashQueryRaw}` : "";
+    const segments = pathPart.split("/").filter(Boolean);
+    const toValue = to ? String(to) : "";
+    const [toPath, toQueryRaw] = toValue.split("?");
+    const rawPage = toPath || segments[0] || "candidates";
+    const toQuery = toQueryRaw ? `?${toQueryRaw}` : "";
 
-    // Load page HTML
-    const htmlURL = resolveAsset(`../pages/${page}/index.html`);
-    // Add cache-busting parameter
-    const htmlUrl = `${htmlURL}?v=${Date.now()}`;
-    const response = await fetch(htmlUrl, { cache: "no-cache" });
-    if (!response.ok) {
-      throw new Error(`Failed to load ${page} page (${response.status})`);
+    // ルーターガード（beforeNavigate）で実際に表示すべきページを決定
+    const guardedPage = beforeNavigate(rawPage);
+
+    if (guardedPage !== rawPage) {
+      // ハッシュを書き換えて早期リターン（実際の描画は次のnavigate呼び出しで行う）
+      location.hash = `#/${guardedPage}`;
+      return;
     }
-    const html = await response.text();
-    app.innerHTML = html;
+
+    page = guardedPage;
+    const queryPart = guardedPage === rawPage ? (toQuery || (rawPage === segments[0] ? hashQuery : "")) : "";
+    const pageLoader = routes[page] ?? routes["login"];
+
+    const pendingCss = preparePageCSS(page);
+    let nextCssLink;
+    let html;
+    let mod;
+
+    try {
+      [nextCssLink, html, mod] = await Promise.all([
+        pendingCss,
+        fetchPageHtml(page, abortController.signal),
+        pageLoader()
+      ]);
+    } catch (error) {
+      const orphanCssLink = await Promise.resolve(pendingCss).catch(() => null);
+      discardPreparedPageCSS(orphanCssLink);
+      throw error;
+    }
+    preparedPageCSSLink = nextCssLink;
+
+    if (navToken !== activeNavigationToken) {
+      discardPreparedPageCSS(preparedPageCSSLink);
+      return;
+    }
+
+    // Unmount current page only after next page resources are ready.
+    if (current?.unmount) {
+      try {
+        current.unmount();
+      } catch (error) {
+        console.warn("Error unmounting page:", error);
+      }
+    }
+
+    commitPageCSS(page, preparedPageCSSLink);
+    app.innerHTML = sanitizePageHtml(html);
     app.dataset.page = page;
 
     // Load and mount page module
-    const mod = await (routes[page]?.() ?? routes["login"]());
     current = mod;
-
-    if (mod?.mount) {
-      mod.mount(app);
-    }
+    await mountPageModule(mod, app, page);
     updatePageTitle(page);
 
     // Update URL
@@ -205,11 +431,21 @@ export async function navigate(to) {
     updateNavigation(page);
     ensureUserBadge();
   } catch (error) {
+    if (error?.name === "AbortError") return;
+
     console.error("Navigation error:", error);
-    // Fallback to login page
-    if (page !== "login") {
+    discardPreparedPageCSS(preparedPageCSSLink);
+
+    // If initial navigation fails, fallback to login.
+    if (!current && page !== "login") {
       navigate("login");
     }
+  } finally {
+    clearTimeout(routeFetchTimeoutId);
+    if (activeNavigationAbortController === abortController) {
+      activeNavigationAbortController = null;
+    }
+    setRouteLoadingState(false);
   }
 }
 

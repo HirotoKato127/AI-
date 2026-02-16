@@ -52,7 +52,7 @@ const calculateAge = (birthDate) => {
 async function fetchMasters(client) {
     const [clientsRes, usersRes] = await Promise.all([
         client.query("SELECT id, name FROM clients ORDER BY name ASC"),
-        client.query("SELECT id, name FROM users ORDER BY name ASC"),
+        client.query("SELECT id, name, role FROM users ORDER BY name ASC"),
     ]);
     return { clients: clientsRes.rows || [], users: usersRes.rows || [] };
 }
@@ -398,17 +398,30 @@ export const handler = async (event) => {
                         if (teleRes.rows.length > 0) await client.query("UPDATE teleapo SET result='着座' WHERE id=$1", [teleRes.rows[0].id]);
                     }
 
+                    const deletedSelectionProgressIds = Array.isArray(payload.deletedSelectionProgressIds ?? payload.deleted_selection_progress_ids)
+                        ? (payload.deletedSelectionProgressIds ?? payload.deleted_selection_progress_ids)
+                            .map((id) => toIntOrNull(id))
+                            .filter((id) => id !== null && id > 0)
+                        : [];
+                    if (deletedSelectionProgressIds.length > 0) {
+                        await client.query(`
+                DELETE FROM candidate_applications
+                WHERE id = ANY($1::int[]) AND candidate_id = $2
+             `, [deletedSelectionProgressIds, candidateId]);
+                    }
+
                     const selectionPayload = Array.isArray(payload.selectionProgress) ? payload.selectionProgress : (Array.isArray(payload.selection_progress) ? payload.selection_progress : null);
                     if (selectionPayload) {
                         for (const entry of selectionPayload) {
                             if (!entry.clientId && !entry.client_id && !entry.id) continue;
-                            const s_id = toIntOrNull(entry.id);
+                            let s_id = toIntOrNull(entry.id);
                             const s_clientId = toIntOrNull(entry.clientId ?? entry.client_id);
                             const s_stage = entry.stageCurrent || entry.stage_current || entry.status || "";
                             const s_jobTitle = entry.jobTitle || entry.job_title || "";
                             const s_route = entry.route || entry.applyRoute || entry.apply_route || "";
 
                             // すべての日付フィールドを取得
+                            const s_proposalDate = emptyToNull(entry.proposalDate ?? entry.proposal_date);
                             const s_recommendedAt = emptyToNull(entry.recommendedAt ?? entry.recommended_at ?? entry.recommendationDate);
                             const s_firstInterviewSetAt = emptyToNull(entry.firstInterviewSetAt ?? entry.first_interview_set_at ?? entry.firstInterviewAdjustDate ?? entry.interviewSetupDate);
                             const s_firstInterviewAt = emptyToNull(entry.firstInterviewAt ?? entry.first_interview_at ?? entry.firstInterviewDate ?? entry.interviewDate);
@@ -416,9 +429,9 @@ export const handler = async (event) => {
                             const s_secondInterviewAt = emptyToNull(entry.secondInterviewAt ?? entry.second_interview_at ?? entry.secondInterviewDate);
                             const s_finalInterviewSetAt = emptyToNull(entry.finalInterviewSetAt ?? entry.final_interview_set_at ?? entry.finalInterviewAdjustDate);
                             const s_finalInterviewAt = emptyToNull(entry.finalInterviewAt ?? entry.final_interview_at ?? entry.finalInterviewDate);
-                            const s_offerAt = emptyToNull(entry.offerAt ?? entry.offer_at ?? entry.offerDate ?? entry.offer_date);
-                            const s_offerAcceptedAt = emptyToNull(entry.offerAcceptedAt ?? entry.offer_accepted_at ?? entry.offerAcceptDate ?? entry.offer_accept_date ?? entry.acceptanceDate);
-                            const s_joinedAt = emptyToNull(entry.joinedAt ?? entry.joined_at ?? entry.joinDate ?? entry.join_date ?? entry.onboardingDate);
+                            const s_offerDate = emptyToNull(entry.offerDate ?? entry.offer_date ?? entry.offerAt ?? entry.offer_at);
+                            const s_offerAcceptDate = emptyToNull(entry.offerAcceptDate ?? entry.offer_accept_date ?? entry.offerAcceptedDate ?? entry.offer_accepted_at ?? entry.acceptanceDate);
+                            const s_joinDate = emptyToNull(entry.joinDate ?? entry.join_date ?? entry.joinedAt ?? entry.joined_at ?? entry.onboardingDate);
                             const s_preJoinWithdrawDate = emptyToNull(entry.preJoinWithdrawDate ?? entry.pre_join_withdraw_date ?? entry.preJoinDeclineDate);
                             const s_preJoinWithdrawReason = emptyToNull(entry.preJoinWithdrawReason ?? entry.pre_join_withdraw_reason ?? entry.preJoinDeclineReason);
                             const s_postJoinQuitDate = emptyToNull(entry.postJoinQuitDate ?? entry.post_join_quit_date);
@@ -431,6 +444,59 @@ export const handler = async (event) => {
                             const s_selectionNote = emptyToNull(entry.selectionNote ?? entry.selection_note);
                             const s_fee = toIntOrNull(entry.fee ?? entry.feeAmount ?? entry.fee_amount);
 
+                            // Idempotency guard:
+                            // when the same payload is submitted repeatedly (double click / retry),
+                            // detect an already-created identical row and treat it as UPDATE target.
+                            if (!s_id && s_clientId) {
+                                const duplicateRes = await client.query(`
+                                    SELECT id
+                                    FROM candidate_applications
+                                    WHERE candidate_id = $1
+                                      AND client_id = $2
+                                      AND stage_current IS NOT DISTINCT FROM $3
+                                      AND job_title IS NOT DISTINCT FROM $4
+                                      AND apply_route IS NOT DISTINCT FROM $5
+                                      AND proposal_date IS NOT DISTINCT FROM $6
+                                      AND recommended_at IS NOT DISTINCT FROM $7
+                                      AND first_interview_set_at IS NOT DISTINCT FROM $8
+                                      AND first_interview_at IS NOT DISTINCT FROM $9
+                                      AND second_interview_set_at IS NOT DISTINCT FROM $10
+                                      AND second_interview_at IS NOT DISTINCT FROM $11
+                                      AND final_interview_set_at IS NOT DISTINCT FROM $12
+                                      AND final_interview_at IS NOT DISTINCT FROM $13
+                                      AND COALESCE(offer_at::text, offer_date::text, '') = COALESCE($14::text, '')
+                                      AND COALESCE(offer_accepted_at::text, offer_accept_date::text, '') = COALESCE($15::text, '')
+                                      AND COALESCE(joined_at::text, join_date::text, '') = COALESCE($16::text, '')
+                                      AND pre_join_withdraw_date IS NOT DISTINCT FROM $17
+                                      AND pre_join_withdraw_reason IS NOT DISTINCT FROM $18
+                                      AND post_join_quit_date IS NOT DISTINCT FROM $19
+                                      AND post_join_quit_reason IS NOT DISTINCT FROM $20
+                                      AND declined_after_offer_at IS NOT DISTINCT FROM $21
+                                      AND declined_after_offer_reason IS NOT DISTINCT FROM $22
+                                      AND early_turnover_at IS NOT DISTINCT FROM $23
+                                      AND early_turnover_reason IS NOT DISTINCT FROM $24
+                                      AND closing_forecast_at IS NOT DISTINCT FROM $25
+                                      AND selection_note IS NOT DISTINCT FROM $26
+                                      AND fee IS NOT DISTINCT FROM $27
+                                    ORDER BY id DESC
+                                    LIMIT 1
+                                `, [
+                                    candidateId, s_clientId, s_stage, s_jobTitle, s_route,
+                                    s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
+                                    s_secondInterviewSetAt, s_secondInterviewAt,
+                                    s_finalInterviewSetAt, s_finalInterviewAt,
+                                    s_offerDate, s_offerAcceptDate, s_joinDate,
+                                    s_preJoinWithdrawDate, s_preJoinWithdrawReason,
+                                    s_postJoinQuitDate, s_postJoinQuitReason,
+                                    s_declinedAfterOfferAt, s_declinedAfterOfferReason,
+                                    s_earlyTurnoverAt, s_earlyTurnoverReason,
+                                    s_closeExpectedAt, s_selectionNote, s_fee
+                                ]);
+                                if (duplicateRes.rows.length > 0) {
+                                    s_id = toIntOrNull(duplicateRes.rows[0].id);
+                                }
+                            }
+
                             if (s_id) {
                                 // UPDATE: 既存レコードの更新
                                 await client.query(`
@@ -439,35 +505,41 @@ export const handler = async (event) => {
                                         stage_current = $3,
                                         job_title = $4,
                                         apply_route = $5,
-                                        recommended_at = COALESCE($6, recommended_at),
-                                        first_interview_set_at = COALESCE($7, first_interview_set_at),
-                                        first_interview_at = COALESCE($8, first_interview_at),
-                                        second_interview_set_at = COALESCE($9, second_interview_set_at),
-                                        second_interview_at = COALESCE($10, second_interview_at),
-                                        final_interview_set_at = COALESCE($11, final_interview_set_at),
-                                        final_interview_at = COALESCE($12, final_interview_at),
-                                        offer_at = COALESCE($13, offer_at),
-                                        offer_accepted_at = COALESCE($14, offer_accepted_at),
-                                        joined_at = COALESCE($15, joined_at),
-                                        pre_join_withdraw_date = COALESCE($16, pre_join_withdraw_date),
-                                        pre_join_withdraw_reason = COALESCE($17, pre_join_withdraw_reason),
-                                        post_join_quit_date = COALESCE($18, post_join_quit_date),
-                                        post_join_quit_reason = COALESCE($19, post_join_quit_reason),
-                                        declined_after_offer_at = COALESCE($20, declined_after_offer_at),
-                                        declined_after_offer_reason = COALESCE($21, declined_after_offer_reason),
-                                        early_turnover_at = COALESCE($22, early_turnover_at),
-                                        early_turnover_reason = COALESCE($23, early_turnover_reason),
-                                        closing_forecast_at = COALESCE($24, closing_forecast_at),
-                                        selection_note = COALESCE($25, selection_note),
-                                        fee = COALESCE($26, fee),
+                                        proposal_date = COALESCE($6, proposal_date),
+                                        recommended_at = COALESCE($7, recommended_at),
+                                        first_interview_set_at = COALESCE($8, first_interview_set_at),
+                                        first_interview_at = COALESCE($9, first_interview_at),
+                                        second_interview_set_at = COALESCE($10, second_interview_set_at),
+                                        second_interview_at = COALESCE($11, second_interview_at),
+                                        final_interview_set_at = COALESCE($12, final_interview_set_at),
+                                        final_interview_at = COALESCE($13, final_interview_at),
+                                        offer_date = COALESCE($14, offer_date),
+                                        offer_at = COALESCE($15, offer_at),
+                                        offer_accept_date = COALESCE($16, offer_accept_date),
+                                        offer_accepted_at = COALESCE($17, offer_accepted_at),
+                                        join_date = COALESCE($18, join_date),
+                                        joined_at = COALESCE($19, joined_at),
+                                        pre_join_withdraw_date = COALESCE($20, pre_join_withdraw_date),
+                                        pre_join_withdraw_reason = COALESCE($21, pre_join_withdraw_reason),
+                                        post_join_quit_date = COALESCE($22, post_join_quit_date),
+                                        post_join_quit_reason = COALESCE($23, post_join_quit_reason),
+                                        declined_after_offer_at = COALESCE($24, declined_after_offer_at),
+                                        declined_after_offer_reason = COALESCE($25, declined_after_offer_reason),
+                                        early_turnover_at = COALESCE($26, early_turnover_at),
+                                        early_turnover_reason = COALESCE($27, early_turnover_reason),
+                                        closing_forecast_at = COALESCE($28, closing_forecast_at),
+                                        selection_note = COALESCE($29, selection_note),
+                                        fee = COALESCE($30, fee),
                                         updated_at = NOW() 
-                                    WHERE id = $1 AND candidate_id = $27
+                                    WHERE id = $1 AND candidate_id = $31
                                 `, [
                                     s_id, s_clientId, s_stage, s_jobTitle, s_route,
-                                    s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
+                                    s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
                                     s_secondInterviewSetAt, s_secondInterviewAt,
                                     s_finalInterviewSetAt, s_finalInterviewAt,
-                                    s_offerAt, s_offerAcceptedAt, s_joinedAt,
+                                    s_offerDate, s_offerDate,
+                                    s_offerAcceptDate, s_offerAcceptDate,
+                                    s_joinDate, s_joinDate,
                                     s_preJoinWithdrawDate, s_preJoinWithdrawReason,
                                     s_postJoinQuitDate, s_postJoinQuitReason,
                                     s_declinedAfterOfferAt, s_declinedAfterOfferReason,
@@ -480,10 +552,10 @@ export const handler = async (event) => {
                                 await client.query(`
                                     INSERT INTO candidate_applications (
                                         candidate_id, client_id, stage_current, job_title, apply_route,
-                                        recommended_at, first_interview_set_at, first_interview_at,
+                                        proposal_date, recommended_at, first_interview_set_at, first_interview_at,
                                         second_interview_set_at, second_interview_at,
                                         final_interview_set_at, final_interview_at,
-                                        offer_at, offer_accepted_at, joined_at,
+                                        offer_date, offer_at, offer_accept_date, offer_accepted_at, join_date, joined_at,
                                         pre_join_withdraw_date, pre_join_withdraw_reason,
                                         post_join_quit_date, post_join_quit_reason,
                                         declined_after_offer_at, declined_after_offer_reason,
@@ -493,17 +565,21 @@ export const handler = async (event) => {
                                     ) VALUES (
                                         $1, $2, $3, $4, $5,
                                         $6, $7, $8, $9, $10,
-                                        $11, $12, $13, $14, $15,
-                                        $16, $17, $18, $19, $20,
-                                        $21, $22, $23, $24, $25, $26,
+                                        $11, $12, $13,
+                                        $14, $15, $16, $17, $18, $19,
+                                        $20, $21, $22, $23,
+                                        $24, $25, $26, $27,
+                                        $28, $29, $30,
                                         NOW(), NOW()
                                     )
                                 `, [
                                     candidateId, s_clientId, s_stage, s_jobTitle, s_route,
-                                    s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
+                                    s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
                                     s_secondInterviewSetAt, s_secondInterviewAt,
                                     s_finalInterviewSetAt, s_finalInterviewAt,
-                                    s_offerAt, s_offerAcceptedAt, s_joinedAt,
+                                    s_offerDate, s_offerDate,
+                                    s_offerAcceptDate, s_offerAcceptDate,
+                                    s_joinDate, s_joinDate,
                                     s_preJoinWithdrawDate, s_preJoinWithdrawReason,
                                     s_postJoinQuitDate, s_postJoinQuitReason,
                                     s_declinedAfterOfferAt, s_declinedAfterOfferReason,

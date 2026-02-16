@@ -34,9 +34,9 @@ function isDevAutoLoginEnabled() {
     const stored = localStorage.getItem(DEV_AUTO_LOGIN_KEY);
     if (stored === 'true') return true;
     if (stored === 'false') return false;
-    return true;
+    return false;
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -176,7 +176,7 @@ export const authRepo = {
       }
     }
 
-    if (isDevAutoLoginEnabled()) { // isDevHostチェックを一旦外す（デモ用）
+    if (isDevHost() && isDevAutoLoginEnabled()) {
       const mockUser = mockUsers.find(user => user.role === 'admin') || mockUsers[0];
       if (mockUser) {
         const session = createSessionFromUser(mockUser);

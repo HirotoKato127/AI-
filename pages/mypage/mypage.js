@@ -3,8 +3,73 @@ import { authRepo } from '../../scripts/api/repositories/auth.js';
 import { mount as mountYield } from '../yield/yield.js?v=20260127_01';
 import { mount as mountGoalSettings } from '../goal-settings/goal-settings.js';
 
-const MYPAGE_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
+const DEFAULT_MYPAGE_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
+const FALLBACK_MYPAGE_API_BASE = '/api';
+
+function resolveMypageApiBase() {
+  if (typeof window === 'undefined') return DEFAULT_MYPAGE_API_BASE;
+  const fromWindow = window.MYPAGE_API_BASE || window.APP_API_BASE || '';
+  let fromStorage = '';
+  try {
+    fromStorage = localStorage.getItem('dashboard.mypageApiBase') || localStorage.getItem('dashboard.apiBase') || '';
+  } catch {
+    fromStorage = '';
+  }
+  const base = String(fromWindow || fromStorage || DEFAULT_MYPAGE_API_BASE).trim();
+  return base.replace(/\/$/, '');
+}
+
+const MYPAGE_API_BASE = resolveMypageApiBase();
 const MYPAGE_PATH = '/mypage';
+
+function shouldFallbackStatus(status) {
+  return Number(status) >= 500;
+}
+
+function shouldEnableApiFallback() {
+  if (typeof window === 'undefined') return false;
+
+  let mode = '';
+  try {
+    mode = String(localStorage.getItem('dashboard.mypageApiFallback') || '').trim().toLowerCase();
+  } catch {
+    mode = '';
+  }
+
+  if (mode === 'always') return true;
+  if (mode === 'off') return false;
+
+  const host = String(window.location.hostname || '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+}
+
+function mapToFallbackUrl(url) {
+  const primary = String(MYPAGE_API_BASE || '').replace(/\/$/, '');
+  const fallback = String(FALLBACK_MYPAGE_API_BASE || '').replace(/\/$/, '');
+  if (!primary || !fallback) return '';
+  if (primary === fallback) return '';
+  if (url.startsWith(primary)) return fallback + url.slice(primary.length);
+  return '';
+}
+
+async function fetchWithFallback(url, options = {}) {
+  const canFallback = shouldEnableApiFallback();
+  try {
+    const res = await fetch(url, options);
+    if (res.ok) return res;
+    if (!canFallback || !shouldFallbackStatus(res.status)) return res;
+    const fallbackUrl = mapToFallbackUrl(url);
+    if (!fallbackUrl) return res;
+    console.warn('[mypage] fallback to local API', { status: res.status, fallbackUrl });
+    return fetch(fallbackUrl, options);
+  } catch (error) {
+    if (!canFallback) throw error;
+    const fallbackUrl = mapToFallbackUrl(url);
+    if (!fallbackUrl) throw error;
+    console.warn('[mypage] fallback to local API after fetch error', { fallbackUrl, error: String(error?.message || error) });
+    return fetch(fallbackUrl, options);
+  }
+}
 
 const state = {
   roleView: 'advisor',
@@ -136,7 +201,7 @@ async function loadMypageData(session, { monthKey } = {}) {
   }
 
   try {
-    const res = await fetch(url.toString(), { headers });
+    const res = await fetchWithFallback(url.toString(), { headers });
     if (!res.ok) throw new Error(`mypage HTTP ${res.status}`);
     const data = await res.json();
 
