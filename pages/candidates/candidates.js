@@ -460,7 +460,7 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
   if (nextActionCacheKey) {
     if (candidate.nextActionDate) {
       nextActionCache.set(nextActionCacheKey, candidate.nextActionDate);
-    } else if (nextActionCache.has(nextActionCacheKey)) {
+    } else if (source === "list" && nextActionCache.has(nextActionCacheKey)) {
       const cached = nextActionCache.get(nextActionCacheKey);
       if (cached) candidate.nextActionDate = cached;
     }
@@ -3628,6 +3628,7 @@ async function handleCompleteTask(taskId) {
   }
 
   try {
+    const normalizedTaskId = String(taskId);
     // completeTaskIdをpayloadに含めて保存
     const payload = {
       id: candidate.id,
@@ -3646,7 +3647,39 @@ async function handleCompleteTask(taskId) {
       throw new Error(`HTTP ${response.status} ${response.statusText} - ${text.slice(0, 200)}`);
     }
 
-    const updated = normalizeCandidate(await response.json());
+    const updated = normalizeCandidate(await response.json(), { source: "detail" });
+
+    const fallbackTasks = Array.isArray(updated.tasks)
+      ? updated.tasks
+      : Array.isArray(updated.detail?.tasks)
+        ? updated.detail.tasks
+        : Array.isArray(candidate.tasks)
+          ? candidate.tasks
+          : [];
+
+    const tasksAfterComplete = (fallbackTasks || []).map((task) => {
+      if (String(task?.id) !== normalizedTaskId) return task;
+      return {
+        ...task,
+        isCompleted: true,
+      };
+    });
+
+    const hasIncompleteTasks = tasksAfterComplete.some((task) => !task.isCompleted);
+
+    if (!hasIncompleteTasks) {
+      updated.nextActionDate = null;
+      if (!updated.actionInfo) updated.actionInfo = {};
+      updated.actionInfo.nextActionDate = null;
+      if (candidate.id != null) {
+        nextActionCache.set(String(candidate.id), null);
+      }
+    }
+
+    if (!Array.isArray(updated.tasks) && Array.isArray(candidate.tasks)) {
+      updated.tasks = tasksAfterComplete;
+    }
+
     applyCandidateUpdate(updated, { preserveDetailState: true });
 
   } catch (error) {
