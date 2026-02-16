@@ -40,11 +40,7 @@ const PAGE_RATE_TARGET_KEYS = [
 ];
 
 const DEFAULT_GOAL_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod/goal';
-const DEFAULT_KPI_TARGET_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
-const FALLBACK_GOAL_API_BASE = '/api/goal';
-const FALLBACK_KPI_TARGET_API_BASE = '/api';
-
-const KPI_TARGET_API_BASE = resolveKpiTargetApiBase(); // New API Base
+const KPI_TARGET_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod'; // New API Base
 const GOAL_API_BASE = resolveGoalApiBase();
 
 const cache = {
@@ -75,20 +71,6 @@ function resolveGoalApiBase() {
   return resolved.replace(/\/$/, '');
 }
 
-function resolveKpiTargetApiBase() {
-  if (typeof window === 'undefined') return DEFAULT_KPI_TARGET_API_BASE;
-  const fromWindow = window.KPI_TARGET_API_BASE || window.APP_API_BASE || '';
-  let fromStorage = '';
-  try {
-    fromStorage = localStorage.getItem('dashboard.kpiTargetApiBase') || localStorage.getItem('dashboard.apiBase') || '';
-  } catch {
-    fromStorage = '';
-  }
-  const base = (fromWindow || fromStorage || '').trim();
-  const resolved = base ? base : DEFAULT_KPI_TARGET_API_BASE;
-  return resolved.replace(/\/$/, '');
-}
-
 function buildGoalUrl(path) {
   if (!GOAL_API_BASE) return path;
   const suffix = path.startsWith('/') ? path : `/${path}`;
@@ -106,37 +88,8 @@ function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function shouldFallbackStatus(status) {
-  return Number(status) >= 500;
-}
-
-function buildFallbackGoalUrl(path) {
-  const suffix = path.startsWith('/') ? path : `/${path}`;
-  return `${FALLBACK_GOAL_API_BASE}${suffix}`;
-}
-
-function buildFallbackKpiTargetUrl(path) {
-  const suffix = path.startsWith('/') ? path : `/${path}`;
-  return `${FALLBACK_KPI_TARGET_API_BASE}${suffix}`;
-}
-
-async function fetchWithFallback(primaryUrl, fallbackUrl, options = {}) {
-  try {
-    const res = await fetch(primaryUrl, options);
-    if (res.ok) return res;
-    if (!shouldFallbackStatus(res.status)) return res;
-    if (!fallbackUrl || fallbackUrl === primaryUrl) return res;
-    return fetch(fallbackUrl, options);
-  } catch (error) {
-    if (!fallbackUrl || fallbackUrl === primaryUrl) throw error;
-    return fetch(fallbackUrl, options);
-  }
-}
-
 async function requestJson(path, options = {}) {
-  const primaryUrl = buildGoalUrl(path);
-  const fallbackUrl = buildFallbackGoalUrl(path);
-  const res = await fetchWithFallback(primaryUrl, fallbackUrl, {
+  const res = await fetch(buildGoalUrl(path), {
     headers: {
       Accept: 'application/json',
       ...(options.headers || {}),
@@ -160,12 +113,7 @@ async function requestJson(path, options = {}) {
 }
 
 async function requestJsonWithBase(base, path, options = {}) {
-  const primaryUrl = buildApiUrl(base, path);
-  const fallbackUrl =
-    String(base || '').replace(/\/$/, '') === String(KPI_TARGET_API_BASE || '').replace(/\/$/, '')
-      ? buildFallbackKpiTargetUrl(path)
-      : '';
-  const res = await fetchWithFallback(primaryUrl, fallbackUrl, {
+  const res = await fetch(buildApiUrl(base, path), {
     headers: {
       Accept: 'application/json',
       ...(options.headers || {}),
@@ -530,10 +478,9 @@ async function loadPageRateTargetsFromApi(periodId, { force = false } = {}) {
   // DB expects 'YYYY-MM' (7 chars). Match save logic.
   const targetMonth = (periodId && periodId.length >= 7) ? periodId.substring(0, 7) : periodId;
   const url = `${KPI_TARGET_API_BASE}/kpi-targets?period=${targetMonth}`;
-  const fallbackUrl = `${FALLBACK_KPI_TARGET_API_BASE}/kpi-targets?period=${targetMonth}`;
 
   try {
-    const res = await fetchWithFallback(url, fallbackUrl, { headers: { ...headers, Accept: 'application/json' } });
+    const res = await fetch(url, { headers: { ...headers, Accept: 'application/json' } });
     if (res.status === 404) {
       const empty = {};
       cache.pageRateTargets.set(periodId, empty);
@@ -982,13 +929,12 @@ export const goalSettingsService = {
 
     // New API: PUT /kpi-targets
     const url = `${KPI_TARGET_API_BASE}/kpi-targets`;
-    const fallbackUrl = `${FALLBACK_KPI_TARGET_API_BASE}/kpi-targets`;
     const headers = getAuthHeaders();
 
     // DB expects 'YYYY-MM' (7 chars). Extract standard month part if ID is longer (e.g. '2026-03-M' -> '2026-03')
     const targetMonth = (periodId && periodId.length >= 7) ? periodId.substring(0, 7) : periodId;
 
-    const res = await fetchWithFallback(url, fallbackUrl, {
+    const res = await fetch(url, {
       method: 'PUT',
       headers: {
         ...headers,

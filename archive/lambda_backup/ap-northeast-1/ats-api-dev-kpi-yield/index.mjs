@@ -216,10 +216,6 @@ function enumeratePeriods(startDate, endDate, granularity) {
 }
 
 function buildSummarySql(advisorFilter) {
-  const proposalDateCol = "COALESCE(ca.proposal_date, ca.recommended_at::date)";
-  const offerDateCol = "COALESCE(ca.offer_date, ca.offer_at::date)";
-  const offerAcceptDateCol = "COALESCE(ca.offer_accept_date, ca.offer_accepted_at::date)";
-  const joinDateCol = "COALESCE(ca.join_date, ca.joined_at::date)";
   return `
     SELECT c.advisor_user_id AS advisor_user_id,
            'newInterviews' AS metric,
@@ -234,7 +230,7 @@ function buildSummarySql(advisorFilter) {
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${proposalDateCol} BETWEEN $1 AND $2
+    WHERE ca.recommended_at::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -243,7 +239,7 @@ function buildSummarySql(advisorFilter) {
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ca.recommended_at::date BETWEEN $1 AND $2
+    WHERE ca.recommendation_at::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -270,7 +266,7 @@ function buildSummarySql(advisorFilter) {
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerDateCol} BETWEEN $1 AND $2
+    WHERE ca.offer_at::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -279,7 +275,7 @@ function buildSummarySql(advisorFilter) {
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerAcceptDateCol} BETWEEN $1 AND $2
+    WHERE ca.offer_accepted_at::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -288,7 +284,7 @@ function buildSummarySql(advisorFilter) {
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${joinDateCol} BETWEEN $1 AND $2
+    WHERE ca.joined_at::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -297,17 +293,13 @@ function buildSummarySql(advisorFilter) {
            SUM(COALESCE(NULLIF(REGEXP_REPLACE(ca.fee_amount, '[^0-9.]', '', 'g'), ''), '0')::numeric)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerAcceptDateCol} BETWEEN $1 AND $2
+    WHERE ca.offer_accepted_at::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id
   `;
 }
 
 function buildPlannedSql(advisorFilter) {
-  const proposalDateCol = "COALESCE(ca.proposal_date, ca.recommended_at::date)";
-  const offerDateCol = "COALESCE(ca.offer_date, ca.offer_at::date)";
-  const offerAcceptDateCol = "COALESCE(ca.offer_accept_date, ca.offer_accepted_at::date)";
-  const joinDateCol = "COALESCE(ca.join_date, ca.joined_at::date)";
   return `
     SELECT c.advisor_user_id AS advisor_user_id,
            'newInterviews' AS metric,
@@ -322,7 +314,7 @@ function buildPlannedSql(advisorFilter) {
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${proposalDateCol} > $1
+    WHERE ca.recommendation_at::date > $1
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -331,7 +323,7 @@ function buildPlannedSql(advisorFilter) {
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ca.recommended_at::date > $1
+    WHERE ca.recommendation_at::date > $1
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -358,7 +350,7 @@ function buildPlannedSql(advisorFilter) {
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerDateCol} > $1
+    WHERE ca.offer_at::date > $1
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -367,7 +359,7 @@ function buildPlannedSql(advisorFilter) {
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerAcceptDateCol} > $1
+    WHERE ca.offer_accepted_at::date > $1
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -376,7 +368,7 @@ function buildPlannedSql(advisorFilter) {
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${joinDateCol} > $1
+    WHERE ca.joined_at::date > $1
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -385,17 +377,13 @@ function buildPlannedSql(advisorFilter) {
            SUM(COALESCE(NULLIF(REGEXP_REPLACE(ca.fee_amount, '[^0-9.]', '', 'g'), ''), '0')::numeric)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerAcceptDateCol} > $1
+    WHERE ca.offer_accepted_at::date > $1
     ${advisorFilter}
     GROUP BY c.advisor_user_id
   `;
 }
 
 function buildDailySql(advisorFilter) {
-  const proposalDateCol = "COALESCE(ca.proposal_date, ca.recommended_at::date)";
-  const offerDateCol = "COALESCE(ca.offer_date, ca.offer_at::date)";
-  const offerAcceptDateCol = "COALESCE(ca.offer_accept_date, ca.offer_accepted_at::date)";
-  const joinDateCol = "COALESCE(ca.join_date, ca.joined_at::date)";
   return `
     SELECT c.advisor_user_id AS advisor_user_id,
            c.first_contact_at::date AS day,
@@ -407,24 +395,24 @@ function buildDailySql(advisorFilter) {
     GROUP BY c.advisor_user_id, day
     UNION ALL
     SELECT c.advisor_user_id,
-           ${proposalDateCol},
+           ca.recommendation_at::date,
            'proposals' AS metric,
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${proposalDateCol} BETWEEN $1 AND $2
+    WHERE ca.recommendation_at::date BETWEEN $1 AND $2
     ${advisorFilter}
-    GROUP BY c.advisor_user_id, ${proposalDateCol}
+    GROUP BY c.advisor_user_id, ca.recommendation_at::date
     UNION ALL
     SELECT c.advisor_user_id,
-           ca.recommended_at::date,
+           ca.recommendation_at::date,
            'recommendations' AS metric,
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ca.recommended_at::date BETWEEN $1 AND $2
+    WHERE ca.recommendation_at::date BETWEEN $1 AND $2
     ${advisorFilter}
-    GROUP BY c.advisor_user_id, ca.recommended_at::date
+    GROUP BY c.advisor_user_id, ca.recommendation_at::date
     UNION ALL
     SELECT c.advisor_user_id,
            ca.first_interview_set_at::date,
@@ -447,42 +435,42 @@ function buildDailySql(advisorFilter) {
     GROUP BY c.advisor_user_id, ca.first_interview_at::date
     UNION ALL
     SELECT c.advisor_user_id,
-           ${offerDateCol},
+           ca.offer_at::date,
            'offers' AS metric,
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerDateCol} BETWEEN $1 AND $2
+    WHERE ca.offer_at::date BETWEEN $1 AND $2
     ${advisorFilter}
-    GROUP BY c.advisor_user_id, ${offerDateCol}
+    GROUP BY c.advisor_user_id, ca.offer_at::date
     UNION ALL
     SELECT c.advisor_user_id,
-           ${offerAcceptDateCol},
+           ca.offer_accepted_at::date,
            'accepts' AS metric,
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerAcceptDateCol} BETWEEN $1 AND $2
+    WHERE ca.offer_accepted_at::date BETWEEN $1 AND $2
     ${advisorFilter}
-    GROUP BY c.advisor_user_id, ${offerAcceptDateCol}
+    GROUP BY c.advisor_user_id, ca.offer_accepted_at::date
     UNION ALL
     SELECT c.advisor_user_id,
-           ${joinDateCol},
+           ca.joined_at::date,
            'hires' AS metric,
            COUNT(*)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${joinDateCol} BETWEEN $1 AND $2
+    WHERE ca.joined_at::date BETWEEN $1 AND $2
     ${advisorFilter}
-    GROUP BY c.advisor_user_id, ${joinDateCol}
+    GROUP BY c.advisor_user_id, ca.joined_at::date
     UNION ALL
     SELECT c.advisor_user_id,
-           ${offerAcceptDateCol} AS day,
+           ca.offer_accepted_at::date AS day,
            'revenue' AS metric,
            SUM(COALESCE(NULLIF(REGEXP_REPLACE(ca.fee_amount, '[^0-9.]', '', 'g'), ''), '0')::numeric)::int AS count
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerAcceptDateCol} BETWEEN $1 AND $2
+    WHERE ca.offer_accepted_at::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id, day
   `;
@@ -1101,13 +1089,13 @@ async function fetchCohortStageRows(client, { advisorUserId }) {
     `SELECT c.id AS candidate_id,
     c.advisor_user_id AS advisor_user_id,
       c.first_contact_at::date AS new_interviews,
-        MIN(COALESCE(ca.proposal_date, ca.recommended_at::date))::date AS proposals,
+        MIN(ca.recommended_at)::date AS proposals,
           MIN(ca.recommended_at)::date AS recommendations,
             MIN(ca.first_interview_set_at)::date AS interviews_scheduled,
               MIN(ca.first_interview_at)::date AS interviews_held,
-                MIN(COALESCE(ca.offer_date, ca.offer_at::date))::date AS offers,
-                  MIN(COALESCE(ca.offer_accept_date, ca.offer_accepted_at::date))::date AS accepts,
-                    MIN(COALESCE(ca.join_date, ca.joined_at::date))::date AS hires
+                MIN(ca.offer_date)::date AS offers,
+                  MIN(ca.offer_accept_date)::date AS accepts,
+                    MIN(ca.join_date)::date AS hires
      FROM candidates c
      LEFT JOIN candidate_applications ca ON ca.candidate_id = c.id
      WHERE c.first_contact_at IS NOT NULL

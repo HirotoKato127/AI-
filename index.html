@@ -5,7 +5,37 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Agent Key</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            // App Primary (Intelligent Blue)
+            primary: {
+              DEFAULT: '#0071C1',
+              50: '#E0F2FF',
+              100: '#B8DFFF',
+              200: '#8AC9FF',
+              300: '#5CB3FF',
+              400: '#2E9DFF',
+              500: '#0071C1',
+              600: '#005A99',
+              700: '#004B87',
+              800: '#003366',
+              900: '#001F3D',
+            },
+            // App Accent (Teal)
+            accent: {
+              DEFAULT: '#00a99d',
+              light: '#e6f7f6',
+              dark: '#008577',
+            },
+          },
+        },
+      },
+    }
+  </script>
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap"
     rel="stylesheet" />
@@ -19,16 +49,36 @@
   <div class="flex min-h-screen transition-all duration-300">
     <aside id="sidebar" class="w-64 text-slate-100 flex flex-col transition-all duration-300 ease-in-out"
       style="background: linear-gradient(180deg, #0d1b2a 0%, #1b263b 100%);">
-      <div class="px-6 py-5 border-b border-slate-700 flex items-start justify-between gap-3">
+      <div class="sidebar-header">
         <div class="sidebar-title-wrapper">
-          <h1 class="text-xl font-bold mt-1 sidebar-title-text">
-            Agent Key
-          </h1>
+          <div class="sidebar-brand">
+            <div class="sidebar-logo">
+              <svg viewBox="0 0 24 24" fill="none" class="sidebar-logo-svg">
+                <path d="M12 2L2 7v10l10 5 10-5V7L12 2z" fill="url(#logoGrad)" opacity="0.9" />
+                <path d="M12 2L2 7l10 5 10-5L12 2z" fill="url(#logoGrad2)" opacity="0.6" />
+                <path d="M12 12v10l10-5V7L12 12z" fill="rgba(255,255,255,0.15)" />
+                <circle cx="12" cy="10" r="2.5" fill="#ffffff" opacity="0.9" />
+                <defs>
+                  <linearGradient id="logoGrad" x1="2" y1="2" x2="22" y2="22">
+                    <stop offset="0%" stop-color="#3b82f6" />
+                    <stop offset="100%" stop-color="#8b5cf6" />
+                  </linearGradient>
+                  <linearGradient id="logoGrad2" x1="2" y1="7" x2="22" y2="7">
+                    <stop offset="0%" stop-color="#60a5fa" />
+                    <stop offset="100%" stop-color="#a78bfa" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            <div class="sidebar-brand-text">
+              <h1 class="sidebar-title-text">Agent Key</h1>
+              <span class="sidebar-tagline">ATS Platform</span>
+            </div>
+          </div>
         </div>
-        <button type="button" id="sidebarToggle"
-          class="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-slate-300" aria-label="サイドバーを折りたたみ">
+        <button type="button" id="sidebarToggle" class="sidebar-toggle-btn" aria-label="サイドバーを折りたたみ">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-            stroke="currentColor" class="w-5 h-5">
+            stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="m18.75 4.5-7.5 7.5 7.5 7.5m-6-15L5.25 12l7.5 7.5" />
           </svg>
         </button>
@@ -52,28 +102,51 @@
               data-submenu-toggle="yield" aria-expanded="false">
               <span class="nav-icon" aria-hidden="true">
                 <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
-                  <path d="M10 2.5 2.5 8v9h5v-4h5v4h5v-9L10 2.5z" />
+                  <path d="M2 16h2V8h-2v8zm4 0h2V4H6v12zm4 0h2V10h-2v6zm4 0h2V6h-2v10z" />
                 </svg>
               </span>
               <span class="nav-label">歩留まり管理・総合</span>
-              <span class="nav-caret" aria-hidden="true">▾</span>
+              <span class="nav-caret" aria-hidden="true">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3">
+                  <path
+                    d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06z" />
+                </svg>
+              </span>
             </button>
             <ul class="nav-submenu" data-submenu="yield">
               <li>
                 <button type="button" data-target="yield-personal"
                   class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
+                  <span class="nav-sub-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                      <path d="M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-5 7a5 5 0 0 1 10 0H5z" />
+                    </svg>
+                  </span>
                   <span class="nav-label">個人成績</span>
                 </button>
               </li>
               <li>
                 <button type="button" data-target="yield-company"
                   class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
+                  <span class="nav-sub-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                      <path
+                        d="M7 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.5-1a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM2 17a5 5 0 0 1 10 0H2zm10.5 0a4.5 4.5 0 0 1 7 0h-7z" />
+                    </svg>
+                  </span>
                   <span class="nav-label">社内成績</span>
                 </button>
               </li>
               <li>
                 <button type="button" data-target="yield-admin"
                   class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
+                  <span class="nav-sub-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                      <path fill-rule="evenodd"
+                        d="M10 1a1 1 0 0 1 .707.293l7 7a1 1 0 0 1 .207.997l-2 6A1 1 0 0 1 15 16H5a1 1 0 0 1-.914-.71l-2-6a1 1 0 0 1 .207-.997l7-7A1 1 0 0 1 10 1zm0 2.414L4.414 9 6 13.764V14h8v-.236L15.586 9 10 3.414zM10 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"
+                        clip-rule="evenodd" />
+                    </svg>
+                  </span>
                   <span class="nav-label">管理者画面</span>
                 </button>
               </li>
@@ -132,29 +205,54 @@
               data-submenu-toggle="settings" aria-expanded="false">
               <span class="nav-icon" aria-hidden="true">
                 <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
-                  <path
-                    d="M10 2a2 2 0 0 1 1.91 1.41l.13.42 1.16.23a2 2 0 0 1 1.47 1.47l.23 1.16.42.13A2 2 0 0 1 16 8v4a2 2 0 0 1-1.41 1.91l-.42.13-.23 1.16a2 2 0 0 1-1.47 1.47l-1.16.23-.13.42A2 2 0 0 1 10 18H8a2 2 0 0 1-1.91-1.41l-.13-.42-1.16-.23a2 2 0 0 1-1.47-1.47l-.23-1.16-.42-.13A2 2 0 0 1 2 12V8a2 2 0 0 1 1.41-1.91l.42-.13.23-1.16a2 2 0 0 1 1.47-1.47l1.16-.23.13-.42A2 2 0 0 1 8 2zm0 4.5a3.5 3.5 0 1 0 3.5 3.5A3.5 3.5 0 0 0 10 6.5Zm0 2a1.5 1.5 0 1 1-1.5 1.5A1.5 1.5 0 0 1 10 8.5Z" />
+                  <path fill-rule="evenodd"
+                    d="M8.34 1.804A1 1 0 0 1 9.32 1h1.36a1 1 0 0 1 .98.804l.295 1.473c.497.2.964.46 1.39.77l1.42-.47a1 1 0 0 1 1.15.44l.68 1.18a1 1 0 0 1-.17 1.24l-1.13 1a7 7 0 0 1 0 1.54l1.13 1a1 1 0 0 1 .17 1.24l-.68 1.18a1 1 0 0 1-1.15.44l-1.42-.47c-.426.31-.893.57-1.39.77l-.296 1.473A1 1 0 0 1 10.68 19H9.32a1 1 0 0 1-.98-.804l-.295-1.473a7 7 0 0 1-1.39-.77l-1.42.47a1 1 0 0 1-1.15-.44l-.68-1.18a1 1 0 0 1 .17-1.24l1.13-1a7 7 0 0 1 0-1.54l-1.13-1a1 1 0 0 1-.17-1.24l.68-1.18a1 1 0 0 1 1.15-.44l1.42.47c.426-.31.893-.57 1.39-.77L8.34 1.804zM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
+                    clip-rule="evenodd" />
                 </svg>
               </span>
               <span class="nav-label">設定</span>
-              <span class="nav-caret" aria-hidden="true">▾</span>
+              <span class="nav-caret" aria-hidden="true">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3">
+                  <path
+                    d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06z" />
+                </svg>
+              </span>
             </button>
             <ul class="nav-submenu" data-submenu="settings">
               <li>
                 <button type="button" data-target="settings"
                   class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
+                  <span class="nav-sub-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                      <path fill-rule="evenodd"
+                        d="M6 2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H6zm1 4a1 1 0 0 0 0 2h1a1 1 0 0 0 0-2H7zm4 0a1 1 0 0 1 1 1v.01a1 1 0 1 1-2 0V7a1 1 0 0 1 1-1zm-4 4a1 1 0 1 0 0 2h1a1 1 0 1 0 0-2H7zm4 0a1 1 0 0 1 1 1v.01a1 1 0 1 1-2 0V11a1 1 0 0 1 1-1zm-4 4a1 1 0 1 0 0 2h1a1 1 0 1 0 0-2H7zm4 0a1 1 0 0 1 1 1v.01a1 1 0 1 1-2 0V15a1 1 0 0 1 1-1z"
+                        clip-rule="evenodd" />
+                    </svg>
+                  </span>
                   <span class="nav-label">有効応募基準設定</span>
                 </button>
               </li>
               <li>
                 <button type="button" data-target="goal-settings"
                   class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
+                  <span class="nav-sub-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                      <path
+                        d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4z" />
+                    </svg>
+                  </span>
                   <span class="nav-label">評価・目標設定</span>
                 </button>
               </li>
               <li>
                 <button type="button" data-target="members"
                   class="nav-link nav-sub-link w-full text-left whitespace-nowrap transition" aria-current="false">
+                  <span class="nav-sub-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                      <path
+                        d="M7 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.5-1a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM2 17a5 5 0 0 1 10 0H2zm10.5 0a4.5 4.5 0 0 1 7 0h-7z" />
+                    </svg>
+                  </span>
                   <span class="nav-label">メンバー設定</span>
                 </button>
               </li>
@@ -253,7 +351,7 @@
     </div>
   </div>
   <script type="module">
-    import { boot } from './scripts/router.js?v=20260216_03';
+    import { boot } from './scripts/router.js?v=20260209_03';
     boot();
   </script>
   <script>

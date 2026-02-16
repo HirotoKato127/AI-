@@ -349,11 +349,6 @@
   padding-bottom: 0.5rem;
 }
 
-[data-kpi="v2"] .kpi-v2-grid-single {
-  grid-template-columns: minmax(140px, 220px);
-  justify-content: flex-start;
-}
-
 [data-kpi="v2"] .kpi-v2-grid[data-kpi-type="rates"] {
   margin-bottom: 0rem;
 }

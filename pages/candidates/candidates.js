@@ -1,5 +1,10 @@
 ﻿import { PRIMARY_API_BASE } from "../../scripts/api/endpoints.js";
 import { getSession } from "../../scripts/auth.js";
+import {
+  normalizeScreeningRulesPayload as normalizeScreeningRulesPayloadShared,
+  computeValidApplication as computeValidApplicationShared,
+  resolveValidApplicationRaw as resolveValidApplicationRawShared,
+} from "../../scripts/services/validApplication.js?v=20260211_04";
 
 // teleapo ???API Gateway? base
 
@@ -9,23 +14,16 @@ const SCREENING_RULES_FALLBACK_ENDPOINT = `${CANDIDATES_API_BASE}/settings/scree
 
 // 一覧は「/candidates」（末尾スラッシュなし）
 const CANDIDATES_LIST_PATH = "/candidates";
-const MEMBERS_LIST_PATH = "/members";
 
 // 詳細は「/candidates/{candidateId}」（末尾スラッシュなし）
 const candidateDetailPath = (id) => `/candidates/${encodeURIComponent(String(id))}`;
 
 const candidatesApi = (path) => `${CANDIDATES_API_BASE}${path}`;
 
-// Candidates detail content exists in both the modal (candidates tab) and the
-// standalone detail page. Keep DOM queries scoped to the currently mounted one.
-let candidateDetailRootId = "candidateDetailContent";
-function setCandidateDetailRootId(id) {
-  candidateDetailRootId = String(id || "candidateDetailContent");
-}
 function getCandidateDetailContainer() {
   return (
-    document.getElementById(candidateDetailRootId) ||
     document.getElementById("candidateDetailContent") ||
+    document.getElementById("candidateDetailContentPage") ||
     null
   );
 }
@@ -138,37 +136,31 @@ let pendingInlineUpdates = {};
 let openedFromUrlOnce = false;
 let masterClients = [];
 let masterUsers = [];
+let masterCsUsers = [];
+let masterAdvisorUsers = [];
 let listPage = 1;
 let listTotal = 0;
 let calendarCandidates = [];
 let screeningRules = null;
 let screeningRulesLoaded = false;
 let screeningRulesLoading = false;
+let screeningRulesLoadPromise = null;
 let detailAutoSaveTimer = null;
 const nextActionCache = new Map();
 const contactPreferredTimeCache = new Map();
 const validityHydrationCache = new Map();
 const validityHydrationInFlight = new Set();
-const detailSaveInFlight = new Set();
 let calendarViewDate = new Date();
 calendarViewDate.setDate(1);
 
-let clientList = [];
-let clientListFetchPromise = null;
-const CLIENT_AUTOCOMPLETE_LIMIT = 20;
+// Deduplicate /clients create requests when multiple saves run quickly.
+const clientCreateInFlight = new Map();
 
 function normalizeContactPreferredTime(value) {
   const text = String(value ?? "").trim();
   if (!text) return "";
   if (["-", "ー", "未設定", "未入力", "未登録", "未指定"].includes(text)) return "";
   return text;
-}
-
-function toIntOrNull(value) {
-  if (value === undefined || value === null || String(value).trim() === "") return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return null;
-  return Number.isInteger(parsed) ? parsed : Math.trunc(parsed);
 }
 
 // =========================
@@ -193,6 +185,7 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     candidate.validApplication ??
     candidate.valid_application ??
     candidate.is_effective_application ??
+    candidate.isEffective ??
     candidate.active_flag ??
     candidate.valid ??
     null;
@@ -406,11 +399,6 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     selectionNote: row.selectionNote ?? row.selection_note ?? "",
     status: row.status ?? row.stage_current ?? "",
   }));
-  candidate.selectionProgressDeletedIds = Array.isArray(candidate.selectionProgressDeletedIds)
-    ? candidate.selectionProgressDeletedIds
-      .map((id) => toIntOrNull(id))
-      .filter((id) => id !== null && id > 0)
-    : [];
 
   if (!candidate.companyName && candidate.selectionProgress.length) {
     candidate.companyName = candidate.selectionProgress[0]?.companyName ?? "";
@@ -432,6 +420,8 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     companyName: row.companyName ?? row.company_name ?? "",
     feeAmount: row.feeAmount ?? row.fee_amount ?? "",
     refundAmount: row.refundAmount ?? row.refund_amount ?? "",
+    orderDate: row.orderDate ?? row.order_date ?? null,
+    withdrawDate: row.withdrawDate ?? row.withdraw_date ?? null,
     joinDate: row.joinDate ?? row.join_date ?? null,
     preJoinWithdrawDate: row.preJoinWithdrawDate ?? row.pre_join_withdraw_date ?? null,
     postJoinQuitDate: row.postJoinQuitDate ?? row.post_join_quit_date ?? null,
@@ -470,9 +460,9 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
   if (nextActionCacheKey) {
     if (candidate.nextActionDate) {
       nextActionCache.set(nextActionCacheKey, candidate.nextActionDate);
-    } else {
-      // APIが未設定(null)を返したときは、古いキャッシュ復元を防ぐため削除する
-      nextActionCache.delete(nextActionCacheKey);
+    } else if (nextActionCache.has(nextActionCacheKey)) {
+      const cached = nextActionCache.get(nextActionCacheKey);
+      if (cached) candidate.nextActionDate = cached;
     }
   }
   if (candidate.nextActionDate && !candidate.actionInfo.nextActionDate) {
@@ -507,69 +497,44 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
 
   // --- ★ここまで ---
 
+  // ★追加: テレアポログのマッピング
+  candidate.teleapoLogs = Array.isArray(candidate.teleapoLogs) ? candidate.teleapoLogs : [];
+  candidate.csSummary = candidate.csSummary || {};
+
+  // ★追加: ログからサマリを再計算 (サーバー側の集計漏れ対策)
+  if (candidate.teleapoLogs.length > 0) {
+    const logs = candidate.teleapoLogs;
+    // 架電回数の最大値
+    const maxCallNo = Math.max(...logs.map((l) => Number(l.callNo || 0)), 0);
+
+    // 通電実績
+    const connectedLogs = logs
+      .filter((l) => l.result === "通電")
+      .sort((a, b) => new Date(b.calledAt) - new Date(a.calledAt));
+    const hasConnected = connectedLogs.length > 0;
+    const lastConnectedAt = hasConnected ? connectedLogs[0].calledAt : null;
+
+    // サーバー値より計算値を優先（または補完）
+    if (maxCallNo > (Number(candidate.csSummary.callCount) || 0)) {
+      candidate.csSummary.callCount = maxCallNo;
+    }
+    if (hasConnected) {
+      candidate.csSummary.hasConnected = true;
+      if (lastConnectedAt) candidate.csSummary.lastConnectedAt = lastConnectedAt;
+    }
+  }
+
   return candidate;
-}
-
-function normalizeMasterClientRow(client = {}) {
-  const id = client?.id ?? client?.clientId ?? client?.client_id ?? "";
-  const name = client?.name ?? client?.companyName ?? client?.company_name ?? "";
-  return {
-    id: String(id ?? "").trim(),
-    name: String(name ?? "").trim(),
-  };
-}
-
-function mergeMasterClientRows(rows) {
-  const byId = new Map();
-  const byName = new Map();
-
-  (rows || []).forEach((raw) => {
-    const normalized = normalizeMasterClientRow(raw);
-    if (!normalized.name) return;
-
-    if (normalized.id) {
-      const prev = byId.get(normalized.id);
-      if (!prev) {
-        byId.set(normalized.id, normalized);
-      } else {
-        byId.set(normalized.id, {
-          id: normalized.id,
-          name: prev.name || normalized.name,
-        });
-      }
-      byName.set(normalizeClientNameKey(normalized.name), byId.get(normalized.id));
-      return;
-    }
-
-    const nameKey = normalizeClientNameKey(normalized.name);
-    if (!nameKey || byName.has(nameKey)) return;
-    byName.set(nameKey, normalized);
-  });
-
-  const merged = [...byId.values()];
-  byName.forEach((row) => {
-    if (!merged.some((item) => normalizeClientNameKey(item.name) === normalizeClientNameKey(row.name))) {
-      merged.push(row);
-    }
-  });
-
-  return merged.sort((a, b) => String(a.name).localeCompare(String(b.name), "ja"));
-}
-
-function getClientMasterPool() {
-  return mergeMasterClientRows([...(clientList || []), ...(masterClients || [])]);
 }
 
 function updateMastersFromDetail(detail) {
   const masters = detail?.masters;
   if (!masters) return;
-  if (Array.isArray(masters.clients)) {
-    masterClients = mergeMasterClientRows([...(masterClients || []), ...masters.clients]);
-    clientList = mergeMasterClientRows([...(clientList || []), ...masters.clients]);
-  }
-  const users = extractMasterUsersFromPayload(masters);
-  if (users.length > 0) {
-    masterUsers = mergeMasterUserRows([...(masterUsers || []), ...users]);
+  if (Array.isArray(masters.clients)) masterClients = masters.clients;
+  if (Array.isArray(masters.users)) {
+    masterUsers = masters.users;
+    masterCsUsers = Array.isArray(masters.csUsers) ? masters.csUsers : [];
+    masterAdvisorUsers = Array.isArray(masters.advisorUsers) ? masters.advisorUsers : [];
     allCandidates.forEach((candidate) => syncCandidateAssignees(candidate));
     filteredCandidates.forEach((candidate) => syncCandidateAssignees(candidate));
   }
@@ -589,53 +554,6 @@ function resolveUserIdByName(userName) {
   );
   if (candidates.length !== 1) return null;
   return candidates[0]?.id ?? null;
-}
-
-function normalizeMasterUserRow(user = {}, forcedRole = null) {
-  const id = user?.id ?? user?.userId ?? user?.user_id ?? "";
-  const name = user?.name ?? user?.fullName ?? user?.full_name ?? "";
-  return {
-    id: String(id ?? "").trim(),
-    name: String(name ?? "").trim(),
-    role: normalizeRoleValue(forcedRole ?? user?.role ?? user?.roles?.[0] ?? ""),
-    disabled: Boolean(user?.disabled),
-  };
-}
-
-function mergeMasterUserRows(rows) {
-  const map = new Map();
-  (rows || []).forEach((raw) => {
-    const row = normalizeMasterUserRow(raw);
-    if (!row.id) return;
-    const key = String(row.id);
-    const prev = map.get(key);
-    if (!prev) {
-      map.set(key, row);
-      return;
-    }
-    map.set(key, {
-      ...prev,
-      name: prev.name || row.name,
-      role: prev.role || row.role,
-      disabled: prev.disabled && row.disabled,
-    });
-  });
-  return Array.from(map.values());
-}
-
-function extractMasterUsersFromPayload(payload) {
-  const users = [];
-  if (Array.isArray(payload?.users)) {
-    users.push(...payload.users.map((u) => normalizeMasterUserRow(u)));
-  }
-  // Backward compatibility: some candidates-detail lambdas return role-specific lists.
-  if (Array.isArray(payload?.csUsers)) {
-    users.push(...payload.csUsers.map((u) => normalizeMasterUserRow(u, "caller")));
-  }
-  if (Array.isArray(payload?.advisorUsers)) {
-    users.push(...payload.advisorUsers.map((u) => normalizeMasterUserRow(u, "advisor")));
-  }
-  return mergeMasterUserRows(users);
 }
 
 function syncCandidateAssignees(candidate) {
@@ -668,7 +586,7 @@ function syncCandidateAssignees(candidate) {
 
 function resolveClientName(clientId) {
   if (!clientId) return "";
-  const found = getClientMasterPool().find((client) => String(client.id) === String(clientId));
+  const found = (masterClients || []).find((client) => String(client.id) === String(clientId));
   return found?.name ?? "";
 }
 
@@ -682,160 +600,228 @@ function normalizeClientNameKey(name) {
 function findClientByName(name) {
   const key = normalizeClientNameKey(name);
   if (!key) return null;
-  return getClientMasterPool().find((client) => normalizeClientNameKey(client?.name) === key) || null;
+
+  const lists = [];
+  if (Array.isArray(clientList) && clientList.length) lists.push(clientList);
+  if (Array.isArray(masterClients) && masterClients.length) lists.push(masterClients);
+
+  for (const list of lists) {
+    const found = list.find((client) => {
+      const clientName = client?.name ?? client?.companyName ?? client?.company_name ?? "";
+      return normalizeClientNameKey(clientName) === key;
+    });
+    if (found?.id) return found;
+  }
+  return null;
 }
 
 function findClientById(id) {
   if (id === null || id === undefined || id === "") return null;
   const needle = String(id);
-  return getClientMasterPool().find((client) => String(client?.id) === needle) || null;
+
+  const lists = [];
+  if (Array.isArray(clientList) && clientList.length) lists.push(clientList);
+  if (Array.isArray(masterClients) && masterClients.length) lists.push(masterClients);
+
+  for (const list of lists) {
+    const found = list.find((client) => String(client?.id) === needle);
+    if (found?.id) return found;
+  }
+  return null;
+}
+
+async function ensureClientIdByName(name) {
+  const rawName = String(name ?? "").trim();
+  if (!rawName) return null;
+
+  const existing = findClientByName(rawName);
+  if (existing?.id) return existing.id;
+
+  const key = normalizeClientNameKey(rawName);
+  if (!key) return null;
+
+  if (clientCreateInFlight.has(key)) {
+    return clientCreateInFlight.get(key);
+  }
+
+  const createPromise = (async () => {
+    const res = await fetch(candidatesApi("/clients"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ companyName: rawName }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`clients create failed (HTTP ${res.status}): ${text.slice(0, 200)}`);
+    }
+
+    const json = await res.json().catch(() => ({}));
+    const id = json?.id ?? json?.item?.id ?? json?.item?.clientId ?? json?.item?.client_id ?? null;
+    const createdName = json?.item?.name ?? json?.item?.companyName ?? rawName;
+
+    if (!id) {
+      throw new Error("clients create returned no id");
+    }
+
+    if (Array.isArray(clientList)) {
+      const exists = clientList.some((c) => String(c?.id) === String(id));
+      if (!exists) clientList.push({ id, name: createdName });
+    }
+
+    return id;
+  })();
+
+  clientCreateInFlight.set(key, createPromise);
+  try {
+    return await createPromise;
+  } finally {
+    clientCreateInFlight.delete(key);
+  }
 }
 
 async function ensureSelectionProgressClientIds(candidate) {
   if (!candidate || !Array.isArray(candidate.selectionProgress)) return;
-  await ensureClientListLoaded();
 
   for (const row of candidate.selectionProgress) {
     const companyName = String(row?.companyName ?? row?.company_name ?? "").trim();
     const clientId = row?.clientId ?? row?.client_id ?? null;
-    if (!companyName && !clientId) continue;
 
-    const matchedByName = companyName ? findClientByName(companyName) : null;
-    let resolvedId = clientId ? String(clientId) : null;
+    // If we have no company name, we cannot resolve. Keep clientId if present.
+    if (!companyName) continue;
 
-    if (matchedByName?.id) {
-      resolvedId = String(matchedByName.id);
-      row.companyName = matchedByName.name;
-      row.company_name = matchedByName.name;
-    } else if (!resolvedId) {
-      throw new Error(`企業名「${companyName}」は登録済み紹介先企業に存在しません。候補から選択してください。`);
-    } else {
-      const current = findClientById(resolvedId);
-      if (!current) {
-        throw new Error(`企業名「${companyName}」に対応する企業ID(clientId)を解決できませんでした。`);
+    // Backend (Lambda) requires clientId to INSERT new rows.
+    // For existing rows, keep clientId unless we can confidently detect a name change.
+    let resolvedId = null;
+    if (clientId) {
+      const current = findClientById(clientId);
+      const currentName = current?.name ?? current?.companyName ?? current?.company_name ?? "";
+      if (currentName && normalizeClientNameKey(currentName) === normalizeClientNameKey(companyName)) {
+        resolvedId = clientId;
+      } else if (current) {
+        // Name differs from the current clientId mapping; treat companyName as authoritative.
+        resolvedId = await ensureClientIdByName(companyName);
+      } else {
+        // Client list not loaded or missing this id: do not risk auto-creating duplicates.
+        resolvedId = clientId;
       }
-      row.companyName = current.name;
-      row.company_name = current.name;
+    } else {
+      resolvedId = await ensureClientIdByName(companyName);
     }
 
+    if (!resolvedId) {
+      throw new Error(`企業名「${companyName}」に対応する企業ID(clientId)を解決できませんでした。`);
+    }
+
+    // Set both camelCase and snake_case to satisfy different backends.
     row.clientId = resolvedId;
     row.client_id = resolvedId;
+
+    // Keep company name fields consistent for downstream mappers.
+    row.companyName = companyName;
+    row.company_name = companyName;
   }
 }
 
-function buildClientAutocompleteOptions(query) {
-  const pool = getClientMasterPool().filter((client) => String(client?.id ?? "").trim());
-  if (!pool.length) return [];
-
-  const normalizedQuery = normalizeClientNameKey(query);
-  const filtered = normalizedQuery
-    ? pool.filter((client) => normalizeClientNameKey(client.name).includes(normalizedQuery))
-    : pool;
-
-  return filtered.slice(0, CLIENT_AUTOCOMPLETE_LIMIT);
+function normalizeMoneyNumber(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function renderCompanyAutocompleteInput(value, path, sectionKey) {
-  const dataset = path ? `data-detail-field="${path}" data-detail-section="${sectionKey}"` : "";
-  const inputValue = value === 0 ? "0" : formatInputValue(value, "text");
-  return `
-    <div class="company-autocomplete" data-company-autocomplete>
-      <input
-        type="text"
-        class="detail-table-input"
-        value="${escapeHtmlAttr(inputValue)}"
-        ${dataset}
-        data-company-name-input="true"
-        autocomplete="off"
-      >
-      <div class="company-autocomplete-menu is-hidden" data-company-autocomplete-menu></div>
-    </div>
-  `;
-}
-
-function hideCompanyAutocompleteMenu(menu) {
-  if (!menu) return;
-  menu.classList.add("is-hidden");
-  menu.innerHTML = "";
-}
-
-function hideAllCompanyAutocompleteMenus(root = getCandidateDetailContainer() || document) {
-  const menus = root.querySelectorAll("[data-company-autocomplete-menu]");
-  menus.forEach((menu) => hideCompanyAutocompleteMenu(menu));
-}
-
-function updateCompanyAutocompleteMenu(input, query) {
-  if (!input) return;
-  const wrapper = input.closest("[data-company-autocomplete]");
-  const menu = wrapper?.querySelector("[data-company-autocomplete-menu]");
-  if (!menu) return;
-
-  const options = buildClientAutocompleteOptions(query);
-  if (!options.length) {
-    hideCompanyAutocompleteMenu(menu);
-    return;
-  }
-
-  menu.innerHTML = options.map((client) => `
-    <button
-      type="button"
-      class="company-autocomplete-option"
-      data-company-option="true"
-      data-company-option-id="${escapeHtmlAttr(client.id)}"
-      data-company-option-name="${escapeHtmlAttr(client.name)}"
-    >
-      ${escapeHtml(client.name)}
-    </button>
-  `).join("");
-  menu.classList.remove("is-hidden");
-}
-
-function bindSelectionProgressCompany(candidate, fieldPath, companyName, { forceClient = null } = {}) {
-  if (!candidate || !fieldPath) return null;
-  const selectionMatch = fieldPath.match(/^selectionProgress\.(\d+)\.companyName$/);
-  if (!selectionMatch) return null;
-  const index = Number(selectionMatch[1]);
-  if (!Array.isArray(candidate.selectionProgress) || !candidate.selectionProgress[index]) return null;
-
-  const row = candidate.selectionProgress[index];
-  const trimmedName = String(companyName ?? "").trim();
-  const matched = forceClient || findClientByName(trimmedName);
-
-  if (matched?.id) {
-    row.clientId = matched.id;
-    row.client_id = matched.id;
-    row.companyName = matched.name;
-    row.company_name = matched.name;
-    return matched;
-  }
-
-  row.companyName = trimmedName;
-  row.company_name = trimmedName;
-  row.clientId = null;
-  row.client_id = null;
+function normalizeMoneyBoolean(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  if (value === true || value === "true" || value === 1 || value === "1") return true;
+  if (value === false || value === "false" || value === 0 || value === "0") return false;
   return null;
 }
 
-function selectCompanyAutocompleteOption(optionButton) {
-  if (!optionButton) return;
-  const wrapper = optionButton.closest("[data-company-autocomplete]");
-  const input = wrapper?.querySelector("[data-company-name-input]");
-  if (!input) return;
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
 
-  const selectedName = String(optionButton.dataset.companyOptionName || "").trim();
-  const selectedId = String(optionButton.dataset.companyOptionId || "").trim();
-  if (!selectedName || !selectedId) return;
+function syncMoneyInfoFromSelectionProgress(candidate) {
+  if (!candidate || !Array.isArray(candidate.selectionProgress)) return;
 
-  input.value = selectedName;
-  const candidate = getSelectedCandidate();
-  if (candidate) {
-    bindSelectionProgressCompany(candidate, input.dataset.detailField, selectedName, {
-      forceClient: { id: selectedId, name: selectedName },
-    });
-  }
-  input.setCustomValidity("");
-  handleDetailFieldChange({ target: input });
-  hideAllCompanyAutocompleteMenus();
+  const existing = Array.isArray(candidate.moneyInfo) ? candidate.moneyInfo : [];
+  const moneyByAppId = new Map();
+
+  existing.forEach((row = {}) => {
+    const appId = row.applicationId ?? row.application_id;
+    if (appId === null || appId === undefined || appId === "") return;
+    moneyByAppId.set(String(appId), { ...row });
+  });
+
+  candidate.selectionProgress.forEach((row = {}) => {
+    const appId = row.id ?? row.applicationId ?? row.application_id;
+    if (appId === null || appId === undefined || appId === "") return;
+
+    const key = String(appId);
+    const prev = moneyByAppId.get(key) || { applicationId: appId };
+    const next = { ...prev };
+
+    const clientId = row.clientId ?? row.client_id ?? prev.clientId ?? prev.client_id ?? null;
+    const companyName = row.companyName ?? row.company_name ?? prev.companyName ?? prev.company_name ?? "";
+
+    next.applicationId = prev.applicationId ?? appId;
+    next.application_id = prev.application_id ?? appId;
+    next.clientId = clientId;
+    next.client_id = clientId;
+    next.companyName = companyName;
+    next.company_name = companyName;
+
+    if (hasOwn(row, "feeAmount") || hasOwn(row, "fee_amount")) {
+      const feeAmount = normalizeMoneyNumber(row.feeAmount ?? row.fee_amount);
+      next.feeAmount = feeAmount;
+      next.fee_amount = feeAmount;
+    }
+
+    if (hasOwn(row, "refundAmount") || hasOwn(row, "refund_amount")) {
+      const refundAmount = normalizeMoneyNumber(row.refundAmount ?? row.refund_amount);
+      next.refundAmount = refundAmount;
+      next.refund_amount = refundAmount;
+    }
+
+    if (hasOwn(row, "orderDate") || hasOwn(row, "order_date")) {
+      const orderDate = row.orderDate ?? row.order_date ?? null;
+      next.orderDate = orderDate;
+      next.order_date = orderDate;
+    }
+
+    if (hasOwn(row, "withdrawDate") || hasOwn(row, "withdraw_date")) {
+      const withdrawDate = row.withdrawDate ?? row.withdraw_date ?? null;
+      next.withdrawDate = withdrawDate;
+      next.withdraw_date = withdrawDate;
+    }
+
+    if (hasOwn(row, "orderReported") || hasOwn(row, "order_reported")) {
+      const orderReported = normalizeMoneyBoolean(row.orderReported ?? row.order_reported);
+      next.orderReported = orderReported;
+      next.order_reported = orderReported;
+    }
+
+    if (hasOwn(row, "refundReported") || hasOwn(row, "refund_reported")) {
+      const refundReported = normalizeMoneyBoolean(row.refundReported ?? row.refund_reported);
+      next.refundReported = refundReported;
+      next.refund_reported = refundReported;
+    }
+
+    if (hasOwn(row, "preJoinWithdrawDate") || hasOwn(row, "pre_join_withdraw_date") || hasOwn(row, "preJoinDeclineDate")) {
+      const preJoinWithdrawDate = row.preJoinWithdrawDate ?? row.pre_join_withdraw_date ?? row.preJoinDeclineDate ?? null;
+      next.preJoinWithdrawDate = preJoinWithdrawDate;
+      next.pre_join_withdraw_date = preJoinWithdrawDate;
+    }
+
+    if (hasOwn(row, "postJoinQuitDate") || hasOwn(row, "post_join_quit_date")) {
+      const postJoinQuitDate = row.postJoinQuitDate ?? row.post_join_quit_date ?? null;
+      next.postJoinQuitDate = postJoinQuitDate;
+      next.post_join_quit_date = postJoinQuitDate;
+    }
+
+    moneyByAppId.set(key, next);
+  });
+
+  candidate.moneyInfo = Array.from(moneyByAppId.values());
 }
 
 function buildSelectOptions(list, selectedValue, { blankLabel = "選択" } = {}) {
@@ -864,72 +850,14 @@ function buildClientOptions(selectedId, selectedName) {
 }
 
 function normalizeRoleValue(role) {
-  const raw = String(role || "").trim().toLowerCase();
-  if (!raw) return "";
-  const normalized = raw
-    .replace(/[()（）\[\]【】]/g, " ")
-    .replace(/[・/_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const compact = normalized.replace(/\s+/g, "");
-
-  if (
-    ["advisor", "adviser", "advisoruser", "adviseruser", "member"].includes(compact) ||
-    normalized.includes("アドバイザー") ||
-    normalized.includes("advisor") ||
-    normalized.includes("adviser")
-  ) {
-    return "advisor";
-  }
-  if (
-    ["caller", "cs", "customersuccess", "c.s", "c/s"].includes(compact) ||
-    normalized.includes("カスタマーサクセス") ||
-    normalized.includes("コーラー") ||
-    /(^|\s)cs($|\s)/.test(normalized) ||
-    /(^|\s)caller($|\s)/.test(normalized)
-  ) {
-    return "caller";
-  }
-  if (
-    ["marketing", "marketer"].includes(compact) ||
-    normalized.includes("マーケ")
-  ) {
-    return "marketing";
-  }
-  return compact || normalized;
+  return String(role || "").trim().toLowerCase();
 }
 
-function buildRoleCountMap(users) {
-  const counts = {};
-  (users || []).forEach((user) => {
-    const role = normalizeRoleValue(user?.role);
-    const key = role || "(empty)";
-    counts[key] = (counts[key] || 0) + 1;
-  });
-  return counts;
-}
-
-function buildUserOptions(selectedId, selectedName = "", { allowedRoles = null, blankLabel = "担当者を選択" } = {}) {
-  let users = Array.isArray(masterUsers) ? mergeMasterUserRows(masterUsers) : [];
+function buildUserOptions(selectedId, selectedName = "", { allowedRoles = null, blankLabel = "担当者を選択", sourceList = null } = {}) {
+  let users = Array.isArray(sourceList) ? [...sourceList] : (Array.isArray(masterUsers) ? [...masterUsers] : []);
   const allow = Array.isArray(allowedRoles) ? allowedRoles.map((r) => normalizeRoleValue(r)).filter(Boolean) : null;
-  const roleCounts = buildRoleCountMap(users);
-  const hasRoleInfo = users.some((user) => {
-    const role = normalizeRoleValue(user?.role);
-    return role === "advisor" || role === "caller";
-  });
   if (allow && allow.length > 0) {
     users = users.filter((user) => allow.includes(normalizeRoleValue(user?.role)));
-    if (users.length === 0 && !hasRoleInfo) {
-      // Backward compatibility: if role metadata is missing, do not block assignment.
-      users = Array.isArray(masterUsers) ? mergeMasterUserRows(masterUsers) : [];
-    }
-    if (users.length === 0) {
-      console.warn("[candidates] assignee options empty after role filter", {
-        allowedRoles: allow,
-        masterUsersCount: Array.isArray(masterUsers) ? masterUsers.length : 0,
-        roleCounts,
-      });
-    }
   }
   if (selectedId && !users.some((user) => String(user.id) === String(selectedId))) {
     // Show current value even if it is not selectable (role mismatch, deleted user, etc.).
@@ -958,7 +886,6 @@ function buildBooleanOptions(value, { trueLabel = "報告済み", falseLabel = "
 // マウント / アンマウント
 // =========================
 export function mount() {
-  setCandidateDetailRootId("candidateDetailContent");
   initializeCandidatesFilters();
   initializeSortControl();
   initializeTableInteraction();
@@ -968,13 +895,9 @@ export function mount() {
   initializeDetailContentListeners();
 
   openedFromUrlOnce = false;
-  loadScreeningRulesForCandidates();
+  void loadScreeningRulesForCandidates({ force: true });
   restoreListContextFromReturnState();
   void loadFilterMasters();
-  // Assignee dropdowns depend on members master. Load best-effort upfront so the list can edit without opening detail.
-  void ensureMasterUsersLoaded();
-  // Selection progress company autocomplete depends on clients master.
-  void ensureClientListLoaded();
   // まず一覧ロード（ページング）
   loadCandidatesData();
   // 初期表示がカレンダーの場合は、カレンダーも別ロード
@@ -996,13 +919,12 @@ export async function mountDetailPage(candidateId) {
     return false;
   }
 
-  setCandidateDetailRootId("candidateDetailContentPage");
-
   // イベントリスナー初期化
   initializeDetailContentListeners();
 
   // 候補者データを取得して表示
   try {
+    await loadScreeningRulesForCandidates({ force: true });
     const detail = await fetchCandidateDetailById(String(candidateId), { includeMaster: true });
     if (!detail) {
       setCandidateDetailLoading("候補者データが見つかりません。");
@@ -1010,10 +932,8 @@ export async function mountDetailPage(candidateId) {
     }
 
     const normalized = normalizeCandidate(detail, { source: "detail" });
+    refreshCandidateValidity(normalized);
     updateMastersFromDetail(detail);
-    await ensureClientListLoaded();
-    await ensureMasterUsersLoaded();
-    syncCandidateAssignees(normalized);
 
     // 正規化した候補者をグローバルリストにも追加（編集時に必要）
     const existingIndex = allCandidates.findIndex(c => String(c.id) === String(normalized.id));
@@ -1037,7 +957,6 @@ export function unmountDetailPage() {
   detailSectionKeys.forEach((key) => (detailEditState[key] = false));
   selectedCandidateId = null;
   currentDetailCandidateId = null;
-  setCandidateDetailRootId("candidateDetailContent");
 }
 
 // =========================
@@ -1083,57 +1002,7 @@ async function loadFilterMasters() {
       ];
       setFilterSelectOptions("candidatesFilterPhase", orderedPhases);
     }
-
-    // If the backend returns users master, keep it for assignee selects.
-    const usersFromResponse = extractMasterUsersFromPayload(
-      json?.masters && typeof json.masters === "object"
-        ? json.masters
-        : { users: json.users }
-    );
-    const clientsFromResponse = Array.isArray(json?.masters?.clients) ? json.masters.clients : [];
-    if (clientsFromResponse.length > 0) {
-      masterClients = mergeMasterClientRows([...(masterClients || []), ...clientsFromResponse]);
-      clientList = mergeMasterClientRows([...(clientList || []), ...clientsFromResponse]);
-    }
-    if (usersFromResponse.length > 0) {
-      masterUsers = mergeMasterUserRows([...(masterUsers || []), ...usersFromResponse]);
-    }
   } catch (e) {
-    // ignore
-  }
-}
-
-function normalizeMembersResponse(result) {
-  const raw = Array.isArray(result)
-    ? result
-    : (result?.items || result?.members || result?.users || []);
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((member) => ({
-      id: member.id ?? member.userId ?? member.user_id ?? "",
-      name: member.name || member.fullName || member.full_name || "",
-      role: normalizeRoleValue(member.role || member.roles?.[0] || ""),
-      disabled: Boolean(member.disabled),
-    }))
-    .filter((member) => String(member.id || "").trim());
-}
-
-async function ensureMasterUsersLoaded() {
-  const currentUsers = Array.isArray(masterUsers) ? mergeMasterUserRows(masterUsers) : [];
-  const roleSet = new Set(currentUsers.map((user) => normalizeRoleValue(user.role)).filter(Boolean));
-  if (currentUsers.length > 0 && roleSet.has("advisor") && roleSet.has("caller")) return;
-  try {
-    const headers = { Accept: "application/json" };
-    const session = typeof window !== "undefined" ? getSession?.() : null;
-    if (session?.token) headers.Authorization = `Bearer ${session.token}`;
-    const res = await fetch(candidatesApi(MEMBERS_LIST_PATH), { headers });
-    if (!res.ok) return;
-    const json = await res.json();
-    const members = normalizeMembersResponse(json);
-    if (members.length > 0) {
-      masterUsers = mergeMasterUserRows([...currentUsers, ...members]);
-    }
-  } catch {
     // ignore
   }
 }
@@ -1141,7 +1010,7 @@ async function ensureMasterUsersLoaded() {
 function initializeSortControl() {
   const sortSelect = document.getElementById("candidatesSortOrder");
   if (!sortSelect) return;
-  // Server-side paging handles ordering. Keep UI hidden to avoid "client-sort within a page" confusion.
+  // Server-side paging uses a fixed order (created_at DESC). Disable client sorting UI.
   sortSelect.value = "desc";
   sortSelect.disabled = true;
   const label = sortSelect.closest("label");
@@ -1156,12 +1025,16 @@ function initializeTableInteraction() {
     tableBody.addEventListener("change", handleInlineEdit);
   }
 
-  // Header sort is disabled (server-side paging uses fixed order).
+  const tableHead = document.querySelector(".candidates-table-card thead");
+  if (tableHead) {
+    tableHead.addEventListener("click", handleCandidatesHeaderClick);
+  }
 
   const toggleButton = document.getElementById("candidatesToggleEdit");
   if (toggleButton) toggleButton.addEventListener("click", toggleCandidatesEditMode);
 
   ensureNextActionColumnPriority();
+  updateHeaderSortStyles();
 }
 
 function initializePaginationControls() {
@@ -1213,6 +1086,10 @@ async function loadCandidatesData(filtersOverride = {}) {
 
     const result = await response.json();
 
+    // 一覧再取得時は詳細由来の有効応募キャッシュを一旦クリアして、
+    // 画面ごとに最新データで再評価する。
+    validityHydrationCache.clear();
+
     allCandidates = Array.isArray(result.items)
       ? result.items.map((item) => normalizeCandidate({ ...item, id: String(item.id) }, { source: "list" }))
       : [];
@@ -1222,11 +1099,12 @@ async function loadCandidatesData(filtersOverride = {}) {
         candidate.validApplicationComputed = computeValidApplication(candidate, screeningRules);
       });
     }
-    // Server-side filtering/paging: keep current page as-is.
-    filteredCandidates = allCandidates.slice();
+    // Server-side filtering/paging: keep current page as-is, but allow local sort.
+    filteredCandidates = sortCandidates(allCandidates.slice(), currentSortKey, currentSortOrder);
     pendingInlineUpdates = {};
 
     renderCandidatesTable(filteredCandidates);
+    updateHeaderSortStyles();
     listTotal = Number(result.total ?? filteredCandidates.length ?? 0);
     updateCandidatesCount(listTotal);
     renderCandidatesPagination({ total: listTotal, page: listPage, pageSize: LIST_PAGE_SIZE, count: filteredCandidates.length });
@@ -1470,176 +1348,69 @@ function parseCandidateDate(value) {
 }
 
 function resolveValidApplication(candidate) {
+  const rawValue = resolveValidApplicationRaw(candidate);
+  if (rawValue === true || rawValue === false) return rawValue;
   const computed = candidate?.validApplicationComputed;
   if (computed === true || computed === false) return computed;
-  // 詳細モーダルなどで再取得したオブジェクトでも判定ロジックを適用するため、
-  // ルールがあれば計算を行う
   if (screeningRules) {
     const computedValue = computeValidApplication(candidate, screeningRules);
-    if (computedValue === true || computedValue === false) return computedValue;
+    if (computedValue === true || computedValue === false) {
+      if (candidate) candidate.validApplicationComputed = computedValue;
+      return computedValue;
+    }
   }
-  return resolveValidApplicationRaw(candidate);
+  const cacheKey = candidate?.id != null ? String(candidate.id) : "";
+  if (cacheKey && validityHydrationCache.has(cacheKey)) {
+    const cached = validityHydrationCache.get(cacheKey);
+    if (cached === true || cached === false) return cached;
+  }
+  return rawValue;
 }
 
 function resolveValidApplicationRaw(candidate) {
-  const explicitRaw =
-    candidate?.valid_application ??
-    candidate?.is_effective_application ??
-    candidate?.active_flag ??
-    candidate?.valid;
-
-  // Some APIs always return `validApplication: false` as a default value even when
-  // the DB value is actually NULL. Treat that fallback false as "unknown".
-  let raw = explicitRaw;
-  if ((raw === null || raw === undefined || raw === "")) {
-    if (candidate?.validApplication === true) raw = true;
-    else if (candidate?.validApplication === false) raw = null;
-  }
-
-  if (typeof raw === "string") {
-    const normalized = raw.trim().toLowerCase();
-    if (["true", "1", "yes", "有効", "有効応募"].includes(normalized)) return true;
-    if (["false", "0", "no", "無効", "無効応募"].includes(normalized)) return false;
-  }
-  if (raw === null || raw === undefined || raw === "") return null;
-  return Boolean(raw);
+  return resolveValidApplicationRawShared(candidate);
 }
 
 function normalizeScreeningRulesPayload(payload) {
-  const source = payload?.rules || payload?.item || payload?.data || payload || {};
-  const minAge = parseRuleNumber(source.minAge ?? source.min_age);
-  const maxAge = parseRuleNumber(source.maxAge ?? source.max_age);
-  const nationalitiesRaw =
-    source.targetNationalities ??
-    source.target_nationalities ??
-    source.allowedNationalities ??
-    source.allowed_nationalities ??
-    source.nationalities ??
-    "";
-  const allowedJlptRaw =
-    source.allowedJlptLevels ??
-    source.allowed_jlpt_levels ??
-    source.allowed_japanese_levels ??
-    [];
-  return {
-    minAge,
-    maxAge,
-    targetNationalities: normalizeCommaText(nationalitiesRaw),
-    targetNationalitiesList: parseListValue(nationalitiesRaw),
-    allowedJlptLevels: parseListValue(allowedJlptRaw),
-  };
-}
-
-function parseRuleNumber(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
-}
-
-function parseListValue(value) {
-  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
-  if (value === null || value === undefined) return [];
-  return String(value)
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function normalizeCommaText(value) {
-  if (value === null || value === undefined) return "";
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item).trim()).filter(Boolean).join(", ");
-  }
-  return String(value)
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .join(", ");
-}
-
-function isUnlimitedMinAge(value) {
-  if (value === null || value === undefined || value === "") return true;
-  return Number(value) <= 0;
-}
-
-function isUnlimitedMaxAge(value) {
-  if (value === null || value === undefined || value === "") return true;
-  return Number(value) >= 100;
-}
-
-function resolveCandidateAgeValue(candidate) {
-  const direct = candidate.age ?? candidate.ageText ?? candidate.age_value;
-  if (direct !== null && direct !== undefined && direct !== "") {
-    const parsed = Number(direct);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  const computed = calculateAge(candidate.birthday);
-  return computed !== null ? computed : null;
-}
-
-function normalizeNationality(value) {
-  const text = String(value || "").trim();
-  if (!text) return "";
-  if (["-", "ー", "未設定", "未入力", "未登録", "未指定"].includes(text)) return "";
-  const normalized = text.toLowerCase();
-  if (normalized === "japan" || normalized === "jpn" || normalized === "jp" || normalized === "japanese") {
-    return "日本";
-  }
-  if (text === "日本国") return "日本";
-  return text;
-}
-
-function isJapaneseNationality(value) {
-  return normalizeNationality(value) === "日本";
+  return normalizeScreeningRulesPayloadShared(payload);
 }
 
 function computeValidApplication(candidate, rules) {
-  if (!candidate || !rules) return null;
-  const age = resolveCandidateAgeValue(candidate);
-  if (age === null) return null;
-  if (!isUnlimitedMinAge(rules.minAge) && rules.minAge !== null && age < rules.minAge) return false;
-  if (!isUnlimitedMaxAge(rules.maxAge) && rules.maxAge !== null && age > rules.maxAge) return false;
+  return computeValidApplicationShared(candidate, rules);
+}
 
-  const nationality = normalizeNationality(candidate.nationality);
-  const nonJapaneseTargets = (rules.targetNationalitiesList || [])
-    .map((value) => normalizeNationality(value))
-    .filter((value) => value && !isJapaneseNationality(value));
-
-  // Business rule:
-  // - Japanese candidates are judged only by age.
-  // - Nationality is often entered later, so empty nationality is treated as Japanese temporarily.
-  if (!nationality || isJapaneseNationality(nationality)) return true;
-
-  if (nonJapaneseTargets.length > 0) {
-    const matched = nonJapaneseTargets.some((value) => value === nationality);
-    if (!matched) return false;
-  }
-
-  const jlptRaw = String(candidate.japaneseLevel || "").trim();
-  const jlpt = ["-", "ー", "未設定", "未入力", "未登録", "未指定"].includes(jlptRaw) ? "" : jlptRaw;
-  if (!jlpt) return null;
-  const allowedJlptLevels = rules.allowedJlptLevels || [];
-  if (!allowedJlptLevels.length) return null;
-  return allowedJlptLevels.includes(jlpt);
+function syncScreeningInputsFromDetail(target, source) {
+  if (!target || !source) return;
+  const fields = ["birthday", "age", "ageText", "age_value", "nationality", "japaneseLevel", "japanese_level"];
+  fields.forEach((field) => {
+    const value = source[field];
+    if (value === undefined || value === null || value === "") return;
+    target[field] = value;
+  });
 }
 
 function refreshCandidateValidity(candidate) {
   if (!candidate || !screeningRules) return;
-  if (candidate.validApplicationLocked) return;
   const computed = computeValidApplication(candidate, screeningRules);
   if (computed === true || computed === false) {
     candidate.validApplicationComputed = computed;
+    return;
   }
+  const cacheKey = candidate?.id != null ? String(candidate.id) : "";
+  if (cacheKey && validityHydrationCache.has(cacheKey)) {
+    const cached = validityHydrationCache.get(cacheKey);
+    if (cached === true || cached === false) {
+      candidate.validApplicationComputed = cached;
+      return;
+    }
+  }
+  candidate.validApplicationComputed = null;
 }
 
 function applyScreeningRulesToCandidates() {
   if (!screeningRules || !allCandidates.length) return;
   allCandidates.forEach((candidate) => {
-    if (candidate.validApplicationLocked) return;
-    const computed = computeValidApplication(candidate, screeningRules);
-    if (computed === true || computed === false) {
-      candidate.validApplicationComputed = computed;
-    }
+    refreshCandidateValidity(candidate);
   });
   const filters = collectFilters();
   filteredCandidates = applyLocalFilters(allCandidates, filters);
@@ -1654,8 +1425,6 @@ async function hydrateValidApplicationsFromDetail(list) {
   if (!screeningRules || !Array.isArray(list) || list.length === 0) return;
 
   const targets = list.filter((candidate) => {
-    const computed = computeValidApplication(candidate, screeningRules);
-    if (computed === true || computed === false) return false;
     const id = String(candidate?.id ?? "");
     if (!id) return false;
     if (validityHydrationCache.has(id)) {
@@ -1681,16 +1450,29 @@ async function hydrateValidApplicationsFromDetail(list) {
       validityHydrationInFlight.add(id);
       try {
         const detail = await fetchCandidateDetailById(id, { includeMaster: false });
-        const detailValue = resolveValidApplicationRaw(detail);
+        const computedFromDetail = computeValidApplication(detail, screeningRules);
+        const detailValue =
+          computedFromDetail === true || computedFromDetail === false
+            ? computedFromDetail
+            : resolveValidApplicationRaw(detail);
         if (detailValue === true || detailValue === false) {
           validityHydrationCache.set(id, detailValue);
           const target = allCandidates.find((item) => String(item.id) === id);
           if (target) {
+            syncScreeningInputsFromDetail(target, detail);
             target.validApplicationComputed = detailValue;
-            target.validApplicationLocked = true;
           }
+          syncScreeningInputsFromDetail(current, detail);
           current.validApplicationComputed = detailValue;
-          current.validApplicationLocked = true;
+        } else {
+          validityHydrationCache.set(id, null);
+          const target = allCandidates.find((item) => String(item.id) === id);
+          if (target) {
+            syncScreeningInputsFromDetail(target, detail);
+            target.validApplicationComputed = null;
+          }
+          syncScreeningInputsFromDetail(current, detail);
+          current.validApplicationComputed = null;
         }
       } catch (error) {
         console.warn(`[candidates] validity hydration failed for ${id}:`, error);
@@ -1705,27 +1487,49 @@ async function hydrateValidApplicationsFromDetail(list) {
   updateHeaderSortStyles();
 }
 
-async function loadScreeningRulesForCandidates() {
-  if (screeningRulesLoading || screeningRulesLoaded) return;
-  screeningRulesLoading = true;
-  try {
-    let response = await fetch(SCREENING_RULES_ENDPOINT);
-    if (!response.ok && SCREENING_RULES_FALLBACK_ENDPOINT) {
-      response = await fetch(SCREENING_RULES_FALLBACK_ENDPOINT);
-    }
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const data = await response.json();
-    screeningRules = normalizeScreeningRulesPayload(data);
-    screeningRulesLoaded = true;
-  } catch (error) {
-    console.error("有効応募判定ルールの取得に失敗しました。", error);
-    screeningRules = null;
-  } finally {
-    screeningRulesLoading = false;
-    applyScreeningRulesToCandidates();
+async function loadScreeningRulesForCandidates({ force = false } = {}) {
+  if (!force && screeningRulesLoaded) return screeningRules;
+  if (screeningRulesLoadPromise) return screeningRulesLoadPromise;
+
+  if (force) {
+    screeningRulesLoaded = false;
+    validityHydrationCache.clear();
+    validityHydrationInFlight.clear();
   }
+
+  screeningRulesLoading = true;
+  screeningRulesLoadPromise = (async () => {
+    try {
+      const token = getSession()?.token;
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      let response = await fetch(SCREENING_RULES_ENDPOINT, {
+        headers,
+        cache: "no-store",
+      });
+      if (!response.ok && SCREENING_RULES_FALLBACK_ENDPOINT) {
+        response = await fetch(SCREENING_RULES_FALLBACK_ENDPOINT, {
+          headers,
+          cache: "no-store",
+        });
+      }
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      screeningRules = normalizeScreeningRulesPayload(data);
+      screeningRulesLoaded = true;
+    } catch (error) {
+      console.error("有効応募判定ルールの取得に失敗しました。", error);
+      screeningRules = null;
+    } finally {
+      screeningRulesLoading = false;
+      screeningRulesLoadPromise = null;
+      applyScreeningRulesToCandidates();
+    }
+    return screeningRules;
+  })();
+
+  return screeningRulesLoadPromise;
 }
 
 function resolvePhaseValues(candidate) {
@@ -1786,6 +1590,7 @@ function sortCandidates(list, key, order) {
         bVal = resolveValidApplication(b) === true ? 1 : 0;
         break;
       case "candidateName":
+      case "csName":
       case "advisorName":
       case "partnerName":
       case "source":
@@ -1804,6 +1609,14 @@ function sortCandidates(list, key, order) {
     }
     return direction * (aVal - bVal);
   });
+}
+
+function handleCandidatesHeaderClick(event) {
+  const header = event.target.closest("th[data-sort-key]");
+  if (!header) return;
+  const key = header.dataset.sortKey;
+  if (!key) return;
+  handleHeaderSort(key);
 }
 
 function handleHeaderSort(key) {
@@ -1848,9 +1661,6 @@ function buildCandidatesQuery(filters, { limit = LIST_PAGE_SIZE, offset = 0, vie
   if (filters.name) p.set("name", filters.name);
   if (filters.company) p.set("company", filters.company);
   if (filters.valid) p.set("valid", filters.valid);
-  // Backend expects `sort` ("asc" | "desc"). The UI stores it as `sortOrder`.
-  // If this isn't sent, the backend's default order applies and the list may not be "newest first".
-  if (filters.sortOrder) p.set("sort", filters.sortOrder);
   if (view) p.set("view", view);
   p.set("limit", String(limit));
   p.set("offset", String(offset));
@@ -2273,8 +2083,8 @@ function buildTableRow(candidate) {
 
       ${renderCheckboxCell(candidate, "validApplication", "有効応募")}
       ${renderTextCell(candidate, "candidateName", { strong: true, readOnly: true })}
-      ${renderAssigneeCell(candidate, { kind: "cs" })}
-      ${renderAssigneeCell(candidate, { kind: "advisor" })}
+      ${renderTextCell(candidate, "csName", { readOnly: true })}
+      ${renderTextCell(candidate, "advisorName", { readOnly: true })}
       ${renderNextActionCell(candidate)}
     </tr>
   `;
@@ -2371,65 +2181,6 @@ function renderTextCell(candidate, field, options = {}) {
   return `<td><input type="${type}" class="table-inline-input" data-field="${field}" value="${escapeHtmlAttr(raw)}"></td>`;
 }
 
-function normalizeNullableId(value) {
-  const trimmed = String(value ?? "").trim();
-  return trimmed ? trimmed : null;
-}
-
-function resolveCurrentRoleView() {
-  const session = typeof getSession === "function" ? getSession() : null;
-  const rawRole = String(session?.role || session?.roles?.[0] || "").toLowerCase();
-  return rawRole.includes("caller") ? "caller" : "advisor";
-}
-
-function validateNextActionRegistration(candidate) {
-  const nextActionDate = String(candidate?.nextActionDate ?? "").trim();
-  const nextActionNote = String(candidate?.nextActionNote ?? "").trim();
-  if (!nextActionDate && !nextActionNote) return;
-
-  if (!nextActionDate || !nextActionNote) {
-    throw new Error("次回アクションを登録するには、日付と内容の両方を入力してください。");
-  }
-
-  const roleView = resolveCurrentRoleView();
-  const advisorUserId = normalizeNullableId(candidate?.advisorUserId);
-  const partnerUserId = normalizeNullableId(candidate?.partnerUserId ?? candidate?.csUserId);
-
-  if (roleView === "caller" && !partnerUserId) {
-    throw new Error("次回アクションを登録するには、担当CSを設定してください。");
-  }
-  if (roleView !== "caller" && !advisorUserId) {
-    throw new Error("次回アクションを登録するには、担当アドバイザーを設定してください。");
-  }
-}
-
-function renderAssigneeCell(candidate, { kind } = {}) {
-  const isCs = kind === "cs";
-  const idField = isCs ? "csUserId" : "advisorUserId";
-  const nameField = isCs ? "csName" : "advisorName";
-  const allowedRoles = isCs ? ["caller"] : ["advisor"];
-  const blankLabel = isCs ? "担当CSを選択" : "担当アドバイザーを選択";
-
-  if (!candidatesEditMode) {
-    const value = candidate?.[nameField] || "-";
-    return `<td>${escapeHtml(value)}</td>`;
-  }
-
-  const selectedId = normalizeNullableId(candidate?.[idField]) ?? "";
-  const selectedName = candidate?.[nameField] || "";
-  const options = buildUserOptions(selectedId, selectedName, { allowedRoles, blankLabel });
-  const html = (options || [])
-    .map((option) => {
-      const optValue = option?.value ?? "";
-      const optLabel = option?.label ?? "";
-      const isDisabled = Boolean(option?.disabled);
-      const isSelected = Boolean(option?.selected);
-      return `<option value="${escapeHtmlAttr(optValue)}" ${isSelected ? "selected" : ""} ${isDisabled ? "disabled" : ""}>${escapeHtml(optLabel)}</option>`;
-    })
-    .join("");
-  return `<td><select class="table-inline-select" data-field="${idField}">${html}</select></td>`;
-}
-
 // =========================
 // 編集モード（一覧インライン）
 // =========================
@@ -2447,9 +2198,6 @@ async function toggleCandidatesEditMode() {
 
   if (!nextState) {
     await persistInlineEdits();
-  } else {
-    // Ensure assignee dropdowns have options in list edit mode.
-    void ensureMasterUsersLoaded();
   }
 }
 
@@ -2468,46 +2216,18 @@ function handleInlineEdit(event) {
   const field = control.dataset.field;
   candidate[field] = control.type === "checkbox" ? control.checked : control.value;
 
-  // Keep assignee display fields in sync when the list uses select-based editing.
-  if (field === "csUserId") {
-    candidate.csUserId = normalizeNullableId(candidate.csUserId);
-    if (candidate.csUserId) {
-      const resolved = resolveUserName(candidate.csUserId);
-      if (resolved) candidate.csName = resolved;
-    }
-    candidate.partnerUserId = candidate.csUserId;
-  }
-  if (field === "advisorUserId") {
-    candidate.advisorUserId = normalizeNullableId(candidate.advisorUserId);
-    if (candidate.advisorUserId) {
-      const resolved = resolveUserName(candidate.advisorUserId);
-      if (resolved) candidate.advisorName = resolved;
-    }
-    // Some views still refer to partnerName as advisor label.
-    candidate.partnerName = candidate.advisorName;
-  }
-
   if (field === "validApplication") {
     candidate.validApplicationComputed = candidate.validApplication;
   }
 
-  markCandidateDirty(candidate.id, field);
+  markCandidateDirty(candidate.id);
 
   if (field === "birthday") candidate.age = calculateAge(candidate.birthday);
 }
 
-function markCandidateDirty(id, field) {
+function markCandidateDirty(id) {
   if (!id) return;
-  const key = String(id);
-  const current = pendingInlineUpdates[key];
-  if (!current || current === true) {
-    pendingInlineUpdates[key] = {};
-  }
-  if (field) {
-    pendingInlineUpdates[key][field] = true;
-  } else {
-    pendingInlineUpdates[key]._unknown = true;
-  }
+  pendingInlineUpdates[String(id)] = true;
 }
 
 async function persistInlineEdits() {
@@ -2519,12 +2239,11 @@ async function persistInlineEdits() {
     const candidate = allCandidates.find((item) => String(item.id) === String(id));
     if (!candidate) continue;
     try {
-      const patch = pendingInlineUpdates[id] || null;
-      await saveCandidateRecord(candidate, { patch });
+      await saveCandidateRecord(candidate);
       delete pendingInlineUpdates[id];
     } catch (e) {
       console.error("候補者の保存に失敗しました。", e);
-      failures[id] = pendingInlineUpdates[id] || { _unknown: true };
+      failures[id] = true;
     }
   }
 
@@ -2643,28 +2362,37 @@ function handleFilterReset() {
   closeCandidateModal({ clearSelection: false });
   handleFilterChange();
 }
+
+
+
+// クライアント一覧（オートコンプリート用）
+let clientList = [];
+
+// =========================
+// 初期化
+// =========================
+document.addEventListener("DOMContentLoaded", async () => {
+  await Promise.all([
+    fetchCandidates(),
+    fetchClients(), // クライアント一覧取得
+  ]);
+
+  // URLパラメータのチェック (id指定があれば詳細を開く)
+  const urlParams = new URLSearchParams(window.location.search);
+  const detailId = urlParams.get("id");
+  if (detailId) {
+    await openCandidateById(detailId);
+  }
+});
+
 async function fetchClients() {
-  const res = await fetch(candidatesApi("/clients"));
-  if (!res.ok) throw new Error("Failed to fetch clients");
-  const rows = await res.json();
-  const merged = mergeMasterClientRows(rows);
-  clientList = mergeMasterClientRows([...(clientList || []), ...merged]);
-  return clientList;
-}
-
-async function ensureClientListLoaded({ force = false } = {}) {
-  if (!force && Array.isArray(clientList) && clientList.length > 0) return clientList;
-  if (clientListFetchPromise) return clientListFetchPromise;
-
-  clientListFetchPromise = fetchClients()
-    .catch((error) => {
-      console.error(error);
-      return clientList;
-    })
-    .finally(() => {
-      clientListFetchPromise = null;
-    });
-  return clientListFetchPromise;
+  try {
+    const res = await fetch(candidatesApi("/clients"));
+    if (!res.ok) throw new Error("Failed to fetch clients");
+    clientList = await res.json();
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 // =========================
@@ -2832,10 +2560,10 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
     nextAction: renderDetailCard("次回アクション", renderNextActionSection(candidate), "nextAction"),
     selection: renderDetailCard("選考進捗", renderSelectionProgressSection(candidate), "selection"),
     profile: renderDetailCard("基本情報", renderApplicantInfoSection(candidate), "profile") +
-             renderDetailCard("担当者", renderAssigneeSection(candidate), "assignees"),
+      renderDetailCard("担当者", renderAssigneeSection(candidate), "assignees"),
     hearing: renderDetailCard("面談メモ", renderHearingSection(candidate), "hearing"),
     cs: renderDetailCard("架電結果", renderCsSection(candidate), "cs") +
-        renderDetailCard("テレアポログ一覧", renderTeleapoLogsSection(candidate), "teleapoLogs", { editable: false }),
+      renderDetailCard("テレアポログ一覧", renderTeleapoLogsSection(candidate), "teleapoLogs", { editable: false }),
     money: renderDetailCard("売上・返金", renderMoneySection(candidate), "money"),
     documents: renderDetailCard("書類作成", renderDocumentsSection(candidate), "documents"),
   };
@@ -2869,9 +2597,8 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
 
 // タブナビゲーションの初期化
 function initializeDetailTabs(defaultKey = "nextAction") {
-  const root = getCandidateDetailContainer() || document;
-  const tabs = Array.from(root.querySelectorAll('[data-detail-tab]'));
-  const panels = Array.from(root.querySelectorAll('[data-detail-panel]'));
+  const tabs = Array.from(document.querySelectorAll('[data-detail-tab]'));
+  const panels = Array.from(document.querySelectorAll('[data-detail-panel]'));
   if (!tabs.length || !panels.length) return;
 
   const activate = (key) => {
@@ -3090,7 +2817,7 @@ function renderPhasePills(candidate) {
   </div>`;
 }
 
-async function saveCandidateRecord(candidate, { preserveDetailState = true, includeDetail = false, patch = null, editedSection = null } = {}) {
+async function saveCandidateRecord(candidate, { preserveDetailState = true, includeDetail = false } = {}) {
   if (!candidate || !candidate.id) throw new Error("保存対象の候補者が見つかりません。");
 
   // ---------------------------------------------------------
@@ -3160,52 +2887,25 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
         const parts = fieldPath.split(".");
         const key = parts[parts.length - 1];
 
-        // API差分吸収: 画面キー + 互換キーを同時に保持する
-        const keyAliases = {
-          recommendationDate: ["recommendedAt"],
-          firstInterviewAdjustDate: ["firstInterviewSetAt", "interviewSetupDate"],
-          firstInterviewDate: ["firstInterviewAt", "interviewDate"],
-          secondInterviewAdjustDate: ["secondInterviewSetAt", "secondInterviewSetupDate"],
-          secondInterviewDate: ["secondInterviewAt"],
-          finalInterviewAdjustDate: ["finalInterviewSetAt", "finalInterviewSetupDate"],
-          finalInterviewDate: ["finalInterviewAt"],
-          declinedDate: ["preJoinDeclineDate", "preJoinWithdrawDate", "declinedAfterOfferAt"],
-          declinedReason: ["preJoinDeclineReason", "preJoinWithdrawReason", "declinedAfterOfferReason"],
-          earlyTurnoverDate: ["postJoinQuitDate", "earlyTurnoverAt"],
-          earlyTurnoverReason: ["postJoinQuitReason"],
-          closingForecastDate: ["closeExpectedDate", "closingPlanDate", "closingForecastAt"],
-          note: ["selectionNote"],
+        // Lambda(DB)が期待するキー名へ変換
+        const keyMap = {
+          "recommendationDate": "recommendedAt",
+          "firstInterviewAdjustDate": "firstInterviewSetAt",
+          "firstInterviewDate": "firstInterviewAt",
+          "secondInterviewAdjustDate": "secondInterviewSetAt",
+          "secondInterviewDate": "secondInterviewAt",
+          "finalInterviewAdjustDate": "finalInterviewSetAt",
+          "finalInterviewDate": "finalInterviewAt"
         };
+        const mappedKey = keyMap[key] || key;
 
-        newData[key] = input.value;
-        const aliases = keyAliases[key] || [];
-        aliases.forEach((alias) => {
-          newData[alias] = input.value;
-        });
+        newData[mappedKey] = input.value;
         if (input.value) hasInput = true;
       });
 
       // スネークケース(フォールバック)
       if (newData.clientId) newData.client_id = newData.clientId;
       if (newData.companyName) newData.company_name = newData.companyName;
-      if (newData.recommendedAt !== undefined) newData.recommended_at = newData.recommendedAt;
-      if (newData.firstInterviewSetAt !== undefined) newData.first_interview_set_at = newData.firstInterviewSetAt;
-      if (newData.firstInterviewAt !== undefined) newData.first_interview_at = newData.firstInterviewAt;
-      if (newData.secondInterviewSetAt !== undefined) newData.second_interview_set_at = newData.secondInterviewSetAt;
-      if (newData.secondInterviewAt !== undefined) newData.second_interview_at = newData.secondInterviewAt;
-      if (newData.finalInterviewSetAt !== undefined) newData.final_interview_set_at = newData.finalInterviewSetAt;
-      if (newData.finalInterviewAt !== undefined) newData.final_interview_at = newData.finalInterviewAt;
-      if (newData.preJoinWithdrawDate !== undefined) newData.pre_join_withdraw_date = newData.preJoinWithdrawDate;
-      if (newData.preJoinWithdrawReason !== undefined) newData.pre_join_withdraw_reason = newData.preJoinWithdrawReason;
-      if (newData.postJoinQuitDate !== undefined) newData.post_join_quit_date = newData.postJoinQuitDate;
-      if (newData.postJoinQuitReason !== undefined) newData.post_join_quit_reason = newData.postJoinQuitReason;
-      if (newData.declinedAfterOfferAt !== undefined) newData.declined_after_offer_at = newData.declinedAfterOfferAt;
-      if (newData.declinedAfterOfferReason !== undefined) newData.declined_after_offer_reason = newData.declinedAfterOfferReason;
-      if (newData.earlyTurnoverAt !== undefined) newData.early_turnover_at = newData.earlyTurnoverAt;
-      if (newData.earlyTurnoverReason !== undefined) newData.early_turnover_reason = newData.earlyTurnoverReason;
-      if (newData.closeExpectedDate !== undefined) newData.close_expected_at = newData.closeExpectedDate;
-      if (newData.closingForecastAt !== undefined) newData.closing_forecast_at = newData.closingForecastAt;
-      if (newData.selectionNote !== undefined) newData.selection_note = newData.selectionNote;
       newData.selection_status = newData.status || newData.selectionStatus;
 
       if (newData.clientId || hasInput) {
@@ -3218,58 +2918,25 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
 
   normalizeCandidate(candidate);
 
-  if (includeDetail && editedSection === "nextAction") {
-    validateNextActionRegistration(candidate);
-  }
+  console.log("[saveCandidateRecord] Before ensureSelectionProgressClientIds, selectionProgress:", candidate.selectionProgress);
 
   // Ensure selection progress rows include clientId (Lambda requires it for INSERT).
-  // Company names must map to existing registered clients.
+  // This also supports free-text companyName input by resolving/creating clients.
   if (includeDetail) {
     await ensureSelectionProgressClientIds(candidate);
+    syncMoneyInfoFromSelectionProgress(candidate);
   }
+
+  console.log("[saveCandidateRecord] After ensureSelectionProgressClientIds, selectionProgress:", candidate.selectionProgress);
 
   const payload = includeDetail
     ? buildCandidateDetailPayload(candidate)
-    : (() => {
-      const p = { id: candidate.id };
-      const allowAll = !patch || patch._unknown;
-
-      if (allowAll || patch.validApplication) {
-        p.validApplication = resolveValidApplication(candidate);
-      }
-
-      // Only include assignees if edited (or if patch isn't available).
-      if (allowAll || patch.csUserId || patch.advisorUserId) {
-        const csUserId = normalizeNullableId(candidate.csUserId);
-        const advisorUserId = normalizeNullableId(candidate.advisorUserId);
-        const partnerUserId = normalizeNullableId(candidate.partnerUserId ?? candidate.csUserId);
-
-        p.csUserId = csUserId;
-        p.advisorUserId = advisorUserId;
-        p.partnerUserId = partnerUserId;
-        p.csName = candidate.csName ?? null;
-        p.advisorName = candidate.advisorName ?? null;
-
-        // Backend compatibility (some backends use snake_case)
-        p.cs_user_id = csUserId;
-        p.advisor_user_id = advisorUserId;
-        p.partner_user_id = partnerUserId;
-      }
-
-      return p;
-    })();
+    : { id: candidate.id, validApplication: resolveValidApplication(candidate) };
 
   // ★ Lambdaが必須とするフラグ
   if (includeDetail) {
     payload.detailMode = true;
     payload.selection_progress = candidate.selectionProgress;
-    const deletedSelectionProgressIds = Array.isArray(candidate.selectionProgressDeletedIds)
-      ? [...new Set(candidate.selectionProgressDeletedIds.map((id) => toIntOrNull(id)).filter((id) => id !== null && id > 0))]
-      : [];
-    if (deletedSelectionProgressIds.length) {
-      payload.deletedSelectionProgressIds = deletedSelectionProgressIds;
-      payload.deleted_selection_progress_ids = deletedSelectionProgressIds;
-    }
   }
 
   // ★ Lambdaが必須とするフラグを確実にセット
@@ -3293,7 +2960,14 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
   }
 
   const updated = normalizeCandidate(await response.json());
-  candidate.selectionProgressDeletedIds = [];
+
+  // サーバーからのレスポンスにローカルで変更したselectionProgressを上書き
+  // （サーバーが空の配列を正しく返さない場合への対策）
+  if (includeDetail && Array.isArray(candidate.selectionProgress)) {
+    updated.selectionProgress = candidate.selectionProgress;
+    console.log("[saveCandidateRecord] Preserved local selectionProgress:", updated.selectionProgress);
+  }
+
   delete pendingInlineUpdates[String(candidate.id)];
   applyCandidateUpdate(updated, { preserveDetailState });
   return updated;
@@ -3418,6 +3092,7 @@ function buildCandidateDetailPayload(candidate) {
     selectionProgress: candidate.selectionProgress,
     afterAcceptance: candidate.afterAcceptance,
     refundInfo: candidate.refundInfo,
+    moneyInfo: candidate.moneyInfo,
     actionInfo,
     csChecklist: candidate.csChecklist,
   };
@@ -3485,23 +3160,16 @@ function batchApplyCandidateUpdates(
 // イベントハンドラ等
 // =========================
 function initializeDetailContentListeners() {
-  // Detach from all possible detail containers first (modal + standalone page),
-  // then attach to the currently active one.
-  const candidatesModal = document.getElementById("candidateDetailContent");
-  const candidatesPage = document.getElementById("candidateDetailContentPage");
-  const detachTargets = [candidatesModal, candidatesPage].filter(Boolean);
-  if (detailContentHandlers.click) {
-    detachTargets.forEach((el) => el.removeEventListener("click", detailContentHandlers.click));
-  }
-  if (detailContentHandlers.input) {
-    detachTargets.forEach((el) => {
-      el.removeEventListener("input", detailContentHandlers.input);
-      el.removeEventListener("change", detailContentHandlers.input);
-    });
-  }
-
   const container = getCandidateDetailContainer();
   if (!container) return;
+
+  if (detailContentHandlers.click) {
+    container.removeEventListener("click", detailContentHandlers.click);
+  }
+  if (detailContentHandlers.input) {
+    container.removeEventListener("input", detailContentHandlers.input);
+    container.removeEventListener("change", detailContentHandlers.input);
+  }
 
   detailContentHandlers.click = handleDetailContentClick;
   detailContentHandlers.input = handleDetailFieldChange;
@@ -3689,6 +3357,8 @@ function cleanupCandidatesEventListeners() {
     tableBody.removeEventListener("input", handleInlineEdit);
     tableBody.removeEventListener("change", handleInlineEdit);
   }
+  const tableHead = document.querySelector(".candidates-table-card thead");
+  if (tableHead) tableHead.removeEventListener("click", handleCandidatesHeaderClick);
 
   const toggleButton = document.getElementById("candidatesToggleEdit");
   if (toggleButton) toggleButton.removeEventListener("click", toggleCandidatesEditMode);
@@ -3722,8 +3392,7 @@ function cleanupCandidatesEventListeners() {
 
   const detailContent = document.getElementById("candidateDetailContent");
   const detailContentPage = document.getElementById("candidateDetailContentPage");
-  const detachTargets = [detailContent, detailContentPage].filter(Boolean);
-  detachTargets.forEach((el) => {
+  [detailContent, detailContentPage].filter(Boolean).forEach((el) => {
     if (detailContentHandlers.click) el.removeEventListener("click", detailContentHandlers.click);
     if (detailContentHandlers.input) {
       el.removeEventListener("input", detailContentHandlers.input);
@@ -3737,15 +3406,6 @@ function cleanupCandidatesEventListeners() {
 // ====== Detail Content Handlers ======
 
 function handleDetailContentClick(event) {
-  const companyOption = event.target.closest("[data-company-option]");
-  if (companyOption) {
-    selectCompanyAutocompleteOption(companyOption);
-    return;
-  }
-  if (!event.target.closest("[data-company-autocomplete]")) {
-    hideAllCompanyAutocompleteMenus();
-  }
-
   const editBtn = event.target.closest("[data-section-edit]");
   if (editBtn) {
     toggleDetailSectionEdit(editBtn.dataset.sectionEdit);
@@ -3759,7 +3419,9 @@ function handleDetailContentClick(event) {
   }
 
   const removeBtn = event.target.closest("[data-remove-row]");
+  console.log("[handleDetailContentClick] removeBtn check:", removeBtn, "target:", event.target);
   if (removeBtn) {
+    console.log("[handleDetailContentClick] removeBtn found:", removeBtn.dataset);
     handleDetailRemoveRow(
       removeBtn.dataset.removeRow,
       Number(removeBtn.dataset.index)
@@ -3813,8 +3475,7 @@ function handleDetailContentClick(event) {
 
 function syncDetailSectionInputs(sectionKey) {
   if (!sectionKey) return;
-  const root = getCandidateDetailContainer() || document;
-  const section = root.querySelector(`.candidate-detail-section[data-section="${sectionKey}"], .detail-card[data-section="${sectionKey}"]`);
+  const section = document.querySelector(`.candidate-detail-section[data-section="${sectionKey}"], .detail-card[data-section="${sectionKey}"]`);
   if (!section) {
     console.error(`[candidates] syncDetailSectionInputs: Section not found for key "${sectionKey}". Please reload.`);
     alert("画面の状態が古いため保存できませんでした。ページをリロードしてください。");
@@ -3842,59 +3503,43 @@ async function toggleDetailSectionEdit(sectionKey) {
     if (!candidate) return;
 
     if (wasEditing) {
-      const candidateKey = String(candidate.id || "");
-      if (candidateKey && detailSaveInFlight.has(candidateKey)) {
-        return;
-      }
-      if (candidateKey) detailSaveInFlight.add(candidateKey);
+      // 編集モード終了時 (保存処理)
+
+      // 1. まず同期 (これでcandidateオブジェクトが更新される)
       try {
-        // 編集モード終了時 (保存処理)
+        syncDetailSectionInputs(sectionKey);
+      } catch (syncError) {
+        console.error("Sync inputs error:", syncError);
+        // エラーでも続行し、下のsaveCandidateRecord内のDOMスクレイピングに賭ける
+      }
 
-        // 1. まず同期 (これでcandidateオブジェクトが更新される)
-        try {
-          syncDetailSectionInputs(sectionKey);
-        } catch (syncError) {
-          console.error("Sync inputs error:", syncError);
-          // エラーでも続行し、下のsaveCandidateRecord内のDOMスクレイピングに賭ける
-        }
+      // 2. 保存実行 (DOMがまだ編集モードの状態で呼ぶ！これによりスクレイピングが機能する)
+      // 状態は保存成功までとりあえず変えないでおく、あるいは保存成功後に変える
+      // ここでは一時的に状態を変えず、保存に成功したら nextState (false) にする
 
-        // 2. 保存実行 (DOMがまだ編集モードの状態で呼ぶ！これによりスクレイピングが機能する)
-        // 状態は保存成功までとりあえず変えないでおく、あるいは保存成功後に変える
-        // ここでは一時的に状態を変えず、保存に成功したら nextState (false) にする
+      try {
+        // 保存時はまだ編集モードのDOMが必要
+        const updated = await saveCandidateRecord(candidate, { preserveDetailState: false, includeDetail: true });
 
-        try {
-          // 保存時はまだ編集モードのDOMが必要
-          const updated = await saveCandidateRecord(candidate, {
-            preserveDetailState: false,
-            includeDetail: true,
-            editedSection: sectionKey
-          });
+        // 3. 成功したら状態を閲覧モードへ
+        detailEditState[sectionKey] = false;
 
-          // 3. 成功したら状態を閲覧モードへ
-          detailEditState[sectionKey] = false;
+        renderCandidatesTable(filteredCandidates);
+        highlightSelectedRow();
+        renderCandidateDetail(updated, { preserveEditState: false });
 
-          renderCandidatesTable(filteredCandidates);
-          highlightSelectedRow();
-          renderCandidateDetail(updated, { preserveEditState: false });
+      } catch (error) {
+        console.error("詳細の保存に失敗しました。", error);
+        alert(`保存に失敗しました。ネットワーク状態を確認してください。\n${error.message}`);
+        // 保存失敗時は編集モードのままにする (DOMは残っているので何もしなくてよい)
+        // ただし状態変数は戻す必要なし(まだ変えていないから)
 
-        } catch (error) {
-          console.error("詳細の保存に失敗しました。", error);
-          alert(`保存に失敗しました。ネットワーク状態を確認してください。\n${error.message}`);
-          // 保存失敗時は編集モードのままにする (DOMは残っているので何もしなくてよい)
-          // ただし状態変数は戻す必要なし(まだ変えていないから)
-
-          // もし sync で中途半端に更新されていたら？
-          // DOMが残っているのでユーザーは再試行できる。
-        }
-      } finally {
-        if (candidateKey) detailSaveInFlight.delete(candidateKey);
+        // もし sync で中途半端に更新されていたら？
+        // DOMが残っているのでユーザーは再試行できる。
       }
 
     } else {
       // 編集モード開始時
-      if (sectionKey === "selection") {
-        await ensureClientListLoaded();
-      }
       detailEditState[sectionKey] = true;
       renderCandidateDetail(candidate, { preserveEditState: true });
     }
@@ -3937,8 +3582,13 @@ function handleDetailAddRow(type) {
 }
 
 function handleDetailRemoveRow(type, index) {
+  console.log("[handleDetailRemoveRow] called:", { type, index });
   const candidate = getSelectedCandidate();
-  if (!candidate || Number.isNaN(index)) return;
+  console.log("[handleDetailRemoveRow] candidate:", candidate);
+  if (!candidate || Number.isNaN(index)) {
+    console.warn("[handleDetailRemoveRow] Early return - candidate:", !!candidate, "index:", index);
+    return;
+  }
 
   switch (type) {
     case "meetingPlans": {
@@ -3956,25 +3606,6 @@ function handleDetailRemoveRow(type, index) {
     }
     case "selectionProgress": {
       const rows = candidate.selectionProgress || [];
-      const removedRow = rows[index];
-      const parseIntOrNull = typeof toIntOrNull === "function" ? toIntOrNull : (value) => {
-        if (value === undefined || value === null || String(value).trim() === "") return null;
-        const parsed = Number(value);
-        if (!Number.isFinite(parsed)) return null;
-        return Number.isInteger(parsed) ? parsed : Math.trunc(parsed);
-      };
-      const removedId = parseIntOrNull(removedRow?.id);
-      if (removedId !== null) {
-        const deletedIds = Array.isArray(candidate.selectionProgressDeletedIds)
-          ? candidate.selectionProgressDeletedIds
-            .map((id) => parseIntOrNull(id))
-            .filter((id) => id !== null && id > 0)
-          : [];
-        if (!deletedIds.includes(removedId)) {
-          deletedIds.push(removedId);
-        }
-        candidate.selectionProgressDeletedIds = deletedIds;
-      }
       rows.splice(index, 1);
       candidate.selectionProgress = rows;
       break;
@@ -3983,8 +3614,9 @@ function handleDetailRemoveRow(type, index) {
       break;
   }
 
-  const current = getSelectedCandidate();
-  if (current) renderCandidateDetail(current, { preserveEditState: true });
+  console.log("[handleDetailRemoveRow] After deletion, selectionProgress length:", candidate.selectionProgress?.length);
+  // 変更を加えたのと同じcandidateオブジェクトを使って再描画
+  renderCandidateDetail(candidate, { preserveEditState: true });
 }
 
 async function handleCompleteTask(taskId) {
@@ -4127,22 +3759,6 @@ function handleDetailFieldChange(event) {
   }
 
   updateCandidateFieldValue(candidate, fieldPath, value);
-  if (fieldPath.endsWith(".companyName")) {
-    const matched = bindSelectionProgressCompany(candidate, fieldPath, value);
-    const trimmed = String(value ?? "").trim();
-    if (target.dataset.companyNameInput === "true") {
-      if (event?.type === "input") {
-        updateCompanyAutocompleteMenu(target, trimmed);
-      } else if (event?.type === "change") {
-        hideAllCompanyAutocompleteMenus();
-      }
-    }
-    if (!trimmed || matched?.id) {
-      target.setCustomValidity("");
-    } else {
-      target.setCustomValidity("登録済み紹介先企業から選択してください。");
-    }
-  }
 
   if (fieldPath === "attendanceConfirmed") {
     scheduleDetailAutoSave(candidate);
@@ -4203,13 +3819,6 @@ function handleDetailFieldChange(event) {
       if (fieldPath.endsWith(".clientId")) {
         row.companyName = resolveClientName(row.clientId);
       }
-      if (fieldPath.endsWith(".companyName")) {
-        const matched = findClientByName(row.companyName);
-        if (matched?.id) {
-          row.clientId = matched.id;
-          row.client_id = matched.id;
-        }
-      }
       const status = resolveSelectionStageValue(row);
       row.status = status;
       updateSelectionStatusCell(index, status);
@@ -4221,17 +3830,12 @@ function scheduleDetailAutoSave(candidate) {
   if (!candidate) return;
   if (detailAutoSaveTimer) window.clearTimeout(detailAutoSaveTimer);
   detailAutoSaveTimer = window.setTimeout(async () => {
-    const candidateKey = String(candidate.id || "");
-    if (candidateKey && detailSaveInFlight.has(candidateKey)) return;
-    if (candidateKey) detailSaveInFlight.add(candidateKey);
     try {
       await saveCandidateRecord(candidate, { preserveDetailState: true, includeDetail: true });
       renderCandidatesTable(filteredCandidates);
       highlightSelectedRow();
     } catch (error) {
       console.error("詳細の保存に失敗しました。", error);
-    } finally {
-      if (candidateKey) detailSaveInFlight.delete(candidateKey);
     }
   }, 200);
 }
@@ -4325,6 +3929,7 @@ function renderAssigneeSection(candidate) {
       options: buildUserOptions(candidate.csUserId, candidate.csName, {
         allowedRoles: ["caller"], // role=caller is CS in this app
         blankLabel: "担当CSを選択",
+        sourceList: masterCsUsers,
       }),
       path: "csUserId",
       displayFormatter: () => candidate.csName || "-",
@@ -4337,6 +3942,7 @@ function renderAssigneeSection(candidate) {
       options: buildUserOptions(candidate.advisorUserId, candidate.advisorName, {
         allowedRoles: ["advisor"],
         blankLabel: "担当アドバイザーを選択",
+        sourceList: masterAdvisorUsers,
       }),
       path: "advisorUserId",
       displayFormatter: () => candidate.advisorName || "-",
@@ -4370,9 +3976,9 @@ function renderApplicantInfoSection(candidate) {
     { label: "連絡希望時間帯", value: candidate.contactPreferredTime, path: "contactPreferredTime", span: 2 },
   ];
   const applicationFields = [
-    { label: "応募企業名", value: candidate.applyCompanyName, path: "applyCompanyName", span: 2 },
+    { label: "応募企業名", value: candidate.applyCompanyName, path: "applyCompanyName", span: 2, editable: false },
     { label: "応募求人名", value: candidate.applyJobName, path: "applyJobName", span: 2 },
-    { label: "応募経路", value: candidate.applyRouteText, path: "applyRouteText", span: 2 },
+    { label: "応募経路", value: candidate.applyRouteText, path: "applyRouteText", span: 2, editable: false },
     { label: "備考", value: candidate.applicationNote, input: "textarea", path: "applicationNote", span: "full" },
   ];
   return [
@@ -4386,11 +3992,11 @@ function renderHearingSection(candidate) {
   const attendanceValue = candidate.attendanceConfirmed ?? false;
   const confirmationFields = [
     {
-      label: "共有面談実施日",
-      value: candidate.sharedInterviewDate,
-      type: "date",
-      path: "sharedInterviewDate",
-      displayFormatter: formatDateJP,
+      label: "初回面談日時",
+      value: candidate.firstInterviewDate,
+      type: "datetime-local",
+      path: "firstInterviewDate",
+      displayFormatter: formatDateTimeJP,
       span: 1,
     },
     {
@@ -4412,13 +4018,13 @@ function renderHearingSection(candidate) {
     { label: "希望年収", value: candidate.desiredIncome, path: "desiredIncome", span: 1, displayFormatter: formatMoneyToMan },
     { label: "就業ステータス", value: candidate.employmentStatus, input: "select", options: employmentStatusOptions, path: "employmentStatus", span: 2 },
     { label: "転職理由", value: candidate.careerReason, input: "textarea", path: "careerReason", span: "full" },
-    { label: "転職軸", value: candidate.jobChangeAxis, input: "textarea", path: "jobChangeAxis", span: "full" },
-    { label: "転職時期", value: candidate.jobChangeTiming, path: "jobChangeTiming", span: 2 },
+    { label: "転職軸", value: candidate.careerMotivation, input: "textarea", path: "careerMotivation", span: "full" },
+    { label: "転職時期", value: candidate.transferTiming, path: "transferTiming", span: 2 },
     { label: "将来のビジョン・叶えたいこと", value: candidate.futureVision, input: "textarea", path: "futureVision", span: "full" },
     { label: "資格・スキル", value: candidate.skills, input: "textarea", path: "skills", span: "full" },
     { label: "人物像・性格", value: candidate.personality, input: "textarea", path: "personality", span: "full" },
     { label: "実務経験", value: candidate.workExperience, input: "textarea", path: "workExperience", span: "full" },
-    { label: "推薦文", value: candidate.recommendationText, input: "textarea", path: "recommendationText", span: "full" },
+    { label: "推薦文", value: candidate.firstInterviewNote, input: "textarea", path: "firstInterviewNote", span: "full" },
     { label: "他社選考状態", value: candidate.otherSelectionStatus, input: "textarea", path: "otherSelectionStatus", span: "full" },
     {
       label: "面談メモ",
@@ -4427,7 +4033,7 @@ function renderHearingSection(candidate) {
       path: "firstInterviewNote",
       span: "full",
     },
-    { label: "面接希望日", value: candidate.desiredInterviewDates, input: "textarea", path: "desiredInterviewDates", span: "full" },
+    { label: "面接希望日", value: candidate.interviewPreferredDate, input: "textarea", path: "interviewPreferredDate", span: "full" },
   ];
 
   return [
@@ -4489,19 +4095,11 @@ function renderSelectionProgressSection(candidate) {
           <div class="lg:col-span-3 space-y-3">
             <div class="form-group">
               <label class="block text-xs font-medium text-slate-500 mb-1">企業名</label>
-              ${renderCompanyAutocompleteInput(r.companyName, `${pathPrefix}.companyName`, "selection")}
+              ${renderTableInput(r.companyName, `${pathPrefix}.companyName`, "text", "selection", null, "client-list")}
             </div>
             <div class="form-group">
               <label class="block text-xs font-medium text-slate-500 mb-1">応募経路</label>
               ${renderTableInput(r.route, `${pathPrefix}.route`, "text", "selection")}
-            </div>
-            <div class="form-group">
-              <label class="block text-xs font-medium text-slate-500 mb-1">選考状況</label>
-              <div class="flex items-center gap-2">
-                 ${renderTableInput(row.status, `${pathPrefix}.status`, "text", "selection")}
-                 <!-- Note: Status might be better as select, but keeping text to match existing input type behavior (or maybe it was free text?) -->
-                 <!-- Original used row.status, normalizing function uses row.status as well. -->
-              </div>
             </div>
           </div>
 
@@ -4599,10 +4197,7 @@ function renderSelectionProgressSection(candidate) {
                 <label class="block text-xs font-medium text-red-400 mb-1">離職理由</label>
                 ${renderTableInput(r.earlyTurnoverReason, `${pathPrefix}.earlyTurnoverReason`, "text", "selection")}
              </div>
-             <div class="md:col-span-3">
-                <label class="block text-xs font-medium text-slate-500 mb-1">備考</label>
-                ${renderTableTextarea(r.note, `${pathPrefix}.note`, "selection")}
-             </div>
+           
           </div>
         </div>
       </div>
@@ -4615,6 +4210,9 @@ function renderSelectionProgressSection(candidate) {
       ${addButton}
     </div>
     <div class="selection-card-container">
+      <datalist id="client-list">
+        ${clientList.map(c => `<option value="${escapeHtml(c.name)}"></option>`).join("")}
+      </datalist>
       ${cardsHtml || `<div class="p-8 text-center text-slate-400 bg-slate-50 rounded border border-dashed border-slate-300">企業進捗が登録されていません。<br>「追加」ボタンから登録してください。</div>`}
     </div>
   `;
@@ -4630,16 +4228,16 @@ function normalizeSelectionRow(row) {
     route: row.route ?? row.source,
     status: resolveSelectionStageValue(row) || row.status, // Pill表示用
     proposalDate: row.proposalDate ?? row.proposal_date,
-    recommendationDate: row.recommendationDate ?? row.recommended_at,
+    recommendationDate: row.recommendationDate,
     firstInterviewAdjustDate: row.firstInterviewAdjustDate ?? row.firstInterviewSetAt ?? row.interviewSetupDate,
     firstInterviewDate: row.firstInterviewDate ?? row.firstInterviewAt ?? row.interviewDate,
     secondInterviewAdjustDate: row.secondInterviewAdjustDate ?? row.secondInterviewSetAt ?? row.secondInterviewSetupDate,
     secondInterviewDate: row.secondInterviewDate ?? row.secondInterviewAt,
     finalInterviewAdjustDate: row.finalInterviewAdjustDate ?? row.finalInterviewSetAt ?? row.finalInterviewSetupDate,
     finalInterviewDate: row.finalInterviewDate ?? row.finalInterviewAt,
-    offerDate: row.offerDate ?? row.offer_date ?? row.offerAt,
-    offerAcceptedDate: row.offerAcceptedDate ?? row.offer_accept_date ?? row.offerAcceptedAt ?? row.acceptanceDate,
-    joinedDate: row.joinedDate ?? row.join_date ?? row.joinedAt ?? row.onboardingDate,
+    offerDate: row.offerDate ?? row.offerAt,
+    offerAcceptedDate: row.offerAcceptedDate ?? row.offerAcceptedAt ?? row.acceptanceDate,
+    joinedDate: row.joinedDate ?? row.joinedAt ?? row.onboardingDate,
     declinedDate:
       row.declinedDate ??
       row.declinedAfterOfferDate ??
@@ -4842,19 +4440,29 @@ function renderSelectionFlowCard(rawRow) {
 
 function renderTeleapoLogsSection(candidate) {
   const rows = candidate.teleapoLogs || [];
+  const latestResult = rows.length > 0 ? rows[0].result : (candidate.teleapoResult || "");
+
+  const resultHtml = latestResult
+    ? `<div class="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-md">
+         <div class="text-xs text-blue-500 font-bold mb-1">最新の架電結果</div>
+         <div class="text-sm text-slate-700">${escapeHtml(latestResult)}</div>
+       </div>`
+    : "";
+
   if (rows.length === 0) {
     return `
-    <div class="detail-table-wrapper">
-      <table class="detail-table">
-        <thead>
-          <tr><th>架電回数</th><th>担当者</th><th>メモ</th><th>日時</th></tr>
-        </thead>
-        <tbody>
-          <tr><td colspan="4" class="detail-empty-row text-center py-3">テレアポログはありません。</td></tr>
-        </tbody>
-      </table>
-      </div>
-    `;
+    ${resultHtml}
+  <div class="detail-table-wrapper">
+    <table class="detail-table">
+      <thead>
+        <tr><th>架電回数</th><th>担当者</th><th>結果</th><th>日時</th></tr>
+      </thead>
+      <tbody>
+        <tr><td colspan="4" class="detail-empty-row text-center py-3">テレアポログはありません。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  `;
   }
 
   const bodyHtml = rows
@@ -4862,7 +4470,7 @@ function renderTeleapoLogsSection(candidate) {
       const cells = [
         row.callNo,
         row.callerName,
-        row.memo,
+        row.result,
         formatDateTimeJP(row.calledAt),
       ]
         .map((v) => `<td><span class="detail-value">${escapeHtml(formatDisplayValue(v))}</span></td>`)
@@ -4872,100 +4480,176 @@ function renderTeleapoLogsSection(candidate) {
     .join("");
 
   return `
-    <div class="detail-table-wrapper">
-      <table class="detail-table">
-        <thead>
-          <tr><th>架電回数</th><th>担当者</th><th>メモ</th><th>日時</th></tr>
-        </thead>
-        <tbody>${bodyHtml}</tbody>
-      </table>
-    </div>
-    `;
+    ${resultHtml}
+  <div class="detail-table-wrapper">
+    <table class="detail-table">
+      <thead>
+        <tr><th>架電回数</th><th>担当者</th><th>結果</th><th>日時</th></tr>
+      </thead>
+      <tbody>${bodyHtml}</tbody>
+    </table>
+  </div>
+  `;
 }
 
 function renderMoneySection(candidate) {
-  const rows = candidate.moneyInfo || [];
-  const hasRows = rows.length > 0;
   const editing = detailEditState.money;
+  const progress = candidate.selectionProgress || [];
+  const moneyRows = Array.isArray(candidate.moneyInfo) ? candidate.moneyInfo : [];
+  const moneyMap = new Map();
+  moneyRows.forEach((row = {}) => {
+    const appId = row.applicationId ?? row.application_id;
+    if (appId === null || appId === undefined || appId === "") return;
+    moneyMap.set(String(appId), row);
+  });
 
-  const orderBody = hasRows
-    ? rows
-      .map((row, index) => {
-        const canEdit = editing && row.joinDate;
-        const feeCell = canEdit
-          ? renderTableInput(row.feeAmount, `moneyInfo.${index}.feeAmount`, "number", "money", "number")
-          : `<span class="detail-value">${escapeHtml(formatMoneyToMan(row.feeAmount))}</span>`;
-        const reportCell = canEdit
-          ? renderTableSelect(buildBooleanOptions(row.orderReported), `moneyInfo.${index}.orderReported`, "money", "boolean")
-          : renderBooleanPill(row.orderReported);
-        return `
-    <tr>
-            <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
-            <td>${feeCell}</td>
-            <td class="text-center">${reportCell}</td>
-          </tr>
-    `;
-      })
-      .join("")
-    : `<tr><td colspan="3" class="detail-empty-row text-center py-3">受注情報はありません。</td></tr>`;
+  const resolveMoneyValue = (item, keys) => {
+    const appId = item.id ?? item.applicationId ?? item.application_id;
+    const money = moneyMap.get(String(appId)) || {};
+    for (const key of keys) {
+      if (hasOwn(item, key)) return item[key];
+    }
+    for (const key of keys) {
+      if (hasOwn(money, key)) return money[key];
+    }
+    return null;
+  };
 
-  const refundBody = hasRows
-    ? rows
-      .map((row, index) => {
-        const retirementDate = row.preJoinWithdrawDate || row.postJoinQuitDate || "";
-        const refundType = row.preJoinWithdrawDate
-          ? "内定後辞退"
-          : row.postJoinQuitDate
-            ? "入社後辞退"
-            : row.joinDate
-              ? "入社"
-              : "-";
-        const canEdit = editing && (row.preJoinWithdrawDate || row.postJoinQuitDate);
-        const refundAmountCell = canEdit
-          ? renderTableInput(row.refundAmount, `moneyInfo.${index}.refundAmount`, "number", "money", "number")
-          : `<span class="detail-value">${escapeHtml(formatMoneyToMan(row.refundAmount))}</span>`;
-        const refundReportCell = canEdit
-          ? renderTableSelect(buildBooleanOptions(row.refundReported), `moneyInfo.${index}.refundReported`, "money", "boolean")
-          : renderBooleanPill(row.refundReported);
-        return `
-    <tr>
-            <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
-            <td>${refundAmountCell}</td>
-            <td><span class="detail-value">${escapeHtml(formatDisplayValue(formatDateJP(retirementDate)))}</span></td>
-            <td><span class="detail-value">${escapeHtml(formatDisplayValue(refundType))}</span></td>
-            <td class="text-center">${refundReportCell}</td>
-          </tr>
+  // 受注情報の抽出 (内定承諾 or 入社 or 入社後辞退)
+  const orderRows = progress
+    .map((item, index) => ({ ...item, originalIndex: index }))
+    .filter((item) => {
+      const stage = resolveSelectionStageValue(item);
+      // 内定承諾済み以降のステータスを表示対象とする
+      return ["内定承諾済み", "入社", "入社後辞退", "早期退職"].includes(stage);
+    });
+
+  // 返金情報の抽出 (内定後辞退, 入社後辞退, 早期退職)
+  const refundRows = progress
+    .map((item, index) => ({ ...item, originalIndex: index }))
+    .filter((item) => {
+      const stage = resolveSelectionStageValue(item);
+      return ["内定後辞退", "入社後辞退", "早期退職"].includes(stage) || (Number(item.refundAmount) > 0);
+    });
+
+  const renderOrderRow = (row) => {
+    const idx = row.originalIndex;
+    const feeAmount = resolveMoneyValue(row, ["feeAmount", "fee_amount"]);
+    const orderDate = resolveMoneyValue(row, ["orderDate", "order_date"]);
+    const orderReported = resolveMoneyValue(row, ["orderReported", "order_reported"]);
+
+    // 編集中かつ、まだ確定していない(編集中は常に編集可で良いか)
+    const canEdit = editing;
+
+    const feeCell = canEdit
+      ? renderTableInput(feeAmount, `selectionProgress.${idx}.feeAmount`, "number", "money", "number")
+      : `<span class="detail-value">${escapeHtml(formatMoneyToMan(feeAmount))}</span>`;
+
+    const reportCell = canEdit
+      // boolean options: true="済", false="未"
+      ? renderTableSelect(buildBooleanOptions(orderReported), `selectionProgress.${idx}.orderReported`, "money", "boolean")
+      : renderBooleanPill(orderReported, { trueLabel: "済", falseLabel: "未" });
+
+    const orderDateCell = canEdit
+      ? renderTableInput(orderDate, `selectionProgress.${idx}.orderDate`, "date", "money")
+      : `<span class="detail-value">${escapeHtml(formatDateJP(orderDate))}</span>`;
+
+    return `
+      <tr>
+        <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
+        <td>${feeCell}</td>
+        <td>${orderDateCell}</td>
+        <td class="text-center">${reportCell}</td>
+      </tr>
     `;
-      })
-      .join("")
-    : `<tr><td colspan="5" class="detail-empty-row text-center py-3">返金情報はありません。</td></tr>`;
+  };
+
+  const renderRefundRow = (row) => {
+    const idx = row.originalIndex;
+    const refundAmount = resolveMoneyValue(row, ["refundAmount", "refund_amount"]);
+    const withdrawDate = resolveMoneyValue(row, ["withdrawDate", "withdraw_date"]);
+    const refundReported = resolveMoneyValue(row, ["refundReported", "refund_reported"]);
+
+    // 退職日等の判定
+    const retirementDate = row.earlyTurnoverDate || row.postJoinQuitDate || row.preJoinWithdrawDate;
+    const stage = resolveSelectionStageValue(row);
+
+    const canEdit = editing;
+
+    const amountCell = canEdit
+      ? renderTableInput(refundAmount, `selectionProgress.${idx}.refundAmount`, "number", "money", "number")
+      : `<span class="detail-value">${escapeHtml(formatMoneyToMan(refundAmount))}</span>`;
+
+    const reportCell = canEdit
+      ? renderTableSelect(buildBooleanOptions(refundReported), `selectionProgress.${idx}.refundReported`, "money", "boolean")
+      : renderBooleanPill(refundReported, { trueLabel: "済", falseLabel: "未" });
+
+    const withdrawDateCell = canEdit
+      ? renderTableInput(withdrawDate, `selectionProgress.${idx}.withdrawDate`, "date", "money")
+      : `<span class="detail-value">${escapeHtml(formatDateJP(withdrawDate))}</span>`;
+
+    return `
+      <tr>
+        <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
+        <td>${amountCell}</td>
+        <td>${withdrawDateCell}</td>
+        <td><span class="detail-value">${escapeHtml(formatDateJP(retirementDate))}</span></td>
+        <td><span class="detail-value">${escapeHtml(stage)}</span></td>
+        <td class="text-center">${reportCell}</td>
+      </tr>
+    `;
+  };
+
+  const orderBody = orderRows.length > 0
+    ? orderRows.map(renderOrderRow).join("")
+    : `<tr><td colspan="4" class="detail-empty-row text-center py-3">受注対象の案件はありません。</td></tr>`;
+
+  const refundBody = refundRows.length > 0
+    ? refundRows.map(renderRefundRow).join("")
+    : `<tr><td colspan="6" class="detail-empty-row text-center py-3">返金・減額対象の案件はありません。</td></tr>`;
 
   const orderTable = `
-    <div class="detail-table-wrapper">
+    <div class="detail-table-wrapper mb-6">
+      <h5 class="font-bold mb-2 text-slate-700">入社承諾後（売上）</h5>
       <table class="detail-table">
         <thead>
-          <tr><th>企業名</th><th>受注金額（税抜）</th><th>受注報告</th></tr>
+          <tr>
+            <th class="w-1/4">企業名</th>
+            <th class="w-1/4">受注金額（税抜）</th>
+            <th class="w-1/4">受注日</th>
+            <th class="w-1/4 text-center">受注報告</th>
+          </tr>
         </thead>
         <tbody>${orderBody}</tbody>
       </table>
     </div>
-    `;
+  `;
 
   const refundTable = `
     <div class="detail-table-wrapper">
+      <h5 class="font-bold mb-2 text-slate-700">返金・減額</h5>
       <table class="detail-table">
         <thead>
-          <tr><th>企業名</th><th>返金・減額（税抜）</th><th>退職日</th><th>返金区分</th><th>返金報告</th></tr>
+          <tr>
+            <th class="w-1/6">企業名</th>
+            <th class="w-1/6">返金・減額（税抜）</th>
+            <th class="w-1/6">返金日</th>
+            <th class="w-1/6">退職/辞退日</th>
+            <th class="w-1/6">区分</th>
+            <th class="w-1/6 text-center">返金報告</th>
+          </tr>
         </thead>
         <tbody>${refundBody}</tbody>
       </table>
     </div>
-    `;
+  `;
 
-  return [
-    renderDetailSubsection("入社承諾後", orderTable),
-    renderDetailSubsection("返金・減額", refundTable),
-  ].join("");
+  return `
+    <div class="space-y-6">
+      ${orderTable}
+      ${refundTable}
+    </div>
+  `;
 }
 
 function renderAfterAcceptanceSection(candidate) {
@@ -4976,7 +4660,7 @@ function renderAfterAcceptanceSection(candidate) {
   ];
   const reportStatuses =
     (data.reportStatuses || [])
-      .map((s) => `<span class="cs-pill is-active">${escapeHtml(s)}</span>`)
+      .map((s) => `< span class="cs-pill is-active" > ${escapeHtml(s)}</span > `)
       .join("") || "-";
   return `
     ${renderDetailGridFields(fields, "afterAcceptance")}
@@ -5006,7 +4690,7 @@ function renderRefundSection(candidate) {
 
   if (!items.length) {
     return `
-    <div class="detail-table-wrapper">
+    < div class="detail-table-wrapper" >
       <table class="detail-table">
         <thead>
           <tr><th>企業名</th><th>退職日</th><th>返金・減額（税抜）</th><th>返金報告</th></tr>
@@ -5015,7 +4699,7 @@ function renderRefundSection(candidate) {
           <tr><td colspan="4" class="detail-empty-row text-center py-3">返金情報はありません。</td></tr>
         </tbody>
       </table>
-      </div>
+      </div >
     `;
   }
 
@@ -5027,21 +4711,21 @@ function renderRefundSection(candidate) {
         formatMoneyToMan(item.refundAmount),
         item.reportStatus || "-",
       ]
-        .map((v) => `<td><span class="detail-value">${escapeHtml(formatDisplayValue(v))}</span></td>`)
+        .map((v) => `< td > <span class="detail-value">${escapeHtml(formatDisplayValue(v))}</span></td > `)
         .join("");
-      return `<tr>${cells}</tr>`;
+      return `< tr > ${cells}</tr > `;
     })
     .join("");
 
   return `
-    <div class="detail-table-wrapper">
+    < div class="detail-table-wrapper" >
       <table class="detail-table">
         <thead>
           <tr><th>企業名</th><th>退職日</th><th>返金・減額（税抜）</th><th>返金報告</th></tr>
         </thead>
         <tbody>${bodyHtml}</tbody>
       </table>
-    </div>
+    </div >
     `;
 }
 
@@ -5056,12 +4740,10 @@ function renderNextActionSection(candidate) {
 
   // サマリー表示
   let displayTask = currentTask;
-  const fallbackDate = String(candidate.nextActionDate || "").trim();
-  const fallbackNote = String(candidate.nextActionContent || candidate.nextActionNote || "").trim();
-  if (!displayTask && fallbackDate && fallbackNote) {
+  if (!displayTask && candidate.nextActionDate) {
     displayTask = {
-      actionDate: fallbackDate,
-      actionNote: fallbackNote,
+      actionDate: candidate.nextActionDate,
+      actionNote: candidate.nextActionContent || candidate.nextActionNote || "（内容未設定）",
       id: null // 仮想タスク
     };
   }
@@ -5074,9 +4756,14 @@ function renderNextActionSection(candidate) {
           <span class="next-action-date text-lg font-bold text-indigo-900">次回アクション: ${escapeHtml(formatDateJP(displayTask.actionDate))}</span>
         </div>
         ${displayTask.id ? `
-        <button type="button" class="px-3 py-1.5 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 font-medium shadow-sm transition-colors" data-complete-task-id="${displayTask.id}">
-          ✓ 完了登録
-        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" class="px-3 py-1.5 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 font-medium shadow-sm transition-colors" data-complete-task-id="${displayTask.id}">
+            ✓ 完了登録
+          </button>
+          <button type="button" class="px-3 py-1.5 bg-white border border-red-200 text-red-600 rounded-md text-sm hover:bg-red-50 font-medium shadow-sm transition-colors" data-delete-task-id="${displayTask.id}">
+            削除
+          </button>
+        </div>
         ` : ''}
       </div>
       <div class="mt-2 text-sm text-slate-700">${escapeHtml(displayTask.actionNote || '-')}</div>
@@ -5104,7 +4791,7 @@ function renderNextActionSection(candidate) {
     <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
       <p class="text-xs text-blue-800 mb-2">💡 新しいアクションを追加するには、以下を入力して「編集」→「完了して保存」してください。</p>
     </div>
-  `;
+    `;
 
   const fields = [
     { label: "次回アクション日", value: candidate.nextActionDate || "", path: "nextActionDate", type: "date", displayFormatter: formatDateJP, span: 3 },
@@ -5125,7 +4812,11 @@ function renderNextActionSection(candidate) {
               <span class="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">予定</span>
             </div>
             <div class="text-sm text-slate-700">${escapeHtml(task.actionNote || '-')}</div>
-            <div class="mt-2 flex items-center justify-end gap-2 border-t border-slate-100 pt-2">\n              <button type="button" class="text-xs px-2 py-1 bg-white border border-green-200 text-green-700 hover:bg-green-50 rounded" data-complete-task-id="${task.id}">完了</button>\n              <button type="button" class="text-xs px-2 py-1 bg-white border border-red-200 text-red-700 hover:bg-red-50 rounded" data-delete-task-id="${task.id}">削除</button>\n            </div>\n          </div>
+            <div class="mt-2 flex items-center justify-end gap-2 border-t border-slate-100 pt-2">
+              <button type="button" class="text-xs px-2 py-1 bg-white border border-green-200 text-green-700 hover:bg-green-50 rounded" data-complete-task-id="${task.id}">完了</button>
+              <button type="button" class="text-xs px-2 py-1 bg-white border border-red-200 text-red-700 hover:bg-red-50 rounded" data-delete-task-id="${task.id}">削除</button>
+            </div>
+          </div>
         `).join('')}
       </div>
     </div>
@@ -5164,19 +4855,30 @@ function renderNextActionSection(candidate) {
 
 function renderCsSection(candidate) {
   const csSummary = candidate.csSummary || {};
-  const hasSms = Boolean(candidate.smsSent ?? candidate.smsConfirmed ?? csSummary.hasSms);
-  const hasConnected = Boolean(candidate.phoneConnected ?? csSummary.hasConnected);
+  const hasSms = Boolean(csSummary.hasSms ?? candidate.smsSent ?? candidate.smsConfirmed);
+  const hasConnected = Boolean(csSummary.hasConnected ?? candidate.phoneConnected);
   const callCount = csSummary.callCount ?? candidate.callCount ?? 0;
   const lastConnectedAt = candidate.callDate ?? csSummary.lastConnectedAt ?? null;
   const editing = detailEditState.cs;
+
+  // 設定日の自動解決: 架電ログから「設定」を含む最新のものを優先する
+  let scheduleConfirmedAt = candidate.scheduleConfirmedAt;
+
+  if (Array.isArray(candidate.teleapoLogs)) {
+    // 日付降順にソートされている前提でfind (されてなければsortが必要だが通常新しい順)
+    const settingLog = candidate.teleapoLogs.find(l => l.result && l.result.includes("設定"));
+    if (settingLog) {
+      scheduleConfirmedAt = settingLog.calledAt;
+    }
+  }
 
   const items = [
     { label: "SMS送信", html: renderBooleanPill(hasSms, { trueLabel: "送信済", falseLabel: "未送信" }) },
     { label: "架電回数", value: Number(callCount) > 0 ? `${callCount} 回` : "-" },
     { label: "通電", html: renderBooleanPill(hasConnected, { trueLabel: "通電済", falseLabel: "未通電" }) },
     { label: "通電日", value: formatDateJP(lastConnectedAt) },
-    { label: "設定日", value: candidate.scheduleConfirmedAt, path: "scheduleConfirmedAt", type: "date" },
-    { label: "新規接触予定日", value: candidate.firstContactPlannedAt, path: "firstContactPlannedAt", type: "date" },
+    { label: "設定日", value: scheduleConfirmedAt, path: "scheduleConfirmedAt", type: "date" },
+    { label: "初回面談日時", value: candidate.firstInterviewDate, path: "firstInterviewDate", type: "datetime-local" },
 
   ];
 
@@ -5184,17 +4886,28 @@ function renderCsSection(candidate) {
     <div class="cs-summary-grid">
       ${items
       .map(
-        (item) => `
+        (item) => {
+          let content = "";
+          if (editing && item.path) {
+            content = renderDetailFieldInput({ path: item.path, type: item.type }, candidate[item.path], "cs");
+          } else if (item.html) {
+            content = item.html;
+          } else {
+            const val = item.value !== undefined ? item.value : candidate[item.path];
+            if (item.type === "date") content = formatDateJP(val);
+            else if (item.type === "datetime-local") content = formatDateTimeJP(val);
+            else content = escapeHtml(formatDisplayValue(val));
+          }
+
+          return `
             <div class="cs-summary-item">
               <span class="cs-summary-label">${escapeHtml(item.label)}</span>
               <div class="cs-summary-value">
-                ${editing && item.path
-            ? renderDetailFieldInput({ path: item.path, type: item.type }, item.value, "cs")
-            : item.html || (item.type === "date" ? formatDateJP(item.value) : escapeHtml(formatDisplayValue(item.value)))
-          }
+                ${content}
               </div>
             </div>
-          `
+          `;
+        }
       )
       .join("")
     }
@@ -5203,118 +4916,13 @@ function renderCsSection(candidate) {
 }
 
 // ========== 書類作成セクション ==========
+// ========== 書類作成セクション ==========
 function renderDocumentsSection(candidate) {
-  const editing = detailEditState.documents;
-  const educations = candidate.educations || [];
-  const workHistories = candidate.workHistories || [];
-
-  const renderEducationRow = (edu, index) => {
-    if (editing) {
-      return `
-        <div class="education-row grid grid-cols-6 gap-2 mb-2 p-3 bg-slate-50 rounded border border-slate-200" data-education-index="${index}">
-          <div class="col-span-2">
-            <label class="block text-xs text-slate-500 mb-1">学校名</label>
-            <input type="text" class="w-full px-2 py-1 border rounded text-sm" data-edu-field="schoolName" value="${escapeHtml(edu.schoolName || edu.school_name || '')}">
-          </div>
-          <div class="col-span-2">
-            <label class="block text-xs text-slate-500 mb-1">学部・学科</label>
-            <input type="text" class="w-full px-2 py-1 border rounded text-sm" data-edu-field="department" value="${escapeHtml(edu.department || '')}">
-          </div>
-          <div>
-            <label class="block text-xs text-slate-500 mb-1">入学年月</label>
-            <input type="month" class="w-full px-2 py-1 border rounded text-sm" data-edu-field="admissionDate" value="${formatMonthValue(edu.admissionDate || edu.admission_date)}">
-          </div>
-          <div>
-            <label class="block text-xs text-slate-500 mb-1">卒業年月</label>
-            <input type="month" class="w-full px-2 py-1 border rounded text-sm" data-edu-field="graduationDate" value="${formatMonthValue(edu.graduationDate || edu.graduation_date)}">
-          </div>
-          <button type="button" class="col-span-6 text-right text-red-500 text-xs hover:underline" data-remove-education="${index}">削除</button>
-        </div>
-      `;
-    }
-    return `
-      <tr>
-        <td class="px-3 py-2 text-sm">${escapeHtml(edu.schoolName || edu.school_name || '-')}</td>
-        <td class="px-3 py-2 text-sm">${escapeHtml(edu.department || '-')}</td>
-        <td class="px-3 py-2 text-sm">${formatMonthJP(edu.admissionDate || edu.admission_date)}</td>
-        <td class="px-3 py-2 text-sm">${formatMonthJP(edu.graduationDate || edu.graduation_date)}</td>
-      </tr>
-    `;
-  };
-
-  const renderWorkRow = (work, index) => {
-    if (editing) {
-      return `
-        <div class="work-row grid grid-cols-6 gap-2 mb-2 p-3 bg-slate-50 rounded border border-slate-200" data-work-index="${index}">
-          <div class="col-span-2">
-            <label class="block text-xs text-slate-500 mb-1">会社名</label>
-            <input type="text" class="w-full px-2 py-1 border rounded text-sm" data-work-field="companyName" value="${escapeHtml(work.companyName || work.company_name || '')}">
-          </div>
-          <div>
-            <label class="block text-xs text-slate-500 mb-1">部署・職種</label>
-            <input type="text" class="w-full px-2 py-1 border rounded text-sm" data-work-field="department" value="${escapeHtml(work.department || '')}">
-          </div>
-          <div>
-            <label class="block text-xs text-slate-500 mb-1">役職</label>
-            <input type="text" class="w-full px-2 py-1 border rounded text-sm" data-work-field="position" value="${escapeHtml(work.position || '')}">
-          </div>
-          <div>
-            <label class="block text-xs text-slate-500 mb-1">入社年月</label>
-            <input type="month" class="w-full px-2 py-1 border rounded text-sm" data-work-field="joinDate" value="${formatMonthValue(work.joinDate || work.join_date)}">
-          </div>
-          <div>
-            <label class="block text-xs text-slate-500 mb-1">退職年月</label>
-            <input type="month" class="w-full px-2 py-1 border rounded text-sm" data-work-field="leaveDate" value="${formatMonthValue(work.leaveDate || work.leave_date)}">
-          </div>
-          <div class="col-span-6">
-            <label class="block text-xs text-slate-500 mb-1">業務内容</label>
-            <textarea class="w-full px-2 py-1 border rounded text-sm" rows="2" data-work-field="jobDescription">${escapeHtml(work.jobDescription || work.job_description || '')}</textarea>
-          </div>
-          <button type="button" class="col-span-6 text-right text-red-500 text-xs hover:underline" data-remove-work="${index}">削除</button>
-        </div>
-      `;
-    }
-    return `
-      <tr>
-        <td class="px-3 py-2 text-sm">${escapeHtml(work.companyName || work.company_name || '-')}</td>
-        <td class="px-3 py-2 text-sm">${escapeHtml(work.department || '-')}</td>
-        <td class="px-3 py-2 text-sm">${escapeHtml(work.position || '-')}</td>
-        <td class="px-3 py-2 text-sm">${formatMonthJP(work.joinDate || work.join_date)}</td>
-        <td class="px-3 py-2 text-sm">${formatMonthJP(work.leaveDate || work.leave_date) || '現職'}</td>
-      </tr>
-    `;
-  };
-
-  const educationHtml = editing
-    ? `<div id="educationRepeater">${educations.map((e, i) => renderEducationRow(e, i)).join('')}</div>
-       <button type="button" class="mt-2 px-3 py-1 text-sm text-indigo-600 border border-indigo-300 rounded hover:bg-indigo-50" data-add-education>+ 学歴を追加</button>`
-    : `<table class="w-full text-left border-collapse">
-         <thead><tr class="bg-slate-100"><th class="px-3 py-2 text-xs font-medium">学校名</th><th class="px-3 py-2 text-xs font-medium">学部・学科</th><th class="px-3 py-2 text-xs font-medium">入学</th><th class="px-3 py-2 text-xs font-medium">卒業</th></tr></thead>
-         <tbody>${educations.length ? educations.map((e, i) => renderEducationRow(e, i)).join('') : '<tr><td colspan="4" class="px-3 py-4 text-center text-slate-400">登録なし</td></tr>'}</tbody>
-       </table>`;
-
-  const workHtml = editing
-    ? `<div id="workRepeater">${workHistories.map((w, i) => renderWorkRow(w, i)).join('')}</div>
-       <button type="button" class="mt-2 px-3 py-1 text-sm text-indigo-600 border border-indigo-300 rounded hover:bg-indigo-50" data-add-work>+ 職歴を追加</button>`
-    : `<table class="w-full text-left border-collapse">
-         <thead><tr class="bg-slate-100"><th class="px-3 py-2 text-xs font-medium">会社名</th><th class="px-3 py-2 text-xs font-medium">部署</th><th class="px-3 py-2 text-xs font-medium">役職</th><th class="px-3 py-2 text-xs font-medium">入社</th><th class="px-3 py-2 text-xs font-medium">退職</th></tr></thead>
-         <tbody>${workHistories.length ? workHistories.map((w, i) => renderWorkRow(w, i)).join('') : '<tr><td colspan="5" class="px-3 py-4 text-center text-slate-400">登録なし</td></tr>'}</tbody>
-       </table>`;
-
   return `
-    <div class="space-y-6">
-      <div>
-        <h5 class="text-md font-semibold text-slate-700 mb-3">📚 学歴</h5>
-        ${educationHtml}
-      </div>
-      <div>
-        <h5 class="text-md font-semibold text-slate-700 mb-3">💼 職歴</h5>
-        ${workHtml}
-      </div>
-      <div class="flex gap-3 pt-4 border-t border-slate-200">
-        <button type="button" class="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-500" data-download-resume>📄 履歴書をダウンロード</button>
-        <button type="button" class="px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-500" data-download-cv>📝 職務経歴書をダウンロード</button>
-      </div>
+    <div class="p-12 text-center">
+      <div class="text-4xl mb-4">🚧</div>
+      <h3 class="text-lg font-semibold text-slate-700 mb-2">Coming Soon...</h3>
+      <p class="text-slate-500">書類作成機能は現在開発中です。</p>
     </div>
   `;
 }
@@ -5323,14 +4931,14 @@ function formatMonthValue(value) {
   if (!value) return '';
   const d = new Date(value);
   if (isNaN(d.getTime())) return '';
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `${d.getFullYear()} -${String(d.getMonth() + 1).padStart(2, '0')} `;
 }
 
 function formatMonthJP(value) {
   if (!value) return '-';
   const d = new Date(value);
   if (isNaN(d.getTime())) return '-';
-  return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+  return `${d.getFullYear()}年${d.getMonth() + 1} 月`;
 }
 
 function parseDateValue(value) {
@@ -5384,8 +4992,16 @@ function pickNextAction(candidate) {
 
 function renderMemoSection(candidate) {
   const editing = detailEditState.memo;
+  // 初回面談日時 (架電管理画面等で設定された値)
+  const firstInterviewAt = candidate.firstInterviewAt ? formatDateTimeJP(candidate.firstInterviewAt) : "-";
+
   if (editing) {
     return `
+    <div class="mb-4 border-b border-slate-100 pb-4">
+      <label class="block text-xs font-bold text-slate-500 mb-1">初回面談日時</label>
+      <div class="text-base text-slate-900">${escapeHtml(firstInterviewAt)}</div>
+      <p class="text-xs text-slate-400 mt-1">※日時の変更は基本情報または選考進捗から行ってください。</p>
+    </div>
     <label class="detail-textarea-field">
       <span>自由メモ</span>
       ${renderTableTextarea(candidate.memoDetail, "memoDetail", "memo")}
@@ -5393,6 +5009,10 @@ function renderMemoSection(candidate) {
     `;
   }
   return `
+    <div class="mb-4 border-b border-slate-100 pb-4">
+      <label class="block text-xs font-bold text-slate-500 mb-1">初回面談日時</label>
+      <div class="text-base text-slate-900 font-medium">${escapeHtml(firstInterviewAt)}</div>
+    </div>
     <label class="detail-textarea-field">
       <span>自由メモ</span>
       <span class="detail-value">${escapeHtml(candidate.memoDetail || "-")}</span>
@@ -5432,7 +5052,7 @@ function renderDetailGridFields(fields, sectionKey, options = {}) {
         const spanClass = resolveDetailGridSpanClass(field);
 
         // 編集モードで編集可能なフィールド
-        if (editing && field.path) {
+        if (editing && field.path && field.editable !== false) {
           return `
               <div class="detail-grid-item ${spanClass}">
                 <dt>${field.label}</dt>
@@ -5441,20 +5061,29 @@ function renderDetailGridFields(fields, sectionKey, options = {}) {
             `;
         }
 
-        // 閲覧モード
+        // 閲覧モード（または編集不可フィールド）
         const displayValue = field.displayFormatter ? field.displayFormatter(value) : formatDisplayValue(value);
         const inner =
           field.link && value
             ? `<a href="${value}" target="_blank" rel="noreferrer">${escapeHtml(value)}</a>`
             : escapeHtml(displayValue);
 
+        // editable: false のフィールドは編集不可スタイル
+        const isReadOnly = field.editable === false;
+        const containerClass = isReadOnly
+          ? "bg-slate-100 text-slate-600 -mx-2 px-2 py-1 rounded cursor-not-allowed"
+          : "group relative cursor-pointer hover:bg-slate-100 -mx-2 px-2 py-1 rounded transition-colors";
+        const editIcon = isReadOnly
+          ? ""
+          : `<span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 opacity-0 group-hover:opacity-100 text-xs">✎</span>`;
+
         return `
             <div class="detail-grid-item ${spanClass}">
               <dt>${field.label}</dt>
               <dd>
-                <div class="group relative cursor-pointer hover:bg-slate-100 -mx-2 px-2 py-1 rounded transition-colors" data-section-edit="${sectionKey}" title="クリックして編集">
+                <div class="${containerClass}" ${isReadOnly ? '' : `data-section-edit="${sectionKey}" title="クリックして編集"`}>
                   <span class="detail-value">${inner}</span>
-                  <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 opacity-0 group-hover:opacity-100 text-xs">✎</span>
+                  ${editIcon}
                 </div>
               </dd>
             </div>
@@ -5547,7 +5176,6 @@ function formatInputValue(value, type) {
     const day = String(d.getDate()).padStart(2, "0");
     const hh = String(d.getHours()).padStart(2, "0");
     const mm = String(d.getMinutes()).padStart(2, "0");
-    // HTML datetime-local expects "YYYY-MM-DDTHH:mm"
     return `${y}-${m}-${day}T${hh}:${mm}`;
   }
   return value;
@@ -5563,3 +5191,132 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+/* ==========================================================================
+   EVENT HANDLERS & STATE MANAGEMENT (ADDED FOR DETAIL INTERACTIVITY)
+   ========================================================================== */
+
+function setupCandidateDetailEventHandlers() {
+  // Use document level delegation for better reliability with dynamic content
+  document.addEventListener("click", handleCandidateDetailClick);
+  document.addEventListener("input", handleCandidateDetailFieldChange);
+  document.addEventListener("change", handleCandidateDetailFieldChange);
+}
+
+async function handleCandidateDetailClick(e) {
+  // 1. Tab Switching
+  const tabBtn = e.target.closest("[data-detail-tab]");
+  if (tabBtn) {
+    const key = tabBtn.dataset.detailTab;
+    if (key) {
+      candidateDetailCurrentTab = key;
+      const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+      if (candidate) renderCandidateDetail(candidate, { preserveEditState: true });
+    }
+    return;
+  }
+
+  // 2. Edit Toggle
+  const editBtn = e.target.closest("[data-section-edit]");
+  if (editBtn) {
+    // Skip - handled by handleDetailContentClick to avoid double-toggle
+    return;
+    const key = editBtn.dataset.sectionEdit;
+    if (key && detailEditState.hasOwnProperty(key)) {
+      if (detailEditState[key]) {
+        // Save logic: "完了して保存" or "保存" clicked
+        const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+        if (candidate) {
+          // Persist changes
+          try {
+            await saveCandidateRecord(candidate);
+          } catch (err) {
+            console.error("Save failed", err);
+            alert("保存に失敗しました");
+            return; // Don't toggle off input if failed
+          }
+        }
+      }
+
+      // Toggle state
+      detailEditState[key] = !detailEditState[key];
+      const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+      if (candidate) renderCandidateDetail(candidate, { preserveEditState: true });
+    }
+    return;
+  }
+
+  // 3. Add Selection Row
+  if (e.target.closest("[data-add-selection-row]")) {
+    const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+    if (candidate) {
+      if (!candidate.selectionProgress) candidate.selectionProgress = [];
+      candidate.selectionProgress.unshift({}); // Add to top
+      renderCandidateDetail(candidate, { preserveEditState: true });
+    }
+    return;
+  }
+
+  // 4. Remove Selection Row
+  const removeBtn = e.target.closest("[data-remove-row]");
+  if (removeBtn) {
+    const field = removeBtn.dataset.removeRow; // e.g. "selectionProgress"
+    const index = parseInt(removeBtn.dataset.index, 10);
+    const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+
+    if (candidate && field === "selectionProgress" && candidate.selectionProgress) {
+      if (confirm("この選考プロセスを削除しますか？")) {
+        candidate.selectionProgress.splice(index, 1);
+        renderCandidateDetail(candidate, { preserveEditState: true });
+      }
+    }
+    return;
+  }
+}
+
+function handleCandidateDetailFieldChange(e) {
+  const target = e.target;
+  const fieldPath = target.dataset.detailField;
+  if (!fieldPath) return;
+
+  const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
+  if (!candidate) return;
+
+  const valueType = target.dataset.valueType;
+  let value = target.type === "checkbox" ? target.checked : target.value;
+
+  if (valueType === "number") value = value === "" ? null : Number(value);
+  if (valueType === "boolean") value = value === "true" || value === true;
+
+  // Date/Time handling if needed, but value is usually string
+
+  updateCandidateDetailFieldValue(candidate, fieldPath, value);
+}
+
+function updateCandidateDetailFieldValue(candidate, path, value) {
+  const parts = path.split(".");
+  let current = candidate;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const key = parts[i];
+    const nextKey = parts[i + 1];
+
+    // Auto-create object or array if missing
+    if (!current[key]) {
+      current[key] = isNaN(Number(nextKey)) ? {} : [];
+    }
+    current = current[key];
+  }
+  const lastKey = parts[parts.length - 1];
+  current[lastKey] = value;
+}
+
+// Initialize listeners
+// Initialize listeners
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", setupCandidateDetailEventHandlers);
+} else {
+  setupCandidateDetailEventHandlers();
+}
+
+// Debug Log
+console.log("Candidate Detail Event Handlers Initialized");
