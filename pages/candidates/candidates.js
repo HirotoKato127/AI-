@@ -2983,7 +2983,7 @@ function buildCandidateDetailPayload(candidate) {
   const companyName = candidate.applyCompanyName || candidate.companyName || "";
   const jobName = candidate.applyJobName || candidate.jobName || "";
   const source = candidate.applyRouteText || candidate.source || "";
-  const remarks = candidate.applicationNote || candidate.remarks || "";
+  const remarks = candidate.applicationNote ?? candidate.remarks ?? "";
   const hearingMemo =
     candidate.firstInterviewNote || candidate.hearing?.memo || candidate.hearingMemo || "";
   const hearing = {
@@ -3061,7 +3061,7 @@ function buildCandidateDetailPayload(candidate) {
     applyCompanyName: candidate.applyCompanyName || companyName,
     applyJobName: candidate.applyJobName || jobName,
     applyRouteText: candidate.applyRouteText || source,
-    applicationNote: candidate.applicationNote || remarks,
+    applicationNote: candidate.applicationNote || remarks, // 備考入力は applicationNote で行われるため優先
     firstInterviewNote: candidate.firstInterviewNote || hearingMemo,
     firstInterviewNote: candidate.firstInterviewNote || hearingMemo,
     recommendationText: candidate.recommendationText,
@@ -3895,6 +3895,13 @@ function updateCandidateFieldValue(candidate, fieldPath, value) {
     container[index] = value;
   } else {
     container[key] = value;
+    // applicationNote / remarks 同期
+    if (key === "applicationNote") {
+      container["remarks"] = value;
+    }
+    if (key === "remarks") {
+      container["applicationNote"] = value;
+    }
   }
 }
 
