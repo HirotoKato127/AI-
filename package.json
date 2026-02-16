@@ -8,6 +8,8 @@
     "dev": "nodemon server.js",
     "seed": "node scripts/seed.js",
     "sync:kintone": "node scripts/syncKintone.js",
+    "backup:db": "bash scripts/backup/db_backup.sh",
+    "restore:db": "bash scripts/backup/db_restore.sh",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

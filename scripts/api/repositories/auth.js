@@ -4,6 +4,7 @@
  */
 
 import { setSession, logout as clearLocalSession, getSession } from '../../auth.js';
+import { mockUsers } from '../../mock/users.js';
 
 const DEV_AUTO_LOGIN_KEY = 'dashboard.devAutoLogin';
 const DEFAULT_AUTH_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod/auth';
@@ -109,19 +110,45 @@ export const authRepo = {
    * @returns {Promise<Session>}
    */
   async login(email, password) {
-    // APIログイン試行のみ（モックフォールバックは削除）
-    const url = buildAuthUrl('/login');
-    const data = await requestJson(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    if (!data?.token || !data?.user) {
-      throw new Error('ログインに失敗しました');
+    // 1. APIログイン試行
+    try {
+      const url = buildAuthUrl('/login');
+      const data = await requestJson(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      if (!data?.token || !data?.user) {
+        throw new Error('Invalid login response');
+      }
+      const session = createSessionFromUser(data.user, data.token);
+      setSession(session);
+      return session;
+    } catch (apiError) {
+      console.warn('API login failed, falling back to mock check:', apiError);
+
+      // 2. API失敗時のフォールバック：完全一致のモックユーザー照合
+      const mockExact = mockUsers.find(u => u.email === email && u.password === password);
+      if (mockExact) {
+        console.log('Using mock login fallback (exact match) for:', email);
+        const session = createSessionFromUser(mockExact);
+        setSession(session);
+        return session;
+      }
+
+      // 3. API失敗時のフォールバック：メールアドレスだけでモックユーザー検索
+      // （デモサイトなので、API接続できない環境でも動作させるため）
+      const mockFallback = mockUsers.find(u => u.email === email);
+      if (mockFallback) {
+        console.log('API failed. Dealing as mock user fallback (email match) for:', email);
+        const session = createSessionFromUser(mockFallback);
+        setSession(session);
+        return session;
+      }
+
+      // フォールバックもできなければエラーを再送出
+      throw apiError;
     }
-    const session = createSessionFromUser(data.user, data.token);
-    setSession(session);
-    return session;
   },
 
   /**
@@ -149,7 +176,15 @@ export const authRepo = {
       }
     }
 
-    // 自動ログインは無効化（明示的なログインのみ）
+    if (isDevHost() && isDevAutoLoginEnabled()) {
+      const mockUser = mockUsers.find(user => user.role === 'admin') || mockUsers[0];
+      if (mockUser) {
+        const session = createSessionFromUser(mockUser);
+        setSession(session);
+        return session;
+      }
+    }
+
     return null;
   },
 

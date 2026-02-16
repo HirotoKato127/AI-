@@ -1,16 +1,16 @@
-import { MODULE_VERSIONS } from '../../scripts/module-versions.js';
+/**
+ * 候補者詳細ページ
+ * 既存のcandidates.jsのロジックを再利用
+ */
 
-let candidatesDetailApi = null;
-
-async function loadCandidatesDetailApi() {
-    if (candidatesDetailApi) return candidatesDetailApi;
-    candidatesDetailApi = await import(`../candidates/candidates.js?v=${MODULE_VERSIONS.candidates}`);
-    return candidatesDetailApi;
-}
+// candidates.jsから必要な関数をインポート
+import { mountDetailPage, unmountDetailPage, confirmCandidateDetailClose } from '../candidates/candidates.js?v=20260322_10';
 
 console.log('candidate-detail.js loaded');
 
+// URLから候補者IDを取得（ハッシュベースのルーティング対応）
 function getCandidateIdFromUrl() {
+    // #/candidate-detail?id=xxx 形式からパラメータを取得
     const hash = window.location.hash;
     const queryIndex = hash.indexOf('?');
     if (queryIndex === -1) return null;
@@ -20,11 +20,13 @@ function getCandidateIdFromUrl() {
     return params.get('id') || params.get('candidateId');
 }
 
+// 戻るボタン
 function handleBack() {
-    if (candidatesDetailApi?.confirmCandidateDetailClose && !candidatesDetailApi.confirmCandidateDetailClose()) return;
+    if (!confirmCandidateDetailClose()) return;
     window.location.hash = '#/candidates';
 }
 
+// イベント設定
 function setupEventListeners() {
     const backBtn = document.getElementById('cdBackBtn');
     if (backBtn) {
@@ -32,6 +34,7 @@ function setupEventListeners() {
     }
 }
 
+// マウント
 export async function mount() {
     console.log('candidate-detail mounting...');
 
@@ -44,8 +47,8 @@ export async function mount() {
 
     setupEventListeners();
 
-    const detailApi = await loadCandidatesDetailApi();
-    const success = await detailApi.mountDetailPage(candidateId);
+    // candidates.jsのmountDetailPageを呼び出して既存のロジックを使用
+    const success = await mountDetailPage(candidateId);
     if (!success) {
         console.error('候補者詳細の読み込みに失敗しました');
     }
@@ -53,6 +56,7 @@ export async function mount() {
     console.log('candidate-detail mounted');
 }
 
+// アンマウント
 export function unmount() {
     console.log('candidate-detail unmounting...');
 
@@ -61,7 +65,5 @@ export function unmount() {
         backBtn.removeEventListener('click', handleBack);
     }
 
-    if (candidatesDetailApi?.unmountDetailPage) {
-        candidatesDetailApi.unmountDetailPage();
-    }
+    unmountDetailPage();
 }

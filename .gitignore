@@ -18,7 +18,11 @@ server.log
 # Build outputs
 .vercel
 dist/
+dist_cf/
 build/
+
+# Local backups (artifacts)
+.backups/
 
 # IDE
 .vscode/

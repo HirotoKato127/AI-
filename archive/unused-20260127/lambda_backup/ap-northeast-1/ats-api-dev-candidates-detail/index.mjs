@@ -52,7 +52,7 @@ const calculateAge = (birthDate) => {
 async function fetchMasters(client) {
     const [clientsRes, usersRes] = await Promise.all([
         client.query("SELECT id, name FROM clients ORDER BY name ASC"),
-        client.query("SELECT id, name FROM users ORDER BY name ASC"),
+        client.query("SELECT id, name, role FROM users ORDER BY name ASC"),
     ]);
     return { clients: clientsRes.rows || [], users: usersRes.rows || [] };
 }

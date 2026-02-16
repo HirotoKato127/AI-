@@ -5,6 +5,7 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const { Pool } = require("pg");
 const puppeteer = require("puppeteer");
+const { pathToFileURL } = require("url");
 
 dotenv.config();
 
@@ -659,18 +660,39 @@ function mapCandidateApplications(rows = []) {
     feeRate: row.fee_rate,
     status: row.selection_status,
     recommendationDate: row.recommendation_at,
+    recommendedAt: row.recommendation_at,
     interviewSetupDate: row.first_interview_set_at,
+    firstInterviewAdjustDate: row.first_interview_set_at,
+    firstInterviewSetAt: row.first_interview_set_at,
     interviewDate: row.first_interview_at,
+    firstInterviewDate: row.first_interview_at,
+    firstInterviewAt: row.first_interview_at,
     secondInterviewSetupDate: row.second_interview_set_at,
+    secondInterviewAdjustDate: row.second_interview_set_at,
+    secondInterviewSetAt: row.second_interview_set_at,
     secondInterviewDate: row.second_interview_at,
+    secondInterviewAt: row.second_interview_at,
     finalInterviewSetupDate: row.final_interview_set_at,
+    finalInterviewAdjustDate: row.final_interview_set_at,
+    finalInterviewSetAt: row.final_interview_set_at,
     finalInterviewDate: row.final_interview_at,
+    finalInterviewAt: row.final_interview_at,
     offerDate: row.offer_at,
     acceptanceDate: row.offer_accepted_at,
     onboardingDate: row.joined_at,
     preJoinDeclineDate: row.pre_join_decline_at,
+    declinedDate: row.pre_join_decline_at,
     postJoinQuitDate: row.post_join_quit_at,
+    earlyTurnoverDate: row.post_join_quit_at,
+    declinedReason: row.declined_reason,
+    earlyTurnoverReason: row.early_turnover_reason,
+    closeExpectedDate: row.closing_plan_date,
+    closingForecastDate: row.closing_plan_date,
+    closingPlanDate: row.closing_plan_date,
+    feeAmount: row.fee_amount,
+    fee: row.fee_amount,
     selectionNote: row.selection_note,
+    note: row.selection_note,
   }));
 }
 
@@ -785,71 +807,73 @@ function mapCandidateUpdateColumns(payload = {}) {
   const reportFlags = mapReportStatusFlags(afterAcceptance.reportStatuses || []);
   const csFlags = mapCsChecklistToColumns(csChecklist);
 
+  // Helper to safely convert empty strings to null
+  const toNull = (val) => (val === "" || val === undefined ? null : val);
+  const toBoolean = (val) => (val === "" ? false : Boolean(val));
+
   return {
-    candidate_code: payload.candidateCode ?? null,
-    candidate_name: payload.candidateName ?? null,
-    candidate_kana: payload.candidateKana ?? null,
-    company_name: payload.companyName ?? null,
-    job_name: payload.jobName ?? null,
-    work_location: payload.workLocation ?? null,
-    partner_name: payload.advisorName ?? null, // Map advisorName (frontend) to partner_name (db)
-    cs_name: payload.csName ?? null,           // Map csName (frontend) to cs_name (db)
-    caller_name: payload.callerName ?? null,
-    introduction_chance: payload.introductionChance ?? null,
-    phase: payload.phase ?? null,
+    candidate_code: toNull(payload.candidateCode) ?? null,
+    candidate_name: toNull(payload.candidateName) ?? null,
+    candidate_kana: toNull(payload.candidateKana) ?? null,
+    company_name: toNull(payload.companyName) ?? null,
+    job_name: toNull(payload.jobName) ?? null,
+    work_location: toNull(payload.workLocation) ?? null,
+    partner_name: toNull(payload.advisorName) ?? null,
+    cs_name: toNull(payload.csName) ?? null,
+    caller_name: toNull(payload.callerName) ?? null,
+    introduction_chance: toNull(payload.introductionChance) ?? null,
+    phase: toNull(payload.phase) ?? null,
     registered_date: normalizeDate(payload.registeredDate),
     registered_at: normalizeDateTime(payload.registeredAt),
     candidate_updated_at: normalizeDateTime(payload.candidateUpdatedAt),
     media_registered_at: normalizeDate(payload.mediaRegisteredAt),
-    source: payload.source ?? null,
-    phone: payload.phone ?? null,
-    email: payload.email ?? null,
-    phone: payload.phone ?? null,
-    email: payload.email ?? null,
-    birthday: normalizeDate(payload.birthday || payload.birthDate), // 修正: birthDateも受け付ける
+    source: toNull(payload.source) ?? null,
+    phone: toNull(payload.phone) ?? null,
+    email: toNull(payload.email) ?? null,
+    birthday: normalizeDate(payload.birthday || payload.birthDate),
     age:
-      payload.age === undefined || payload.age === null
+      payload.age === undefined || payload.age === null || payload.age === ""
         ? null
         : Number(payload.age),
-    gender: payload.gender ?? null,
-    education: payload.education ?? null,
-    postal_code: payload.postalCode ?? null,
-    address: payload.address ?? null,
-    city: payload.city ?? null,
-    contact_time: payload.contactTime ?? null,
-    remarks: payload.remarks ?? null,
-    memo: payload.memo ?? null,
-    memo_detail: payload.memoDetail ?? null,
-    hearing_memo: payload.hearing?.memo ?? payload.hearingMemo ?? null,
-    resume_status: payload.resumeStatus ?? null,
-    meeting_video_url: payload.meetingVideoLink ?? null,
-    resume_for_send: payload.resumeForSend ?? null,
-    work_history_for_send: payload.workHistoryForSend ?? null,
-    employment_status: payload.employmentStatus ?? null,
+    gender: toNull(payload.gender) ?? null,
+    education: toNull(payload.education) ?? null,
+    postal_code: toNull(payload.postalCode) ?? null,
+    address: toNull(payload.address) ?? null,
+    city: toNull(payload.city) ?? null,
+    contact_time: toNull(payload.contactTime) ?? null,
+    remarks: toNull(payload.remarks) ?? null,
+    memo: toNull(payload.memo) ?? null,
+    memo_detail: toNull(payload.memoDetail) ?? null,
+    hearing_memo: toNull(payload.hearing?.memo || payload.hearingMemo) ?? null,
+    resume_status: toNull(payload.resumeStatus) ?? null,
+    meeting_video_url: toNull(payload.meetingVideoLink) ?? null,
+    resume_for_send: toNull(payload.resumeForSend) ?? null,
+    work_history_for_send: toNull(payload.workHistoryForSend) ?? null,
+    employment_status: toNull(payload.employmentStatus) ?? null,
     first_contact_planned_at: normalizeDate(payload.firstContactPlannedAt),
     first_contact_at: normalizeDate(payload.firstContactAt),
     call_date: normalizeDate(payload.callDate),
     schedule_confirmed_at: normalizeDate(payload.scheduleConfirmedAt),
     recommendation_date: normalizeDate(payload.recommendationDate),
-    valid_application: payload.validApplication ?? false,
-    phone_connected: payload.phoneConnected ?? false,
-    sms_sent: payload.smsSent ?? false,
-    sms_confirmed: payload.smsConfirmed ?? false,
-    attendance_confirmed: payload.attendanceConfirmed ?? false,
+    valid_application: toBoolean(payload.validApplication ?? false),
+    phone_connected: toBoolean(payload.phoneConnected ?? false),
+    sms_sent: toBoolean(payload.smsSent ?? false),
+    sms_confirmed: toBoolean(payload.smsConfirmed ?? false),
+    attendance_confirmed: toBoolean(payload.attendanceConfirmed ?? false),
     next_action_date:
       normalizeDate(actionInfo.nextActionDate) ??
       normalizeDate(payload.nextActionDate),
     next_action_content:
-      actionInfo.nextActionContent ?? payload.nextActionContent ?? null,
-    final_result: actionInfo.finalResult ?? payload.finalResult ?? null,
-    order_amount: afterAcceptance.amount ?? null,
-    after_acceptance_job_type: afterAcceptance.jobCategory ?? null,
-    line_reported: reportFlags.line_reported,
-    personal_sheet_reflected: reportFlags.personal_sheet_reflected,
-    invoice_sent: reportFlags.invoice_sent,
+      toNull(actionInfo.nextActionContent || payload.nextActionContent) ?? null,
+    final_result: toNull(actionInfo.finalResult || payload.finalResult) ?? null,
+    order_amount: toNull(afterAcceptance.amount) ?? null,
+    after_acceptance_job_type: toNull(afterAcceptance.jobCategory) ?? null,
+    line_reported: Boolean(reportFlags.line_reported),
+    personal_sheet_reflected: Boolean(reportFlags.personal_sheet_reflected),
+    invoice_sent: Boolean(reportFlags.invoice_sent),
     refund_retirement_date: normalizeDate(refundInfo.resignationDate),
-    refund_amount: refundInfo.refundAmount ?? null,
-    refund_report: refundInfo.reportStatus ?? null,
+    refund_amount: toNull(refundInfo.refundAmount) ?? null,
+    refund_report: toNull(refundInfo.reportStatus) ?? null,
     detail: JSON.stringify(buildDetailSnapshot(payload)),
     ...csFlags,
   };
@@ -1051,7 +1075,12 @@ async function persistCandidateRelations(client, candidateId, payload) {
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+// Serve static assets, but never let it intercept API routes (especially now that this repo has /api/* files).
+const staticMiddleware = express.static(path.join(__dirname), { redirect: false });
+app.use((req, res, next) => {
+  if (req.path && req.path.startsWith("/api/")) return next();
+  return staticMiddleware(req, res, next);
+});
 
 function mapCandidate(row, extras = {}) {
   if (!row) return null;
@@ -1197,7 +1226,22 @@ async function getKintoneSettings(client) {
 }
 
 app.get("/api/candidates", async (req, res) => {
-  const client = await pool.connect();
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (error) {
+    // DBなしでもデモできるように、モックにフォールバック。
+    console.warn("[api/candidates] DB connect failed, falling back to mock", error?.message || error);
+    try {
+      const fileUrl = pathToFileURL(path.join(__dirname, "scripts/mock/candidates.js")).href;
+      const mod = await import(fileUrl);
+      const candidates = typeof mod.getMockCandidates === "function" ? mod.getMockCandidates() : [];
+      return res.json({ items: Array.isArray(candidates) ? candidates : [] });
+    } catch (mockError) {
+      console.error("[api/candidates] Failed to load mock candidates", mockError);
+      return res.status(500).json({ error: "候補者一覧の取得に失敗しました。" });
+    }
+  }
   try {
     const {
       from,
@@ -1859,6 +1903,215 @@ app.get("/api/kpi-targets", (req, res) => {
 
 app.put("/api/kpi-targets", (req, res) => {
   res.json({ success: true });
+});
+
+// ========== Goal / Targets Mock APIs (for yield/goal-settings pages) ==========
+const goalSettingsState = {
+  evaluation_rule_type: "monthly",
+  evaluation_rule_options: {},
+};
+const goalTargetsCompany = new Map(); // periodId -> targets
+const goalTargetsPersonal = new Map(); // `${advisorUserId}:${periodId}` -> targets
+const goalDailyTargets = new Map(); // `${advisorUserId}:${periodId}` -> { [date]: targets }
+const msTargets = new Map(); // `${scope}:${departmentKey}:${metricKey}:${periodId}:${advisorUserId||0}` -> { targetTotal, dailyTargets }
+const importantMetrics = new Map(); // `${departmentKey||'all'}:${userId||0}` -> [{departmentKey,userId,metricKey}]
+
+function normalizeString(value) {
+  return String(value || "").trim();
+}
+
+function normalizeNum(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function buildMsKey({ scope, departmentKey, metricKey, periodId, advisorUserId }) {
+  return [
+    normalizeString(scope),
+    normalizeString(departmentKey),
+    normalizeString(metricKey),
+    normalizeString(periodId),
+    String(normalizeNum(advisorUserId) || 0),
+  ].join(":");
+}
+
+function buildImportantKey({ departmentKey, userId }) {
+  return [normalizeString(departmentKey) || "all", String(normalizeNum(userId) || 0)].join(":");
+}
+
+app.get("/api/goal/goal-settings", (_req, res) => {
+  res.json(goalSettingsState);
+});
+
+app.put("/api/goal/goal-settings", (req, res) => {
+  const nextType = normalizeString(req.body?.evaluation_rule_type) || "monthly";
+  const nextOptions = req.body?.evaluation_rule_options && typeof req.body.evaluation_rule_options === "object"
+    ? req.body.evaluation_rule_options
+    : {};
+  goalSettingsState.evaluation_rule_type = nextType;
+  goalSettingsState.evaluation_rule_options = nextOptions;
+  res.json({ success: true, ...goalSettingsState });
+});
+
+app.get("/api/goal/goal-targets", (req, res) => {
+  const scope = normalizeString(req.query?.scope);
+  const periodId = normalizeString(req.query?.periodId);
+  if (!scope || !periodId) return res.status(400).json({ error: "scope, periodId are required" });
+
+  if (scope === "company") {
+    return res.json({ targets: goalTargetsCompany.get(periodId) || {} });
+  }
+
+  if (scope === "personal") {
+    const advisorUserId = normalizeNum(req.query?.advisorUserId);
+    const advisorUserIds = normalizeString(req.query?.advisorUserIds);
+    if (advisorUserIds) {
+      const ids = advisorUserIds
+        .split(",")
+        .map((v) => normalizeNum(v))
+        .filter((v) => v > 0);
+      const items = ids.map((id) => ({
+        advisorUserId: id,
+        targets: goalTargetsPersonal.get(`${id}:${periodId}`) || {},
+      }));
+      return res.json({ items });
+    }
+    if (!advisorUserId) return res.status(400).json({ error: "advisorUserId is required" });
+    return res.json({ targets: goalTargetsPersonal.get(`${advisorUserId}:${periodId}`) || {} });
+  }
+
+  return res.status(400).json({ error: "unknown scope" });
+});
+
+app.put("/api/goal/goal-targets", (req, res) => {
+  const scope = normalizeString(req.body?.scope);
+  const periodId = normalizeString(req.body?.periodId);
+  const targets = req.body?.targets && typeof req.body.targets === "object" ? req.body.targets : {};
+  if (!scope || !periodId) return res.status(400).json({ error: "scope, periodId are required" });
+
+  if (scope === "company") {
+    goalTargetsCompany.set(periodId, targets);
+    return res.json({ success: true });
+  }
+  if (scope === "personal") {
+    const advisorUserId = normalizeNum(req.body?.advisorUserId);
+    if (!advisorUserId) return res.status(400).json({ error: "advisorUserId is required" });
+    goalTargetsPersonal.set(`${advisorUserId}:${periodId}`, targets);
+    return res.json({ success: true });
+  }
+  return res.status(400).json({ error: "unknown scope" });
+});
+
+app.get("/api/goal/goal-daily-targets", (req, res) => {
+  const periodId = normalizeString(req.query?.periodId);
+  const advisorUserId = normalizeNum(req.query?.advisorUserId);
+  const advisorUserIds = normalizeString(req.query?.advisorUserIds);
+  if (!periodId) return res.status(400).json({ error: "periodId is required" });
+
+  if (advisorUserIds) {
+    const ids = advisorUserIds
+      .split(",")
+      .map((v) => normalizeNum(v))
+      .filter((v) => v > 0);
+    const items = ids.map((id) => ({
+      advisorUserId: id,
+      dailyTargets: goalDailyTargets.get(`${id}:${periodId}`) || {},
+    }));
+    return res.json({ items });
+  }
+
+  if (!advisorUserId) return res.status(400).json({ error: "advisorUserId is required" });
+  return res.json({ dailyTargets: goalDailyTargets.get(`${advisorUserId}:${periodId}`) || {} });
+});
+
+app.put("/api/goal/goal-daily-targets", (req, res) => {
+  const periodId = normalizeString(req.body?.periodId);
+  const advisorUserId = normalizeNum(req.body?.advisorUserId);
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (!periodId || !advisorUserId) return res.status(400).json({ error: "advisorUserId, periodId are required" });
+  const current = goalDailyTargets.get(`${advisorUserId}:${periodId}`) || {};
+  items.forEach((item) => {
+    const date = normalizeString(item?.target_date);
+    if (!date) return;
+    current[date] = item?.targets && typeof item.targets === "object" ? item.targets : {};
+  });
+  goalDailyTargets.set(`${advisorUserId}:${periodId}`, current);
+  res.json({ success: true });
+});
+
+app.get("/api/ms-targets", (req, res) => {
+  const scope = normalizeString(req.query?.scope);
+  const departmentKey = normalizeString(req.query?.departmentKey);
+  const metricKey = normalizeString(req.query?.metricKey);
+  const periodId = normalizeString(req.query?.periodId);
+  const advisorUserId = normalizeNum(req.query?.advisorUserId);
+  if (!scope || !departmentKey || !metricKey || !periodId) {
+    return res.status(400).json({ error: "scope, departmentKey, metricKey, periodId are required" });
+  }
+  const key = buildMsKey({ scope, departmentKey, metricKey, periodId, advisorUserId });
+  const stored = msTargets.get(key) || { targetTotal: 0, dailyTargets: {} };
+  res.json(stored);
+});
+
+app.put("/api/ms-targets", (req, res) => {
+  const scope = normalizeString(req.body?.scope);
+  const departmentKey = normalizeString(req.body?.departmentKey);
+  const metricKey = normalizeString(req.body?.metricKey);
+  const periodId = normalizeString(req.body?.periodId);
+  const advisorUserId = normalizeNum(req.body?.advisorUserId);
+  const targetTotal = normalizeNum(req.body?.targetTotal);
+  const dailyTargets = req.body?.dailyTargets && typeof req.body.dailyTargets === "object" ? req.body.dailyTargets : {};
+  if (!scope || !departmentKey || !metricKey || !periodId) {
+    return res.status(400).json({ error: "scope, departmentKey, metricKey, periodId are required" });
+  }
+  const key = buildMsKey({ scope, departmentKey, metricKey, periodId, advisorUserId });
+  msTargets.set(key, { targetTotal, dailyTargets });
+  res.json({ success: true });
+});
+
+app.get("/api/important-metrics", (req, res) => {
+  const departmentKey = normalizeString(req.query?.departmentKey);
+  const userId = normalizeNum(req.query?.userId);
+  const key = buildImportantKey({ departmentKey, userId });
+  const items = importantMetrics.get(key) || [];
+  res.json({ items });
+});
+
+app.put("/api/important-metrics", (req, res) => {
+  const departmentKey = normalizeString(req.body?.departmentKey);
+  const userId = normalizeNum(req.body?.userId);
+  const metricKey = normalizeString(req.body?.metricKey);
+  if (!departmentKey || !userId || !metricKey) {
+    return res.status(400).json({ error: "departmentKey, userId, metricKey are required" });
+  }
+  const saved = { departmentKey, userId, metricKey };
+  const keyExact = buildImportantKey({ departmentKey, userId });
+  importantMetrics.set(keyExact, [saved]);
+
+  // Also keep department-wide list (departmentKey + userId=0) for "all users in dept" queries.
+  const keyDept = buildImportantKey({ departmentKey, userId: 0 });
+  const curr = Array.isArray(importantMetrics.get(keyDept)) ? importantMetrics.get(keyDept) : [];
+  const next = curr.filter((item) => Number(item?.userId || item?.user_id) !== userId);
+  next.push(saved);
+  importantMetrics.set(keyDept, next);
+
+  res.json({ success: true });
+});
+
+app.get("/api/kpi/teleapo", (_req, res) => {
+  // Minimal shape for CS daily integration in yield.js
+  res.json({ rows: [] });
+});
+
+app.get("/api/mypage", (_req, res) => {
+  res.json({
+    tasksToday: [],
+    tasksUpcoming: [],
+    calendar: { month: null, pendingTasks: [], completedTasks: [], progressEvents: [] },
+    notifications: [],
+    candidates: [],
+    closedCandidates: []
+  });
 });
 
 app.listen(PORT, () => {
