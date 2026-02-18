@@ -1,0 +1,99 @@
+{
+  "id": "259152",
+  "candidateName": "福井 翔",
+  "nextActionDate": null,
+  "nextActionNote": "",
+  "advisorUserId": null,
+  "csUserId": null,
+  "partnerUserId": null,
+  "masters": {
+    "clients": [
+      {
+        "id": "51",
+        "name": "あ"
+      },
+      {
+        "id": "55",
+        "name": "ぬ"
+      },
+      {
+        "id": "52",
+        "name": "テスト"
+      },
+      {
+        "id": "53",
+        "name": "a"
+      },
+      {
+        "id": "54",
+        "name": "テスト企業名"
+      },
+      {
+        "id": "56",
+        "name": "有象"
+      }
+    ],
+    "users": [
+      {
+        "id": "49",
+        "name": "仲島渉平",
+        "role": "marketing"
+      },
+      {
+        "id": "56",
+        "name": "内山博貴",
+        "role": "advisor"
+      },
+      {
+        "id": "50",
+        "name": "土井大輔",
+        "role": "advisor"
+      },
+      {
+        "id": "55",
+        "name": "宮本大地",
+        "role": "advisor"
+      },
+      {
+        "id": "57",
+        "name": "山脇結海子",
+        "role": "caller"
+      },
+      {
+        "id": "52",
+        "name": "岡田美宥",
+        "role": "advisor"
+      },
+      {
+        "id": "53",
+        "name": "松井優奈",
+        "role": "advisor"
+      },
+      {
+        "id": "54",
+        "name": "柴田広明",
+        "role": "advisor"
+      },
+      {
+        "id": "51",
+        "name": "渡邊奈津美",
+        "role": "advisor"
+      },
+      {
+        "id": "58",
+        "name": "田中日向子",
+        "role": "caller"
+      },
+      {
+        "id": "47",
+        "name": "田島大成",
+        "role": "advisor"
+      },
+      {
+        "id": "48",
+        "name": "須谷光里",
+        "role": "advisor"
+      }
+    ]
+  }
+}

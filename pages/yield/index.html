@@ -184,9 +184,26 @@
               </div>
             </div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="accepts">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="offers">
             <div class="kpi-v2-label">内定数</div>
             <div class="kpi-v2-value" id="personalAccepts"></div>
+            <div class="kpi-v2-meta">
+              <div class="kpi-v2-goal-row">
+                <span class="kpi-v2-goal-label">目標</span>
+                <span class="kpi-v2-goal-value" data-ref="monthlyGoal-accepts"></span>
+              </div>
+              <div class="kpi-v2-achievement-row">
+                <span class="kpi-v2-achv-label">達成率</span>
+                <span class="kpi-v2-achv-rate" data-ref="monthlyAchv-accepts"></span>
+                <div class="kpi-v2-achv-bar">
+                  <div class="kpi-v2-achv-bar-fill"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="accepts">
+            <div class="kpi-v2-label">承諾数</div>
+            <div class="kpi-v2-value" id="personalAcceptCount"></div>
             <div class="kpi-v2-meta">
               <div class="kpi-v2-goal-row">
                 <span class="kpi-v2-goal-label">目標</span>
@@ -401,9 +418,13 @@
             <div class="kpi-v2-label">面接実施数</div>
             <div class="kpi-v2-value" id="periodOffers"></div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="accepts">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="offers">
             <div class="kpi-v2-label">内定数</div>
             <div class="kpi-v2-value" id="periodAccepts"></div>
+          </div>
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="accepts">
+            <div class="kpi-v2-label">承諾数</div>
+            <div class="kpi-v2-value" id="periodAcceptCount"></div>
           </div>
           <div class="kpi-v2-card is-neutral is-compact" data-kpi="hires">
             <div class="kpi-v2-label">入社決定数</div>
@@ -520,9 +541,12 @@
     </div>
 
     <div class="kpi-tab-panel is-hidden" data-kpi-tab-panel="personal-daily">
-      <div class="kpi-v2-subsection">
+      <div class="kpi-v2-subsection" id="personalDailyPanel">
         <div class="kpi-v2-header">
-          <h4 class="kpi-v2-subtitle">dailyMS</h4>
+          <div class="personal-daily-heading">
+            <h4 class="kpi-v2-subtitle">dailyMS（MS入力）</h4>
+            <p class="personal-daily-rate-hint" id="personalDailyRateHint">進捗率は当日実績 ÷ 当日MS で表示中</p>
+          </div>
           <div class="kpi-v2-inline-select-group">
             <label class="kpi-v2-inline-select">
               <span>評価期間</span>
@@ -535,9 +559,13 @@
             </label>
           </div>
         </div>
+        <div class="personal-daily-meta">
+          <span id="personalDailyPeriodLabel" class="personal-daily-period-label"></span>
+          <span class="personal-daily-note">MSは累積入力、進捗率は「毎日 / 全体」で切替</span>
+        </div>
         <div class="kpi-v2-employee-table-wrapper table-white table-surface">
           <div class="kpi-v2-scroll-area">
-            <table class="kpi-v2-employee-table kpi-v2-daily-table">
+            <table class="kpi-v2-employee-table kpi-v2-daily-table kpi-v2-personal-daily-ms-table">
               <thead>
                 <tr id="personalDailyHeaderRow"></tr>
               </thead>

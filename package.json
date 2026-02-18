@@ -10,7 +10,12 @@
     "sync:kintone": "node scripts/syncKintone.js",
     "backup:db": "bash scripts/backup/db_backup.sh",
     "restore:db": "bash scripts/backup/db_restore.sh",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:css": "npx tailwindcss -i ./input.css -o ./output.css --minify",
+    "predeploy:cloudflare": "npm run build:css",
+    "predeploy:cloudflare:prod": "npm run build:css",
+    "deploy:cloudflare": "npx wrangler pages deploy . --project-name agent-key --commit-dirty=true",
+    "deploy:cloudflare:prod": "npx wrangler pages deploy . --project-name agent-key --commit-dirty=true --branch=main"
   },
   "repository": {
     "type": "git",

@@ -1792,3 +1792,47 @@
 [data-kpi="v2"] .kpi-v2-daily-table .ms-important-row .ms-dept-cell {
   background-color: #fff;
 }
+
+[data-kpi="v2"] .personal-daily-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+[data-kpi="v2"] .personal-daily-rate-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  width: fit-content;
+}
+
+[data-kpi="v2"] .personal-daily-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+[data-kpi="v2"] .personal-daily-period-label {
+  font-size: 0.82rem;
+  color: #334155;
+  font-weight: 600;
+}
+
+[data-kpi="v2"] .personal-daily-note {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+[data-kpi="v2"] .kpi-v2-personal-daily-ms-table td.daily-type,
+[data-kpi="v2"] .kpi-v2-personal-daily-ms-table th.daily-type {
+  min-width: 112px;
+  font-size: 0.73rem;
+  letter-spacing: 0;
+}

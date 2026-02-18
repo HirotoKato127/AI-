@@ -1,0 +1,141 @@
+{
+  "url": "http://127.0.0.1:8080",
+  "timestamp": "2026-02-13T09:04:00.784Z",
+  "pass": true,
+  "transitions": [
+    {
+      "target": "mypage",
+      "timedOut": false,
+      "elapsedMs": 816,
+      "finalPage": "mypage",
+      "finalCssPage": "mypage",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "yield-personal",
+      "timedOut": false,
+      "elapsedMs": 304,
+      "finalPage": "yield-personal",
+      "finalCssPage": "yield-personal",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "yield-company",
+      "timedOut": false,
+      "elapsedMs": 304,
+      "finalPage": "yield-company",
+      "finalCssPage": "yield-company",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "yield-admin",
+      "timedOut": false,
+      "elapsedMs": 303,
+      "finalPage": "yield-admin",
+      "finalCssPage": "yield-admin",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "candidates",
+      "timedOut": false,
+      "elapsedMs": 303,
+      "finalPage": "candidates",
+      "finalCssPage": "candidates",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "referral",
+      "timedOut": false,
+      "elapsedMs": 762,
+      "finalPage": "referral",
+      "finalCssPage": "referral",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "ad-performance",
+      "timedOut": false,
+      "elapsedMs": 304,
+      "finalPage": "ad-performance",
+      "finalCssPage": "ad-performance",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "teleapo",
+      "timedOut": false,
+      "elapsedMs": 314,
+      "finalPage": "teleapo",
+      "finalCssPage": "teleapo",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "settings",
+      "timedOut": false,
+      "elapsedMs": 304,
+      "finalPage": "settings",
+      "finalCssPage": "settings",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "goal-settings",
+      "timedOut": false,
+      "elapsedMs": 303,
+      "finalPage": "goal-settings",
+      "finalCssPage": "goal-settings",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "members",
+      "timedOut": false,
+      "elapsedMs": 304,
+      "finalPage": "members",
+      "finalCssPage": "members",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    },
+    {
+      "target": "candidates",
+      "timedOut": false,
+      "elapsedMs": 303,
+      "finalPage": "candidates",
+      "finalCssPage": "candidates",
+      "overlayVisibleAtEnd": false,
+      "inlineStylesheetInApp": false,
+      "anomalyCount": 0,
+      "anomalies": []
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": []
+}

@@ -1,0 +1,699 @@
+/* マイページ - モダンでプロフェッショナルなUI */
+
+/* ページ全体のレイアウト */
+#mypagePage {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  padding: 32px;
+  background-color: #f3f4f6;
+  min-height: 100vh;
+}
+
+#mypagePage.section-shell {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* カードスタイル - Modern White Box Pattern */
+.mypage-card {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  padding: 0;
+  overflow: hidden;
+  border: none;
+}
+
+.mypage-card:hover {
+  box-shadow: none;
+}
+
+/* カードヘッダー */
+.mypage-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin: 0;
+  padding: 20px 24px 12px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.mypage-card-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #111827;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Remove blue bar */
+.mypage-card-title::before {
+  content: none;
+  display: none;
+}
+
+.mypage-card-subtitle {
+  display: none !important;
+}
+
+.mypage-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* ロールバッジ */
+.mypage-role-badge {
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+  color: #0369a1;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid rgba(3, 105, 161, 0.15);
+}
+
+.mypage-role-badge.is-caller {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+  border-color: rgba(146, 64, 14, 0.15);
+}
+
+/* テーブルラッパー - SmartHR風グレー背景 */
+/* テーブルラッパー - Make transparent, rely on white box */
+/* テーブルラッパー - Box Style applied here per request */
+/* テーブルラッパー - Reset to transparent (Parent card has style) */
+.mypage-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+
+  margin-top: 0;
+  padding: 16px !important;
+  /* Bottom padding for scrollbar if needed */
+}
+
+#mypageUpcomingTableWrapper,
+.mypage-calendar-scroll,
+#mypageCandidatesTableWrapper {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 16px !important;
+}
+
+/* Old White Box Container - Reset */
+.mypage-white-box {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin-top: 0;
+}
+
+/* Specific reset for Candidates Section White Box */
+/* Specific reset for Candidates Section White Box REMOVED to align padding */
+
+/* テーブルスタイル */
+.mypage-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 520px;
+  table-layout: auto;
+  background: transparent !important;
+  border-radius: 0 !important;
+  overflow: visible !important;
+  box-shadow: none !important;
+}
+
+.mypage-tasks-table {
+  min-width: 860px;
+}
+
+.mypage-upcoming-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px 0;
+  margin-bottom: 16px;
+}
+
+.mypage-tab {
+  border: 1px solid #dbe4f2;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.mypage-tab.is-active {
+  background: var(--app-primary);
+  border-color: var(--app-primary);
+  color: var(--app-text-inverse);
+  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.25);
+  font-weight: 700;
+}
+
+.mypage-upcoming-panel {
+  display: none;
+}
+
+.mypage-upcoming-panel.is-active {
+  display: block;
+}
+
+.mypage-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+  background: #f9fafb;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.mypage-table th:first-child {
+  border-top-left-radius: 0;
+}
+
+.mypage-table th:last-child {
+  border-top-right-radius: 0;
+}
+
+.mypage-table td {
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.88rem;
+  color: #334155;
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.mypage-table tbody tr {
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mypage-tasks-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.mypage-task-row {
+  cursor: pointer;
+}
+
+.mypage-task-row:hover {
+  background: var(--app-primary-light);
+}
+
+.mypage-task-row:active {
+  background: #e2e8f0;
+}
+
+/* .mypage-tasks-table th:first-child specific override removed to unify */
+
+.mypage-task-date {
+  background: #eef2ff;
+  box-shadow: inset 4px 0 0 #6366f1;
+  font-weight: 600;
+  color: #3730a3;
+}
+
+.mypage-task-row.is-overdue .mypage-task-date {
+  background: var(--app-danger-light);
+  box-shadow: inset 4px 0 0 var(--app-danger);
+  color: var(--app-danger);
+  font-weight: 700;
+}
+
+.mypage-phase-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.65rem;
+  border-radius: var(--app-radius-full);
+  background-color: var(--app-primary-light);
+  color: var(--app-primary);
+  font-size: var(--app-font-size-xs);
+  font-weight: var(--app-font-weight-semibold);
+}
+
+.mypage-tasks-table td:nth-child(1) {
+  white-space: nowrap;
+}
+
+.mypage-table tr:last-child td {
+  border-bottom: none;
+}
+
+.mypage-table tr:last-child td:first-child {
+  border-radius: 0;
+}
+
+.mypage-table tr:last-child td:last-child {
+  border-radius: 0;
+}
+
+/* 空状態・エラー表示 */
+.mypage-empty {
+  display: none;
+  font-size: 0.875rem;
+  color: #64748b;
+  padding: 40px 24px;
+  text-align: center;
+  background: #f9fafb;
+  border-radius: 12px;
+  border: none;
+  margin: 24px;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.mypage-empty::before {
+  content: '📋';
+  display: block;
+  font-size: 24px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+/* Custom icons based on ID if possible, roughly generic for now */
+#mypageUpcomingEmpty::before {
+  content: '📅';
+}
+
+#mypageNotificationsEmpty::before {
+  content: '🔔';
+}
+
+#mypageCandidatesEmpty::before {
+  content: '👥';
+}
+
+.mypage-empty.is-visible {
+  display: flex;
+}
+
+.mypage-empty.is-visible {
+  display: block;
+}
+
+/* Hide notification list when empty (logic handled in JS, but ensure no leftover spacing) */
+.mypage-list:empty {
+  display: none !important;
+}
+
+/* リストスタイル */
+.mypage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.mypage-list-item {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1rem 0.9rem 1.8rem;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  font-size: 0.9rem;
+  color: #1e293b;
+  transition: all 0.15s ease;
+}
+
+.mypage-list-item::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #3b82f6;
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.mypage-list-meta {
+  font-size: 0.78rem;
+  color: #64748b;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* ゴーストボタン */
+.mypage-ghost-btn {
+  border: 1px solid #c7d2fe;
+  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+  color: #4338ca;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mypage-ghost-btn:hover {
+  background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+  color: #312e81;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(67, 56, 202, 0.2);
+}
+
+/* Yieldサマリースロット */
+.mypage-yield-slot {
+  margin: 0;
+}
+
+.mypage-calendar-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.mypage-calendar-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.mypage-calendar-nav-btn {
+  border: 1px solid #cbd5f5;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.75rem;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.mypage-calendar-month {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.mypage-calendar-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mypage-filter-chip {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.75rem;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.mypage-filter-chip.is-active {
+  background: var(--app-primary);
+  border-color: var(--app-primary);
+  color: var(--app-text-inverse);
+}
+
+.mypage-calendar-legend {
+  display: flex;
+  gap: 12px;
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-bottom: 12px;
+}
+
+.mypage-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mypage-legend-item::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+  background: #94a3b8;
+}
+
+.mypage-legend-item.is-pending::before {
+  background: #2563eb;
+}
+
+.mypage-legend-item.is-completed::before {
+  background: #94a3b8;
+}
+
+.mypage-legend-item.is-progress::before {
+  background: #10b981;
+}
+
+/* カレンダースクロールエリア - SmartHR風グレー背景 */
+.mypage-calendar-scroll {
+  overflow-x: auto;
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.mypage-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(100px, 1fr));
+  gap: 4px;
+  min-width: 720px;
+}
+
+/* カレンダー曜日ヘッダー - SmartHR風 */
+.mypage-calendar-weekday {
+  text-align: center;
+  font-size: 0.75rem;
+  color: #1e293b;
+  font-weight: 700;
+  padding: 8px 4px;
+  background: #e2e8f0;
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+
+/* カレンダー日付セル - SmartHR風 */
+/* Calendar Grid Cleanup */
+.mypage-calendar-day {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 8px;
+  min-height: 100px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.mypage-calendar-day:hover {
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
+}
+
+/* Weekend Styling */
+.mypage-calendar-day:nth-child(7n),
+.mypage-calendar-day:nth-child(7n+1) {
+  background-color: #fcfcfc;
+}
+
+.mypage-calendar-day.is-outside {
+  background: #f3f4f6;
+  opacity: 0.5;
+  border-color: #e5e7eb;
+}
+
+.mypage-calendar-day.is-today {
+  border-color: var(--app-primary);
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.15);
+}
+
+/* カレンダー日付番号 - 見やすく */
+.mypage-calendar-day-number {
+  font-size: 0.875rem;
+  color: #1e293b;
+  font-weight: 700;
+  padding: 2px 6px;
+  background: #f1f5f9;
+  border-radius: 4px;
+  display: inline-block;
+  width: fit-content;
+}
+
+.mypage-calendar-events {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mypage-calendar-item {
+  text-align: left;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #0369a1;
+  background: #e0f2fe;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.mypage-calendar-item:hover {
+  opacity: 0.8;
+}
+
+.mypage-calendar-item.is-pending {
+  background: #eff6ff;
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+.mypage-calendar-item.is-completed {
+  background: #f1f5f9;
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #64748b;
+}
+
+.mypage-calendar-item.is-progress {
+  background: #ecfdf3;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.mypage-calendar-item-title {
+  font-weight: 600;
+  font-size: 0.72rem;
+}
+
+.mypage-calendar-item-meta {
+  font-size: 0.68rem;
+  color: #475569;
+}
+
+.mypage-calendar-more {
+  font-size: 0.7rem;
+  color: #64748b;
+  padding-left: 4px;
+}
+
+/* レスポンシブデザイン */
+@media (max-width: 768px) {
+  .mypage-card {
+    padding: 1.25rem;
+    border-radius: 12px;
+  }
+
+  .mypage-card-header {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .mypage-card-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .mypage-table {
+    min-width: 520px;
+  }
+
+  .mypage-calendar-header {
+    align-items: flex-start;
+  }
+
+  .mypage-table th,
+  .mypage-table td {
+    padding: 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  #mypagePage {
+    gap: 1rem;
+  }
+
+  .mypage-card {
+    padding: 1rem;
+  }
+
+  .mypage-list-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
+
+
+
+
+/* Candidate list UI */
+/* Candidate table specific styles now merged into default .mypage-table */
+
+.mypage-candidate-row:hover {
+  background: #f1f5f9;
+}
+
+.mypage-candidate-name {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.mypage-phase-pill.is-muted {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.mypage-action {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.78rem;
+  color: #475569;
+}
+
+.mypage-action-date {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.mypage-action-label {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.mypage-action-empty {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
