@@ -3277,15 +3277,12 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
   const body = document.getElementById('personalDailyTableBody');
   const headerRow = document.getElementById('personalDailyHeaderRow');
   const labelEl = document.getElementById('personalDailyPeriodLabel');
-  const panelEl = document.getElementById('personalDailyPanel');
-  const rateHintEl = document.getElementById('personalDailyRateHint');
   const period = state.evaluationPeriods.find(item => item.id === periodId);
   if (!body || !headerRow) return;
   if (!period) {
     body.innerHTML = '';
     headerRow.innerHTML = '';
     if (labelEl) labelEl.textContent = '';
-    if (rateHintEl) rateHintEl.textContent = '';
     return;
   }
 
@@ -3296,16 +3293,8 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
     : dailyData;
   const range = resolvePersonalDailyDateRange(periodId, deptKey);
   const dates = enumerateDateRange(range.startDate, range.endDate);
-  const msRateMode = state.msRateModes?.personalDaily === 'overall' ? 'overall' : 'daily';
-  const useOverallRate = msRateMode === 'overall';
   const advisorName = getAdvisorName();
   const periodTarget = goalSettingsService.getPersonalPeriodTarget(periodId, advisorName) || {};
-  if (panelEl) panelEl.dataset.rateMode = msRateMode;
-  if (rateHintEl) {
-    rateHintEl.textContent = useOverallRate
-      ? '進捗率は累積実績 ÷ 期間目標で表示中'
-      : '進捗率は当日実績 ÷ 当日MSで表示中';
-  }
   if (labelEl) {
     const labelText = formatPeriodMonthLabel(period) || '';
     labelEl.textContent = labelText ? `評価期間：${labelText}` : '';
@@ -3320,9 +3309,9 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
 
   const dateCells = dates.map(date => `<th scope="col" class="ms-date-header">${formatDayLabel(date)}</th>`).join('');
   headerRow.innerHTML = `
-    <th scope="col" class="kpi-v2-sticky-label">部署</th>
-    <th scope="col" class="kpi-v2-sticky-label kpi-v2-ms-metric">MS指標</th>
-    <th scope="col" class="daily-type">入力種別</th>
+    <th scope="col" class="kpi-v2-sticky-label">事業部</th>
+    <th scope="col" class="kpi-v2-sticky-label kpi-v2-ms-metric">指標</th>
+    <th scope="col" class="daily-type">区分</th>
     ${dateCells}
   `;
 
@@ -3394,18 +3383,6 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
         return fallback;
       });
 
-      const dailyTargets = [];
-      let prevTarget = 0;
-      cumulativeTargets.forEach(value => {
-        if (value === null) {
-          dailyTargets.push(null);
-          return;
-        }
-        const daily = num(value) - num(prevTarget);
-        dailyTargets.push(daily);
-        prevTarget = num(value);
-      });
-
       const dailyActuals = [];
       let actualSum = 0;
       dates.forEach(date => {
@@ -3431,10 +3408,6 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
         cumulativeActuals.push(running);
       });
 
-      const totalTargetValue = Number.isFinite(storedTotal)
-        ? num(storedTotal)
-        : getLastCumulativeTarget(dates, targetMap, dept, periodId) || (totalTarget > 0 ? totalTarget : 0);
-
       const msCells = dates.map((date, idx) => {
         const isDisabled = isDateBeforePersonalDeptStart(date, dept, periodId) || isDateAfterPersonalDeptEnd(date, dept, periodId);
         if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
@@ -3455,15 +3428,13 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
       const rateCells = dates.map((date, idx) => {
         const isDisabled = isDateBeforePersonalDeptStart(date, dept, periodId) || isDateAfterPersonalDeptEnd(date, dept, periodId);
         if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
-        const dailyActual = dailyActuals[idx] ?? 0;
+        // 進捗率 = その日までの累積実績 / その日までの累積目標
         const cumulativeActual = cumulativeActuals[idx] ?? 0;
-        const dailyTarget = dailyTargets[idx] ?? 0;
-        const numerator = useOverallRate ? cumulativeActual : dailyActual;
-        const denominator = useOverallRate ? totalTargetValue : dailyTarget;
+        const cumulativeTarget = cumulativeTargets[idx] ?? 0;
         let rateDisplay = '-';
         let rateClass = '';
-        if (denominator && Number(denominator) > 0) {
-          const rate = Math.round((numerator / Number(denominator)) * 100);
+        if (cumulativeTarget && Number(cumulativeTarget) > 0) {
+          const rate = Math.round((cumulativeActual / Number(cumulativeTarget)) * 100);
           rateDisplay = `${rate}%`;
           rateClass = rate >= 100 ? 'ms-rate-good' : rate >= 80 ? 'ms-rate-warn' : 'ms-rate-bad';
         }
@@ -3474,10 +3445,9 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
       const actualCells = dates.map((date, idx) => {
         const isDisabled = isDateBeforePersonalDeptStart(date, dept, periodId) || isDateAfterPersonalDeptEnd(date, dept, periodId);
         if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
-        const actualValue = useOverallRate ? cumulativeActuals[idx] : dailyActuals[idx];
         const displayValue = metricOption.isCurrency
-          ? formatCurrencyCell(actualValue)
-          : formatNumberCell(actualValue);
+          ? formatCurrencyCell(cumulativeActuals[idx])
+          : formatNumberCell(cumulativeActuals[idx]);
         return `<td class="ms-actual-cell">${displayValue}</td>`;
       }).join('');
 
@@ -3498,21 +3468,21 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
         <tr class="${tripletAlt} ${highlightClass}">
           ${deptCell}
           ${metricCell}
-          <td class="daily-type">MS(累積)</td>
+          <td class="daily-type">MS</td>
           ${msCells}
         </tr>
       `);
       // 2行目: 進捗率（rowspanで結合済みなので空セル不要）
       rows.push(`
         <tr class="${tripletAlt} ${highlightClass}">
-          <td class="daily-type">${useOverallRate ? '進捗率(全体)' : '進捗率(毎日)'}</td>
+          <td class="daily-type">進捗率</td>
           ${rateCells}
         </tr>
       `);
       // 3行目: 実績
       rows.push(`
         <tr class="${tripletAlt} ${highlightClass}">
-          <td class="daily-type">${useOverallRate ? '実績(累積)' : '実績(日次)'}</td>
+          <td class="daily-type">実績</td>
           ${actualCells}
         </tr>
       `);
