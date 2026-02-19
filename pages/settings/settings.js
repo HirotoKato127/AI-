@@ -1,5 +1,6 @@
 import { getSession } from '../../scripts/auth.js';
 import { PRIMARY_API_BASE } from '../../scripts/api/endpoints.js';
+import { goalSettingsService } from '../../scripts/services/goalSettings.js';
 
 let screeningForm;
 let screeningStatusElement;
@@ -20,7 +21,18 @@ let currentScreeningRules = { ...DEFAULT_SCREENING_RULES };
 const SETTINGS_API_BASE = PRIMARY_API_BASE;
 const SCREENING_RULES_ENDPOINT = `${SETTINGS_API_BASE}/settings-screening-rules`;
 
+// ===== MS期間設定 =====
+let msPeriodForm;
+let msPeriodMonthSelect;
+let msPeriodStatusEl;
+
 export function mount() {
+  // --- タブ切り替え ---
+  document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+    btn.addEventListener('click', handleTabClick);
+  });
+
+  // --- スクリーニングルール ---
   screeningForm = document.getElementById("screeningRulesForm");
   screeningStatusElement = document.getElementById("screeningRulesStatus");
   screeningUpdatedAtElement = document.getElementById("screeningRulesUpdatedAt");
@@ -44,9 +56,27 @@ export function mount() {
   }
 
   loadScreeningRules();
+
+  // --- MS期間設定 ---
+  msPeriodForm = document.getElementById("msPeriodForm");
+  msPeriodMonthSelect = document.getElementById("msPeriodMonthSelect");
+  msPeriodStatusEl = document.getElementById("msPeriodStatus");
+
+  if (msPeriodMonthSelect) {
+    buildMonthOptions(msPeriodMonthSelect);
+    msPeriodMonthSelect.addEventListener("change", handleMsPeriodMonthChange);
+    // 初期ロード
+    loadMsPeriodSettings(msPeriodMonthSelect.value);
+  }
+  if (msPeriodForm) {
+    msPeriodForm.addEventListener("submit", handleMsPeriodSave);
+  }
 }
 
 export function unmount() {
+  document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+    btn.removeEventListener('click', handleTabClick);
+  });
 
   if (screeningForm) {
     screeningForm.removeEventListener("submit", handleScreeningSave);
@@ -62,9 +92,116 @@ export function unmount() {
   if (maxUnlimited) {
     maxUnlimited.removeEventListener("change", updateAgeLimitState);
   }
+  if (msPeriodMonthSelect) {
+    msPeriodMonthSelect.removeEventListener("change", handleMsPeriodMonthChange);
+  }
+  if (msPeriodForm) {
+    msPeriodForm.removeEventListener("submit", handleMsPeriodSave);
+  }
 }
 
+// ===== タブ切り替え =====
+function handleTabClick(event) {
+  const tab = event.currentTarget.dataset.tab;
+  if (!tab) return;
 
+  document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+    btn.classList.toggle('is-active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.settings-tab-panel').forEach(panel => {
+    panel.classList.toggle('is-active', panel.dataset.tabPanel === tab);
+  });
+}
+
+// ===== MS期間設定 =====
+
+// 月セレクターのオプションを生成（前後12ヶ月）
+function buildMonthOptions(select) {
+  const now = new Date();
+  const options = [];
+  for (let offset = -12; offset <= 12; offset++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const value = `${year}-${month}`;
+    const label = `${year}年${month}月`;
+    options.push(`<option value="${value}"${offset === 0 ? ' selected' : ''}>${label}</option>`);
+  }
+  select.innerHTML = options.join('');
+}
+
+async function loadMsPeriodSettings(month) {
+  if (!month) return;
+  showMsPeriodStatus('読み込み中...', 'info');
+  try {
+    const settings = await goalSettingsService.loadMsPeriodSettings(month, { force: true });
+    applyMsPeriodSettings(settings);
+    showMsPeriodStatus('設定を読み込みました。', 'success');
+  } catch (error) {
+    console.error('[settings] failed to load ms period settings', error);
+    showMsPeriodStatus('読み込みに失敗しました。', 'error');
+  }
+}
+
+function applyMsPeriodSettings(settings) {
+  // settings: { metricKey: { startDate, endDate }, ... }
+  document.querySelectorAll('[data-metric][data-field]').forEach(input => {
+    const metricKey = input.dataset.metric;
+    const field = input.dataset.field;
+    const period = settings?.[metricKey];
+    if (field === 'start') {
+      input.value = period?.startDate || '';
+    } else if (field === 'end') {
+      input.value = period?.endDate || '';
+    }
+  });
+}
+
+function handleMsPeriodMonthChange() {
+  const month = msPeriodMonthSelect?.value;
+  if (month) loadMsPeriodSettings(month);
+}
+
+async function handleMsPeriodSave(event) {
+  event.preventDefault();
+  const month = msPeriodMonthSelect?.value;
+  if (!month) return;
+
+  // フォームから設定を収集
+  const metricMap = {};
+  document.querySelectorAll('[data-metric][data-field]').forEach(input => {
+    const metricKey = input.dataset.metric;
+    const field = input.dataset.field;
+    if (!metricMap[metricKey]) metricMap[metricKey] = {};
+    if (field === 'start') metricMap[metricKey].startDate = input.value || null;
+    if (field === 'end') metricMap[metricKey].endDate = input.value || null;
+  });
+
+  const settings = Object.entries(metricMap).map(([metricKey, period]) => ({
+    metricKey,
+    startDate: period.startDate || null,
+    endDate: period.endDate || null
+  }));
+
+  showMsPeriodStatus('保存中...', 'info');
+  try {
+    await goalSettingsService.saveMsPeriodSettings(month, settings);
+    showMsPeriodStatus('保存しました。', 'success');
+  } catch (error) {
+    console.error('[settings] failed to save ms period settings', error);
+    showMsPeriodStatus('保存に失敗しました。', 'error');
+  }
+}
+
+function showMsPeriodStatus(message, type = 'info') {
+  if (!msPeriodStatusEl) return;
+  msPeriodStatusEl.textContent = message;
+  msPeriodStatusEl.classList.remove('settings-status-success', 'settings-status-error');
+  if (type === 'success') msPeriodStatusEl.classList.add('settings-status-success');
+  if (type === 'error') msPeriodStatusEl.classList.add('settings-status-error');
+}
+
+// ===== スクリーニングルール（既存ロジック） =====
 
 async function loadScreeningRules() {
   if (!screeningForm) return;
@@ -355,8 +492,6 @@ function updateScreeningUpdatedAt(value) {
   if (!screeningUpdatedAtElement) return;
   screeningUpdatedAtElement.textContent = value ? formatDateTimeJP(value) : "-";
 }
-
-
 
 function formatDateTimeJP(value) {
   if (!value) return "-";

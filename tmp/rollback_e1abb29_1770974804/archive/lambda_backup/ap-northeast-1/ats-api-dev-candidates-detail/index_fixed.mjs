@@ -163,7 +163,8 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         tasks: tasksRes.rows, companyName: b.latest_company_name ?? "", jobName: b.latest_job_name ?? "",
         validApplication: Boolean(b.is_effective_application), advisorUserId: b.advisor_user_id, partnerUserId: b.partner_user_id,
         selectionProgress: selectionRes.rows[0].selection_progress || [], teleapoLogs: teleapoRes.rows, moneyInfo: moneyRes.rows,
-        csSummary: { hasConnected: Boolean(b.has_connected), hasSms: Boolean(b.has_sms), callCount: b.max_call_no ?? 0, lastConnectedAt: b.last_connected_at }
+        csSummary: { hasConnected: Boolean(b.has_connected), hasSms: Boolean(b.has_sms), callCount: b.max_call_no ?? 0, lastConnectedAt: b.last_connected_at },
+        csStatus: b.cs_status ?? ""
     };
 
     if (includeMaster) {
@@ -214,8 +215,9 @@ export const handler = async (event) => {
                                 phone=$6::text, email=$7::text, postal_code=$8::text, address_pref=$9::text, address_city=$10::text, address_detail=$11::text,
                                 final_education=$12::text, nationality=$13::text, japanese_level=$14::text,
                                 advisor_user_id=$15::int, partner_user_id=$16::int, is_effective_application=$17::boolean,
-                                current_income=$18::int, desired_income=$19::int, employment_status=$20::text, skills=$21::text, personality=$22::text, work_experience=$23::text, memo=$24::text
-                            WHERE id=$1::int`, [candidateId, emptyToNull(payload.candidateName), emptyToNull(payload.candidateKana), emptyToNull(payload.gender), emptyToNull(payload.birthDate), emptyToNull(payload.phone), emptyToNull(payload.email), emptyToNull(payload.postalCode), emptyToNull(payload.addressPref), emptyToNull(payload.addressCity), emptyToNull(payload.addressDetail), emptyToNull(payload.education), emptyToNull(payload.nationality), emptyToNull(payload.japaneseLevel), advisorId, csId, toBooleanOrNull(payload.validApplication), toIntOrNull(payload.currentIncome), toIntOrNull(payload.desiredIncome), emptyToNull(payload.employmentStatus), emptyToNull(payload.skills), emptyToNull(payload.personality), emptyToNull(payload.workExperience), emptyToNull(payload.memo)]);
+                                current_income=$18::int, desired_income=$19::int, employment_status=$20::text, skills=$21::text, personality=$22::text, work_experience=$23::text, memo=$24::text,
+                                cs_status=$25::text
+                            WHERE id=$1::int`, [candidateId, emptyToNull(payload.candidateName), emptyToNull(payload.candidateKana), emptyToNull(payload.gender), emptyToNull(payload.birthDate), emptyToNull(payload.phone), emptyToNull(payload.email), emptyToNull(payload.postalCode), emptyToNull(payload.addressPref), emptyToNull(payload.addressCity), emptyToNull(payload.addressDetail), emptyToNull(payload.education), emptyToNull(payload.nationality), emptyToNull(payload.japaneseLevel), advisorId, csId, toBooleanOrNull(payload.validApplication), toIntOrNull(payload.currentIncome), toIntOrNull(payload.desiredIncome), emptyToNull(payload.employmentStatus), emptyToNull(payload.skills), emptyToNull(payload.personality), emptyToNull(payload.workExperience), emptyToNull(payload.memo), emptyToNull(payload.csStatus)]);
                     }
 
                     // 2. タスク
@@ -303,6 +305,8 @@ export const handler = async (event) => {
                     }
                 } else if (typeof payload.validApplication === "boolean") {
                     await client.query("UPDATE candidates SET is_effective_application = $2::boolean WHERE id = $1::int", [candidateId, payload.validApplication]);
+                } else if (payload.csStatus !== undefined) {
+                    await client.query("UPDATE candidates SET cs_status = $2::text, updated_at = NOW() WHERE id = $1::int", [candidateId, emptyToNull(payload.csStatus)]);
                 }
                 await client.query("COMMIT");
                 const updated = await fetchCandidateDetail(client, candidateId);

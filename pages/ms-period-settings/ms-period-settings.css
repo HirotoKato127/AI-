@@ -1,0 +1,248 @@
+/* MS期間設定ページ専用スタイル */
+
+/* ページ全体 */
+#msPeriodSettingsPage .settings-page-header {
+    margin-bottom: 1.5rem;
+}
+
+#msPeriodSettingsPage .settings-page-header h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 0.25rem;
+}
+
+#msPeriodSettingsPage .settings-page-header p {
+    color: #64748b;
+    font-size: 0.875rem;
+}
+
+/* カード */
+#msPeriodSettingsPage .ms-period-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* 月セレクターエリア */
+.ms-period-month-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.ms-period-month-bar label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.ms-period-month-bar select {
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #1e293b;
+    background: #fff;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s;
+    min-width: 140px;
+}
+
+.ms-period-month-bar select:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+/* ステータスバッジ */
+#msPeriodStatus {
+    margin-left: auto;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0.3rem 0.75rem;
+    border-radius: 20px;
+    transition: all 0.2s;
+}
+
+#msPeriodStatus.status-success {
+    background: #dcfce7;
+    color: #166534;
+}
+
+#msPeriodStatus.status-error {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+#msPeriodStatus.status-info {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+/* フォーム本体 */
+.ms-period-form-body {
+    padding: 1.5rem;
+}
+
+/* セクション */
+.ms-period-section {
+    margin-bottom: 2rem;
+}
+
+.ms-period-section:last-child {
+    margin-bottom: 0;
+}
+
+.ms-period-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.ms-period-section-header .section-badge {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    padding: 0.2rem 0.6rem;
+    border-radius: 20px;
+    letter-spacing: 0.03em;
+}
+
+.section-badge.sales {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+
+.section-badge.cs {
+    background: linear-gradient(135deg, #0ea5e9, #06b6d4);
+}
+
+.section-badge.marketing {
+    background: linear-gradient(135deg, #10b981, #059669);
+}
+
+/* 指標行テーブル */
+.ms-period-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.ms-period-table th {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.4rem 0.75rem;
+    text-align: left;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.ms-period-table th:not(:first-child) {
+    text-align: center;
+}
+
+.ms-period-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+}
+
+.ms-period-table tr:last-child td {
+    border-bottom: none;
+}
+
+.ms-period-table tr:hover td {
+    background: #f8fafc;
+}
+
+.ms-period-metric-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+    white-space: nowrap;
+}
+
+.ms-period-date-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.ms-period-date-cell input[type="date"] {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
+    color: #374151;
+    background: #fff;
+    outline: none;
+    transition: border-color 0.15s;
+    width: 140px;
+}
+
+.ms-period-date-cell input[type="date"]:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+
+.ms-period-date-sep {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    flex-shrink: 0;
+}
+
+/* フッター */
+.ms-period-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 1rem 1.5rem;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+}
+
+.ms-period-save-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 0.625rem 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    box-shadow: 0 1px 3px rgba(99, 102, 241, 0.3);
+}
+
+.ms-period-save-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.ms-period-save-btn:active {
+    transform: translateY(0);
+}
+
+.ms-period-save-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}

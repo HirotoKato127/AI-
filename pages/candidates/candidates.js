@@ -138,6 +138,7 @@ let masterClients = [];
 let masterUsers = [];
 let masterCsUsers = [];
 let masterAdvisorUsers = [];
+let masterCsStatusOptions = [];
 let listPage = 1;
 let listTotal = 0;
 let calendarCandidates = [];
@@ -150,6 +151,10 @@ const nextActionCache = new Map();
 const contactPreferredTimeCache = new Map();
 const validityHydrationCache = new Map();
 const validityHydrationInFlight = new Set();
+const customCsStatusOptions = new Set();
+const TABLE_DOUBLE_TAP_INTERVAL_MS = 360;
+let activeInlineCsStatusCandidateId = null;
+let lastCsStatusTouchInfo = { candidateId: null, timestamp: 0 };
 let calendarViewDate = new Date();
 calendarViewDate.setDate(1);
 
@@ -163,6 +168,53 @@ function normalizeContactPreferredTime(value) {
   return text;
 }
 
+function emptyToNull(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text === "" ? null : text;
+  }
+  return value;
+}
+
+function normalizeCsStatusOption(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (["-", "ー", "未設定", "未入力", "未登録", "未指定"].includes(text)) return "";
+  return text;
+}
+
+function rememberCsStatusOption(value) {
+  const normalized = normalizeCsStatusOption(value);
+  if (normalized) customCsStatusOptions.add(normalized);
+  return normalized;
+}
+
+function buildCsStatusOptions(selectedValue = "") {
+  const selected = normalizeCsStatusOption(selectedValue);
+  const values = new Set();
+
+  const append = (raw) => {
+    const normalized = normalizeCsStatusOption(raw);
+    if (normalized) values.add(normalized);
+  };
+
+  (masterCsStatusOptions || []).forEach((value) => append(value));
+  (allCandidates || []).forEach((candidate) => append(candidate?.csStatus ?? candidate?.cs_status));
+  customCsStatusOptions.forEach((value) => append(value));
+  append(selected);
+
+  const list = Array.from(values.values()).sort((a, b) => a.localeCompare(b, "ja"));
+  const options = [{ value: "", label: "未設定" }].concat(
+    list.map((value) => ({ value, label: value }))
+  );
+
+  return options.map((option) => ({
+    ...option,
+    selected: String(option.value) === String(selected),
+  }));
+}
+
 // =========================
 // 正規化
 // =========================
@@ -172,6 +224,9 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
   // --- 既存のプロパティマッピング ---
   // ★追加: 媒体情報のマッピング
   candidate.source = candidate.source ?? candidate.applyRouteText ?? "";
+  candidate.csStatus = normalizeCsStatusOption(candidate.csStatus ?? candidate.cs_status ?? "");
+  candidate.cs_status = candidate.csStatus;
+  rememberCsStatusOption(candidate.csStatus);
   candidate.createdAt = candidate.createdAt ?? candidate.created_at ?? null;
   candidate.registeredAt =
     candidate.registeredAt ??
@@ -531,6 +586,10 @@ function updateMastersFromDetail(detail) {
   const masters = detail?.masters;
   if (!masters) return;
   if (Array.isArray(masters.clients)) masterClients = masters.clients;
+  if (Array.isArray(masters.csStatuses)) {
+    masterCsStatusOptions = buildUniqueValues(masters.csStatuses);
+    masterCsStatusOptions.forEach((status) => rememberCsStatusOption(status));
+  }
   if (Array.isArray(masters.users)) {
     masterUsers = masters.users;
     masterCsUsers = Array.isArray(masters.csUsers) ? masters.csUsers : [];
@@ -989,10 +1048,15 @@ async function loadFilterMasters() {
     const companies = Array.isArray(json.companies) ? json.companies : [];
     const advisors = Array.isArray(json.advisors) ? json.advisors : [];
     const phases = Array.isArray(json.phases) ? json.phases : [];
+    const csStatuses = Array.isArray(json.csStatuses) ? json.csStatuses : [];
 
     if (sources.length) setFilterSelectOptions("candidatesFilterSource", sources);
     if (companies.length) setFilterSelectOptions("candidatesFilterCompany", companies);
     if (advisors.length) setFilterSelectOptions("candidatesFilterAdvisor", advisors);
+    if (csStatuses.length) {
+      masterCsStatusOptions = buildUniqueValues(csStatuses);
+      masterCsStatusOptions.forEach((status) => rememberCsStatusOption(status));
+    }
 
     if (phases.length) {
       const uniquePhases = buildUniqueValues(phases);
@@ -1021,6 +1085,8 @@ function initializeTableInteraction() {
   const tableBody = document.getElementById("candidatesTableBody");
   if (tableBody) {
     tableBody.addEventListener("click", handleTableClick);
+    tableBody.addEventListener("dblclick", handleTableDoubleClick);
+    tableBody.addEventListener("touchend", handleTableTouchEnd);
     tableBody.addEventListener("input", handleInlineEdit);
     tableBody.addEventListener("change", handleInlineEdit);
   }
@@ -1595,6 +1661,7 @@ function sortCandidates(list, key, order) {
       case "partnerName":
       case "source":
       case "phase":
+      case "csStatus":
         aVal = String(a[key] || "");
         bVal = String(b[key] || "");
         break;
@@ -2052,11 +2119,12 @@ function renderNextActionCalendar(list) {
 function renderCandidatesTable(list) {
   const tableBody = document.getElementById("candidatesTableBody");
   if (!tableBody) return;
+  activeInlineCsStatusCandidateId = null;
 
   if (list.length === 0) {
     tableBody.innerHTML = `
       <tr>
-        <td colspan="8" class="text-center text-slate-500 py-6">条件に一致する候補者が見つかりません。</td>
+        <td colspan="9" class="text-center text-slate-500 py-6">条件に一致する候補者が見つかりません。</td>
       </tr>
     `;
     return;
@@ -2078,6 +2146,7 @@ function buildTableRow(candidate) {
     format: (_, row) => renderPhasePills(row),
     readOnly: true,
   })}
+      ${renderTextCell(candidate, "csStatus")}
       
       ${renderTextCell(candidate, "source", { readOnly: true })}
 
@@ -2163,8 +2232,180 @@ function renderCheckboxCell(candidate, field, label) {
   `;
 }
 
+function findCandidateById(id) {
+  const idStr = String(id ?? "");
+  if (!idStr) return null;
+  return (
+    allCandidates.find((item) => String(item.id) === idStr) ||
+    filteredCandidates.find((item) => String(item.id) === idStr) ||
+    null
+  );
+}
+
+function buildCsStatusOptionsHtml(selectedValue = "") {
+  return buildCsStatusOptions(selectedValue)
+    .map((option) => {
+      const value = option?.value ?? "";
+      const label = option?.label ?? "";
+      const selected = option?.selected ? "selected" : "";
+      const disabled = option?.disabled ? "disabled" : "";
+      return `<option value="${escapeHtmlAttr(value)}" ${selected} ${disabled}>${escapeHtml(label)}</option>`;
+    })
+    .join("");
+}
+
+function renderCsStatusDisplayCell(candidate) {
+  const candidateId = String(candidate?.id ?? "");
+  const normalized = normalizeCsStatusOption(candidate?.csStatus ?? candidate?.cs_status ?? "");
+  const display = normalized || "-";
+  return `
+    <td class="candidate-cs-status-cell" data-cs-status-cell data-candidate-id="${escapeHtmlAttr(candidateId)}">
+      <button
+        type="button"
+        class="candidate-cs-status-trigger"
+        data-cs-status-open
+        title="ダブルクリック/ダブルタップで編集"
+        aria-label="CSステータスを編集"
+      >
+        <span class="candidate-cs-status-value">${escapeHtml(display)}</span>
+        <span class="candidate-cs-status-hint">編集</span>
+      </button>
+    </td>
+  `;
+}
+
+function renderInlineCsStatusEditor(candidate) {
+  const options = buildCsStatusOptionsHtml(candidate?.csStatus ?? candidate?.cs_status ?? "");
+  return `
+    <div class="candidate-cs-status-editor" data-cs-status-editor-inline>
+      <select class="table-inline-input candidate-cs-status-select" data-cs-status-select>
+        ${options}
+      </select>
+      <div class="candidate-cs-status-editor-row">
+        <input
+          type="text"
+          class="table-inline-input candidate-cs-status-input"
+          data-cs-status-new-input
+          placeholder="新しいCSステータスを追加"
+        >
+        <button type="button" class="table-action-btn candidate-cs-status-add" data-cs-status-add-inline>追加</button>
+      </div>
+      <div class="candidate-cs-status-editor-actions">
+        <button type="button" class="table-action-btn is-active" data-cs-status-save-inline>保存</button>
+        <button type="button" class="table-action-btn" data-cs-status-cancel-inline>キャンセル</button>
+      </div>
+    </div>
+  `;
+}
+
+function getCandidateTableRow(candidateId) {
+  const idStr = String(candidateId ?? "");
+  if (!idStr) return null;
+  return Array.from(document.querySelectorAll("#candidatesTableBody tr[data-id]"))
+    .find((row) => String(row.dataset.id) === idStr) || null;
+}
+
+function closeInlineCsStatusEditor({ rerenderTable = true } = {}) {
+  if (!activeInlineCsStatusCandidateId) return;
+  activeInlineCsStatusCandidateId = null;
+  if (rerenderTable) {
+    renderCandidatesTable(filteredCandidates);
+  }
+}
+
+function openInlineCsStatusEditor(candidateId) {
+  const idStr = String(candidateId ?? "");
+  if (!idStr) return;
+
+  if (activeInlineCsStatusCandidateId && activeInlineCsStatusCandidateId !== idStr) {
+    closeInlineCsStatusEditor({ rerenderTable: true });
+  }
+  if (activeInlineCsStatusCandidateId === idStr) {
+    return;
+  }
+
+  const candidate = findCandidateById(idStr);
+  if (!candidate) return;
+
+  const row = getCandidateTableRow(idStr);
+  if (!row) return;
+  const cell = row.querySelector("[data-cs-status-cell]");
+  if (!cell) return;
+
+  activeInlineCsStatusCandidateId = idStr;
+  cell.classList.add("is-editing");
+  cell.innerHTML = renderInlineCsStatusEditor(candidate);
+
+  const select = cell.querySelector("[data-cs-status-select]");
+  if (select) select.focus();
+}
+
+function handleInlineCsStatusOptionAdd(button) {
+  const editor = button?.closest("[data-cs-status-editor-inline]");
+  if (!editor) return;
+
+  const input = editor.querySelector("[data-cs-status-new-input]");
+  const select = editor.querySelector("[data-cs-status-select]");
+  const value = normalizeCsStatusOption(input?.value);
+  if (!value || !select) return;
+
+  rememberCsStatusOption(value);
+  const exists = Array.from(select.options || []).some((option) => String(option.value) === value);
+  if (!exists) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  }
+  select.value = value;
+
+  if (input) {
+    input.value = "";
+    input.focus();
+  }
+}
+
+async function handleInlineCsStatusSave(button) {
+  const row = button?.closest("tr[data-id]");
+  if (!row) return;
+
+  const candidateId = String(row.dataset.id ?? "");
+  if (!candidateId) return;
+
+  const candidate = findCandidateById(candidateId);
+  if (!candidate) return;
+
+  const editor = row.querySelector("[data-cs-status-editor-inline]");
+  const select = editor?.querySelector("[data-cs-status-select]");
+  if (!select) return;
+
+  const statusValue = normalizeCsStatusOption(select.value);
+  candidate.csStatus = statusValue;
+  candidate.cs_status = statusValue;
+  rememberCsStatusOption(statusValue);
+
+  const prevLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "保存中...";
+  try {
+    activeInlineCsStatusCandidateId = null;
+    await saveCandidateRecord(candidate);
+    lastCsStatusTouchInfo = { candidateId: null, timestamp: 0 };
+  } catch (error) {
+    console.error("CSステータスの保存に失敗しました。", error);
+    alert("CSステータスの保存に失敗しました。");
+    button.disabled = false;
+    button.textContent = prevLabel;
+    activeInlineCsStatusCandidateId = candidateId;
+  }
+}
+
 function renderTextCell(candidate, field, options = {}) {
   const raw = candidate[field] ?? "";
+  if ((field === "csStatus" || field === "cs_status") && !candidatesEditMode && !options.readOnly) {
+    return renderCsStatusDisplayCell(candidate);
+  }
+
   if (!candidatesEditMode || options.readOnly) {
     const formatted = options.format ? options.format(raw, candidate) : formatDisplayValue(raw);
     const content = options.allowHTML ? formatted : escapeHtml(formatted);
@@ -2215,6 +2456,13 @@ function handleInlineEdit(event) {
 
   const field = control.dataset.field;
   candidate[field] = control.type === "checkbox" ? control.checked : control.value;
+
+  if (field === "csStatus" || field === "cs_status") {
+    const normalized = normalizeCsStatusOption(candidate[field]);
+    candidate.csStatus = normalized;
+    candidate.cs_status = normalized;
+    rememberCsStatusOption(normalized);
+  }
 
   if (field === "validApplication") {
     candidate.validApplicationComputed = candidate.validApplication;
@@ -2332,7 +2580,80 @@ async function openCandidateById(id) {
   }
 }
 
+function handleTableDoubleClick(event) {
+  if (event.target.closest("[data-cs-status-editor-inline]")) return;
+  const trigger = event.target.closest("[data-cs-status-open], [data-cs-status-cell]");
+  if (!trigger) return;
+
+  const row = trigger.closest("tr[data-id]");
+  if (!row) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  openInlineCsStatusEditor(row.dataset.id);
+}
+
+function handleTableTouchEnd(event) {
+  if (event.target.closest("[data-cs-status-editor-inline]")) return;
+  const trigger = event.target.closest("[data-cs-status-open], [data-cs-status-cell]");
+  if (!trigger) return;
+
+  const row = trigger.closest("tr[data-id]");
+  if (!row) return;
+
+  const candidateId = String(row.dataset.id ?? "");
+  const now = Date.now();
+  const isDoubleTap =
+    lastCsStatusTouchInfo.candidateId === candidateId &&
+    (now - lastCsStatusTouchInfo.timestamp) <= TABLE_DOUBLE_TAP_INTERVAL_MS;
+
+  if (isDoubleTap) {
+    event.preventDefault();
+    event.stopPropagation();
+    lastCsStatusTouchInfo = { candidateId: null, timestamp: 0 };
+    openInlineCsStatusEditor(candidateId);
+    return;
+  }
+
+  lastCsStatusTouchInfo = { candidateId, timestamp: now };
+}
+
 async function handleTableClick(event) {
+  const addCsStatusButton = event.target.closest("[data-cs-status-add-inline]");
+  if (addCsStatusButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    handleInlineCsStatusOptionAdd(addCsStatusButton);
+    return;
+  }
+
+  const saveCsStatusButton = event.target.closest("[data-cs-status-save-inline]");
+  if (saveCsStatusButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    await handleInlineCsStatusSave(saveCsStatusButton);
+    return;
+  }
+
+  const cancelCsStatusButton = event.target.closest("[data-cs-status-cancel-inline]");
+  if (cancelCsStatusButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeInlineCsStatusEditor({ rerenderTable: true });
+    return;
+  }
+
+  if (event.target.closest("[data-cs-status-editor-inline]")) return;
+  if (event.target.closest("[data-cs-status-open], [data-cs-status-cell]")) return;
+
+  if (activeInlineCsStatusCandidateId) {
+    const clickedRow = event.target.closest("tr[data-id]");
+    const clickedId = clickedRow ? String(clickedRow.dataset.id ?? "") : "";
+    if (clickedId === String(activeInlineCsStatusCandidateId)) return;
+    closeInlineCsStatusEditor({ rerenderTable: true });
+    return;
+  }
+
   if (event.target.closest("[data-field]")) return;
 
   const row = event.target.closest("tr[data-id]");
@@ -2931,7 +3252,12 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
 
   const payload = includeDetail
     ? buildCandidateDetailPayload(candidate)
-    : { id: candidate.id, validApplication: resolveValidApplication(candidate) };
+    : {
+      id: candidate.id,
+      validApplication: resolveValidApplication(candidate),
+      csStatus: emptyToNull(candidate.csStatus ?? candidate.cs_status),
+      cs_status: emptyToNull(candidate.csStatus ?? candidate.cs_status),
+    };
 
   // ★ Lambdaが必須とするフラグ
   if (includeDetail) {
@@ -3075,6 +3401,8 @@ function buildCandidateDetailPayload(candidate) {
     advisorUserId: candidate.advisorUserId,
     csUserId: candidate.csUserId,
     partnerUserId: candidate.partnerUserId ?? candidate.csUserId ?? null,
+    csStatus: emptyToNull(candidate.csStatus ?? candidate.cs_status),
+    cs_status: emptyToNull(candidate.csStatus ?? candidate.cs_status),
 
     // その他（後方互換性のため残すものもあるが、Lambdaが使うものだけで良い）
     advisorName: candidate.advisorName,
@@ -3354,6 +3682,8 @@ function cleanupCandidatesEventListeners() {
   const tableBody = document.getElementById("candidatesTableBody");
   if (tableBody) {
     tableBody.removeEventListener("click", handleTableClick);
+    tableBody.removeEventListener("dblclick", handleTableDoubleClick);
+    tableBody.removeEventListener("touchend", handleTableTouchEnd);
     tableBody.removeEventListener("input", handleInlineEdit);
     tableBody.removeEventListener("change", handleInlineEdit);
   }
@@ -3409,6 +3739,12 @@ function handleDetailContentClick(event) {
   const editBtn = event.target.closest("[data-section-edit]");
   if (editBtn) {
     toggleDetailSectionEdit(editBtn.dataset.sectionEdit);
+    return;
+  }
+
+  const addCsStatusOptionBtn = event.target.closest("[data-add-cs-status-option]");
+  if (addCsStatusOptionBtn) {
+    handleAddCsStatusOption(addCsStatusOptionBtn);
     return;
   }
 
@@ -3471,6 +3807,40 @@ function handleDetailContentClick(event) {
     }
     return;
   }
+}
+
+function handleAddCsStatusOption(button) {
+  if (!button) return;
+  const fieldPath = String(button.dataset.addCsStatusOption || "csStatus");
+  const editor = button.closest("[data-cs-status-editor]");
+  if (!editor) return;
+
+  const input = editor.querySelector("[data-cs-status-new]");
+  const select = editor.querySelector(`select[data-detail-field="${fieldPath}"]`) || editor.querySelector("select[data-detail-field]");
+  const value = normalizeCsStatusOption(input?.value);
+  if (!value) return;
+
+  rememberCsStatusOption(value);
+
+  if (select) {
+    const exists = Array.from(select.options || []).some((option) => String(option.value) === value);
+    if (!exists) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+    }
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  const candidate = getSelectedCandidate();
+  if (candidate) {
+    candidate.csStatus = value;
+    candidate.cs_status = value;
+  }
+
+  if (input) input.value = "";
 }
 
 function syncDetailSectionInputs(sectionKey) {
@@ -3812,6 +4182,12 @@ function handleDetailFieldChange(event) {
   if (fieldPath === "partnerUserId") {
     candidate.partnerName = resolveUserName(candidate.partnerUserId);
   }
+  if (fieldPath === "csStatus" || fieldPath === "cs_status") {
+    const normalized = normalizeCsStatusOption(value);
+    candidate.csStatus = normalized;
+    candidate.cs_status = normalized;
+    rememberCsStatusOption(normalized);
+  }
   if (fieldPath === "contactPreferredTime") {
     const normalized = normalizeContactPreferredTime(value);
     candidate.contactPreferredTime = normalized;
@@ -3986,6 +4362,16 @@ function renderAssigneeSection(candidate) {
       }),
       path: "advisorUserId",
       displayFormatter: () => candidate.advisorName || "-",
+      span: 3,
+    },
+    {
+      label: "CSステータス",
+      value: candidate.csStatus ?? "",
+      input: "creatable-select",
+      options: buildCsStatusOptions(candidate.csStatus ?? ""),
+      path: "csStatus",
+      placeholder: "新しいCSステータスを入力",
+      addLabel: "選択肢に追加",
       span: 3,
     },
   ];
@@ -5138,25 +5524,44 @@ function renderDetailGridFields(fields, sectionKey, options = {}) {
 function renderDetailFieldInput(field, value, sectionKey) {
   const dataset = field.path ? `data-detail-field="${field.path}" data-detail-section="${sectionKey}"` : "";
   const valueType = field.valueType ? ` data-value-type="${field.valueType}"` : "";
+
+  const renderSelectOptionsHtml = () =>
+    (field.options || [])
+      .map((option) => {
+        const isObject = option && typeof option === "object";
+        const optValue = isObject ? option.value : option;
+        const optLabel = isObject ? option.label : option;
+        const isDisabled = Boolean(isObject && option.disabled);
+        const isSelected = isObject && "selected" in option
+          ? option.selected
+          : String(optValue ?? "") === String(value ?? "");
+        return `<option value="${escapeHtmlAttr(optValue ?? "")}" ${isSelected ? "selected" : ""} ${isDisabled ? "disabled" : ""}>${escapeHtml(optLabel ?? "")}</option>`;
+      })
+      .join("");
+
   if (field.input === "textarea") {
     return `<textarea class="detail-inline-input detail-inline-textarea" ${dataset}${valueType}>${escapeHtml(value || "")}</textarea>`;
+  }
+  if (field.input === "creatable-select") {
+    const placeholder = escapeHtmlAttr(field.placeholder || "新しい選択肢を入力");
+    const addLabel = escapeHtml(field.addLabel || "追加");
+    const fieldPath = escapeHtmlAttr(field.path || "");
+    return `
+    <div class="cs-status-editor" data-cs-status-editor="${fieldPath}">
+      <select class="detail-inline-input" ${dataset}${valueType}>
+        ${renderSelectOptionsHtml()}
+      </select>
+      <div class="cs-status-editor-row">
+        <input type="text" class="detail-inline-input" data-cs-status-new placeholder="${placeholder}">
+        <button type="button" class="table-action-btn cs-status-add-btn" data-add-cs-status-option="${fieldPath}">${addLabel}</button>
+      </div>
+    </div>
+    `;
   }
   if (field.input === "select") {
     return `
     <select class="detail-inline-input" ${dataset}${valueType}>
-      ${(field.options || [])
-        .map((option) => {
-          const isObject = option && typeof option === "object";
-          const optValue = isObject ? option.value : option;
-          const optLabel = isObject ? option.label : option;
-          const isDisabled = Boolean(isObject && option.disabled);
-          const isSelected = isObject && "selected" in option
-            ? option.selected
-            : String(optValue ?? "") === String(value ?? "");
-          return `<option value="${escapeHtmlAttr(optValue ?? "")}" ${isSelected ? "selected" : ""} ${isDisabled ? "disabled" : ""}>${escapeHtml(optLabel ?? "")}</option>`;
-        })
-        .join("")
-      }
+      ${renderSelectOptionsHtml()}
       </select>
     `;
   }

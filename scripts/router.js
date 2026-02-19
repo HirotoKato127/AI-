@@ -13,16 +13,17 @@ const routes = {
   login: () => import("../pages/login/login.js"),
   mypage: () => import("../pages/mypage/mypage.js?v=20260213_01"),
   members: () => import("../pages/members/members.js"),
-  yield: () => import("../pages/yield/yield.js?v=20260211_01"),
-  "yield-personal": () => import("../pages/yield-personal/yield-personal.js?v=20260211_01"),
-  "yield-company": () => import("../pages/yield-company/yield-company.js?v=20260211_01"),
-  "yield-admin": () => import("../pages/yield-admin/yield-admin.js?v=20260211_01"),
+  yield: () => import("../pages/yield/yield.js?v=20260219_33"),
+  "yield-personal": () => import("../pages/yield-personal/yield-personal.js?v=20260219_33"),
+  "yield-company": () => import("../pages/yield-company/yield-company.js?v=20260219_33"),
+  "yield-admin": () => import("../pages/yield-admin/yield-admin.js?v=20260219_33"),
   candidates: () => import(`../pages/candidates/candidates.js?v=${MODULE_VERSIONS.candidates}`),
   "candidate-detail": () => import(`../pages/candidate-detail/candidate-detail.js?v=${MODULE_VERSIONS.candidateDetail}`),
   "ad-performance": () => import("../pages/ad-performance/ad-performance.js?v=20260322_14"),
   teleapo: () => import("../pages/teleapo/teleapo.js?v=20260211_02"),
   referral: () => import("../pages/referral/referral.js?v=20260322_61"),
   settings: () => import("../pages/settings/settings.js?v=20260322_01"),
+  "ms-period-settings": () => import("../pages/ms-period-settings/ms-period-settings.js"),
   "goal-settings": () => import("../pages/goal-settings/goal-settings.js"),
   "kpi-summery-test": () => import("../pages/kpi-summery-test/kpi-summery-test.js"),
 };
@@ -40,6 +41,7 @@ const routeMeta = {
   teleapo: { roles: ['admin', 'member'] },
   referral: { roles: ['admin', 'member'] },
   settings: { roles: ['admin', 'member'] },
+  "ms-period-settings": { roles: ['admin', 'member'] },
   members: { roles: ['admin', 'member'] },
   'goal-settings': { roles: ['admin', 'member'] },
   'kpi-summery-test': { roles: ['admin', 'member'] }
@@ -47,17 +49,18 @@ const routeMeta = {
 
 // CSS files for specific pages
 const pageCSS = {
-  yield: "pages/yield/yield.css?v=20260203_01",
-  "yield-personal": "pages/yield/yield.css?v=20260203_01",
-  "yield-company": "pages/yield/yield.css?v=20260203_01",
-  "yield-admin": "pages/yield/yield.css?v=20260203_01",
+  yield: "pages/yield/yield.css?v=20260219_33",
+  "yield-personal": "pages/yield/yield.css?v=20260219_33",
+  "yield-company": "pages/yield/yield.css?v=20260219_33",
+  "yield-admin": "pages/yield/yield.css?v=20260219_33",
   mypage: "pages/mypage/mypage.css?v=20260213_01",
-  candidates: "pages/candidates/candidates.css?v=20260322_57",
+  candidates: "pages/candidates/candidates.css?v=20260322_58",
   "candidate-detail": "pages/candidate-detail/candidate-detail.css?v=20260322_02",
   "ad-performance": "pages/ad-performance/ad-performance.css?v=20260133",
   teleapo: "pages/teleapo/teleapo.css?v=20260322_2",
   referral: "pages/referral/referral.css?v=20260322_49",
   settings: "pages/settings/settings.css?v=20260322_01",
+  "ms-period-settings": "pages/ms-period-settings/ms-period-settings.css",
   "goal-settings": "pages/goal-settings/goal-settings.css?v=20260127",
   members: "pages/members/members.css",
   "kpi-summery-test": "pages/kpi-summery-test/kpi-summery-test.css",
@@ -261,7 +264,7 @@ function updateNavigation(page) {
 
   const settingsGroup = document.querySelector('[data-nav-group="settings"]');
   if (settingsGroup) {
-    const isSettingsPage = ["settings", "goal-settings", "members"].includes(page);
+    const isSettingsPage = ["settings", "ms-period-settings", "goal-settings", "members"].includes(page);
     settingsGroup.classList.toggle("is-open", isSettingsPage);
     const toggle = settingsGroup.querySelector("[data-submenu-toggle]");
     if (toggle) {

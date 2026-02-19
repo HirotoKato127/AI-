@@ -518,6 +518,93 @@
   resize: vertical;
 }
 
+.candidate-cs-status-cell {
+  min-width: 170px;
+}
+
+.candidate-cs-status-trigger {
+  width: 100%;
+  border: 1px solid #c7d2fe;
+  border-radius: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.candidate-cs-status-trigger:hover {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+  background-color: #f8faff;
+}
+
+.candidate-cs-status-value {
+  font-weight: 600;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-cs-status-hint {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: #6366f1;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+}
+
+.candidate-cs-status-cell.is-editing {
+  background-color: #f8faff;
+}
+
+.candidate-cs-status-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.candidate-cs-status-editor .table-inline-input {
+  min-height: 2.2rem;
+}
+
+.candidate-cs-status-editor-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.candidate-cs-status-editor-row .candidate-cs-status-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.candidate-cs-status-editor-actions {
+  display: flex;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.candidate-cs-status-editor-actions .table-action-btn,
+.candidate-cs-status-editor-row .table-action-btn {
+  border-radius: 0.55rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .candidate-cs-status-editor-row,
+  .candidate-cs-status-editor-actions {
+    flex-wrap: wrap;
+  }
+}
+
 .candidates-table-card .table-grid .cell-wrap {
   white-space: normal;
   text-overflow: initial;
@@ -1265,6 +1352,35 @@ body.has-modal-open {
 
 .detail-inline-input.detail-inline-textarea {
   min-height: 90px;
+}
+
+.cs-status-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cs-status-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cs-status-editor-row .detail-inline-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cs-status-add-btn {
+  min-height: 2.6rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .cs-status-editor-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 /* Table Input */

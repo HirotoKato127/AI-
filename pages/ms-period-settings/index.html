@@ -1,0 +1,218 @@
+<div class="section-shell space-y-6" id="msPeriodSettingsPage">
+
+    <!-- Page Header -->
+    <div class="settings-page-header">
+        <h2>MS期間設定</h2>
+        <p>指標ごとに、月次MSの集計期間（開始日・終了日）を設定します。</p>
+    </div>
+
+    <div class="ms-period-card">
+
+        <!-- 月セレクターバー -->
+        <div class="ms-period-month-bar">
+            <label for="msPeriodMonthSelect">対象月</label>
+            <select id="msPeriodMonthSelect">
+                <!-- JSで動的生成 -->
+            </select>
+            <span id="msPeriodStatus"></span>
+        </div>
+
+        <!-- フォーム本体 -->
+        <form id="msPeriodForm">
+            <div class="ms-period-form-body">
+
+                <!-- 営業セクション -->
+                <div class="ms-period-section">
+                    <div class="ms-period-section-header">
+                        <span class="section-badge sales">営業</span>
+                    </div>
+                    <table class="ms-period-table">
+                        <thead>
+                            <tr>
+                                <th style="width:130px">指標</th>
+                                <th>開始日</th>
+                                <th style="width:24px"></th>
+                                <th>終了日</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="ms-period-metric-name">新規面談数</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="new_interviews" data-field="start" /></div>
+                                </td>
+                                <td><span class="ms-period-date-sep">〜</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="new_interviews" data-field="end" /></div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><span class="ms-period-metric-name">提案数</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="proposals" data-field="start" /></div>
+                                </td>
+                                <td><span class="ms-period-date-sep">〜</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="proposals" data-field="end" /></div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><span class="ms-period-metric-name">推薦数</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="recommendations" data-field="start" /></div>
+                                </td>
+                                <td><span class="ms-period-date-sep">〜</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="recommendations" data-field="end" /></div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><span class="ms-period-metric-name">面接設定数</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="interviews_scheduled" data-field="start" /></div>
+                                </td>
+                                <td><span class="ms-period-date-sep">〜</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="interviews_scheduled" data-field="end" /></div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><span class="ms-period-metric-name">面接実施数</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="interviews_held" data-field="start" /></div>
+                                </td>
+                                <td><span class="ms-period-date-sep">〜</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="interviews_held" data-field="end" /></div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><span class="ms-period-metric-name">内定数</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="offers" data-field="start" /></div>
+                                </td>
+                                <td><span class="ms-period-date-sep">〜</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="offers" data-field="end" /></div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><span class="ms-period-metric-name">承諾数</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="accepts" data-field="start" /></div>
+                                </td>
+                                <td><span class="ms-period-date-sep">〜</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="accepts" data-field="end" /></div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- CSセクション -->
+                <div class="ms-period-section">
+                    <div class="ms-period-section-header">
+                        <span class="section-badge cs">CS</span>
+                    </div>
+                    <table class="ms-period-table">
+                        <thead>
+                            <tr>
+                                <th style="width:130px">指標</th>
+                                <th>開始日</th>
+                                <th style="width:24px"></th>
+                                <th>終了日</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="ms-period-metric-name">設定数</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="appointments" data-field="start" /></div>
+                                </td>
+                                <td><span class="ms-period-date-sep">〜</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="appointments" data-field="end" /></div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><span class="ms-period-metric-name">着座数</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="sitting" data-field="start" /></div>
+                                </td>
+                                <td><span class="ms-period-date-sep">〜</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="sitting" data-field="end" /></div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- マーケセクション -->
+                <div class="ms-period-section">
+                    <div class="ms-period-section-header">
+                        <span class="section-badge marketing">マーケ</span>
+                    </div>
+                    <table class="ms-period-table">
+                        <thead>
+                            <tr>
+                                <th style="width:130px">指標</th>
+                                <th>開始日</th>
+                                <th style="width:24px"></th>
+                                <th>終了日</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="ms-period-metric-name">有効応募数</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="valid_applications" data-field="start" /></div>
+                                </td>
+                                <td><span class="ms-period-date-sep">〜</span></td>
+                                <td>
+                                    <div class="ms-period-date-cell"><input type="date" class="ms-period-date"
+                                            data-metric="valid_applications" data-field="end" /></div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+
+            <!-- フッター -->
+            <div class="ms-period-footer">
+                <button type="submit" class="ms-period-save-btn" id="msPeriodSaveBtn">
+                    <svg viewBox="0 0 20 20" fill="currentColor" style="width:16px;height:16px">
+                        <path d="M7 9l3 3 3-3m-3 3V3m-6 9A6 6 0 1 0 10 4" />
+                        <path fill-rule="evenodd"
+                            d="M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0zm-6 4a.75.75 0 0 1-.75-.75V9.56L7.47 11.34a.75.75 0 1 1-1.06-1.06l3.5-3.5a.75.75 0 0 1 1.06 0l3.5 3.5a.75.75 0 1 1-1.06 1.06l-1.78-1.78v3.69c0 .414-.336.75-.75.75H10z"
+                            clip-rule="evenodd" />
+                    </svg>
+                    保存する
+                </button>
+            </div>
+        </form>
+    </div>
+
+</div>

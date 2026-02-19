@@ -142,9 +142,33 @@ textarea.referral-input {
   border-color: #94a3b8;
 }
 
+.referral-danger-btn {
+  background-color: #fff1f2;
+  color: #be123c;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 14px;
+  border: 1px solid #fecdd3;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.referral-danger-btn:hover {
+  background-color: #ffe4e6;
+  border-color: #fda4af;
+  color: #9f1239;
+}
+
 /* Tiny variants matching text-xs utility in JS */
 .referral-primary-btn.text-xs,
-.referral-secondary-btn.text-xs {
+.referral-secondary-btn.text-xs,
+.referral-danger-btn.text-xs {
   height: 32px;
   padding: 0 12px;
   font-size: 12px;
@@ -273,9 +297,30 @@ textarea.referral-input {
 
 /* Header */
 .referral-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
   margin-bottom: 32px;
   padding-bottom: 24px;
   border-bottom: 1px solid #e5e7eb;
+}
+
+.referral-detail-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.referral-detail-header-actions .referral-detail-close {
+  position: static;
+}
+
+.referral-detail-header-actions .referral-detail-close:hover {
+  transform: none;
 }
 
 .referral-detail-company {

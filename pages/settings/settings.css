@@ -228,3 +228,95 @@
 .settings-choice input {
   accent-color: #4338ca;
 }
+
+/* ===== タブ ===== */
+.settings-tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 1.5rem;
+}
+
+.settings-tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  padding: 0.6rem 1.2rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.settings-tab-btn:hover {
+  color: var(--app-primary);
+}
+
+.settings-tab-btn.is-active {
+  color: var(--app-primary);
+  border-bottom-color: var(--app-primary);
+  font-weight: 600;
+}
+
+.settings-tab-panel {
+  display: none;
+}
+
+.settings-tab-panel.is-active {
+  display: block;
+}
+
+/* ===== MS期間設定 ===== */
+.ms-period-month-selector {
+  padding: 0 0 1rem 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.ms-period-section-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.ms-period-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ms-period-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.ms-period-label {
+  min-width: 120px;
+  font-size: 0.9rem;
+  color: #334155;
+  font-weight: 500;
+}
+
+.ms-period-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ms-period-inputs .settings-input {
+  width: 160px;
+  padding: 0 10px;
+}
+
+.ms-period-sep {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
