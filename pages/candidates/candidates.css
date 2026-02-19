@@ -794,6 +794,28 @@ body.has-modal-open {
   border-color: #fde68a;
 }
 
+.candidate-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.candidate-repeat-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  border: 1px solid #f59e0b;
+  background-color: #fffbeb;
+  color: #b45309;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
 #candidatesTableBody .candidate-item.is-active td {
   background-color: #eef2ff;
 }
