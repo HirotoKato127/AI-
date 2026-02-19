@@ -52,7 +52,8 @@ const cache = {
   dailyTargets: new Map(),
   msTargets: new Map(),
   importantMetrics: new Map(),
-  pageRateTargets: new Map() // ページ別率目標（periodId -> targets）
+  pageRateTargets: new Map(), // ページ別率目標（periodId -> targets）
+  msPeriodSettings: new Map() // MS期間設定（month -> { metricKey -> { startDate, endDate } }）
 };
 
 cache.evaluationPeriods = buildDefaultPeriods(cache.evaluationRule);
@@ -175,6 +176,60 @@ async function saveImportantMetricToApi({ departmentKey, userId, metricKey }) {
     body: JSON.stringify({ departmentKey, userId, metricKey })
   });
   return { departmentKey, userId, metricKey };
+}
+
+// ==========================================================
+// MS期間設定 API
+// ==========================================================
+
+const MS_PERIOD_SETTINGS_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
+
+async function loadMsPeriodSettingsFromApi(month, { force = false } = {}) {
+  if (!month) return {};
+  if (!force && cache.msPeriodSettings.has(month)) return cache.msPeriodSettings.get(month);
+
+  try {
+    const res = await fetch(`${MS_PERIOD_SETTINGS_API_BASE}/ms-period-settings?month=${month}`, {
+      headers: { Accept: 'application/json', ...getAuthHeaders() }
+    });
+    if (res.status === 404) {
+      cache.msPeriodSettings.set(month, {});
+      return {};
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const map = {};
+    (data?.settings || []).forEach(item => {
+      if (item.metricKey) map[item.metricKey] = { startDate: item.startDate, endDate: item.endDate };
+    });
+    cache.msPeriodSettings.set(month, map);
+    return map;
+  } catch (error) {
+    console.warn('[goalSettingsService] failed to load ms period settings', error);
+    return cache.msPeriodSettings.get(month) || {};
+  }
+}
+
+async function saveMsPeriodSettingsToApi(month, settings) {
+  if (!month || !Array.isArray(settings)) return null;
+  const res = await fetch(`${MS_PERIOD_SETTINGS_API_BASE}/ms-period-settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ month, settings })
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to save ms period settings: ${res.status} ${text}`);
+  }
+  // キャッシュ更新
+  const map = {};
+  settings.forEach(item => {
+    if (item.metricKey && item.startDate && item.endDate) {
+      map[item.metricKey] = { startDate: item.startDate, endDate: item.endDate };
+    }
+  });
+  cache.msPeriodSettings.set(month, map);
+  return map;
 }
 
 async function loadMsTargetsFromApi({ scope, departmentKey, metricKey, periodId, advisorUserId, force = false }) {
@@ -951,6 +1006,24 @@ export const goalSettingsService = {
 
     cache.pageRateTargets.set(periodId, normalized);
     return normalized;
+  },
+  // MS期間設定の取得
+  getMsPeriodSettings(month) {
+    return cache.msPeriodSettings.get(month) || null;
+  },
+  // 指定月・指標のMS期間を取得
+  getMsPeriodForMetric(month, metricKey) {
+    const map = cache.msPeriodSettings.get(month);
+    return map?.[metricKey] || null;
+  },
+  // MS期間設定のロード
+  async loadMsPeriodSettings(month, { force = false } = {}) {
+    return loadMsPeriodSettingsFromApi(month, { force });
+  },
+  // MS期間設定の保存
+  // settings: [{ metricKey, startDate, endDate }, ...]
+  async saveMsPeriodSettings(month, settings) {
+    return saveMsPeriodSettingsToApi(month, settings);
   },
   // 目標達成度から色クラスを判定
   getRateColorClass(actualRate, targetRate, options = {}) {

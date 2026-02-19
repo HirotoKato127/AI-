@@ -2143,7 +2143,7 @@ function renderCompanyDetail() {
     : `
       <div class="flex items-center gap-2">
         <button type="button" id="referralDetailEditBtn" class="referral-secondary-btn text-xs px-3 py-1.5">編集</button>
-        <button type="button" id="referralDetailDeleteBtn" class="referral-secondary-btn text-xs px-3 py-1.5 text-red-600 border-red-200 hover:bg-red-50">削除</button>
+        <button type="button" id="referralDetailDeleteBtn" class="referral-danger-btn text-xs px-3 py-1.5">削除</button>
       </div>
     `;
 
@@ -2243,7 +2243,10 @@ function renderCompanyDetail() {
             <span class="referral-detail-tag">${company.location || '-'}</span>
           </div>
         </div>
-        <button id="closeCompanyDetail" class="referral-detail-close" title="閉じる">✕</button>
+        <div class="referral-detail-header-actions">
+          ${editActions}
+          <button id="closeCompanyDetail" class="referral-detail-close" title="閉じる">✕</button>
+        </div>
       </div>
 
       <!-- ボディ -->
@@ -2312,10 +2315,7 @@ function renderCompanyDetail() {
 
         <!-- 求人情報 -->
         <div class="referral-detail-section">
-          <div class="flex justify-between items-center mb-4">
-            <div class="referral-detail-section-title !mb-0 !border-0 !pb-0">求人情報</div>
-            ${editActions}
-          </div>
+          <div class="referral-detail-section-title !mb-0 !border-0 !pb-0">求人情報</div>
           <div class="referral-detail-grid">
             <div class="referral-detail-card">
               <div class="referral-detail-card-title">欲しい人材</div>
@@ -2800,14 +2800,25 @@ async function deleteReferralCompanyApi(companyId) {
     return res.json().catch(() => ({}));
   };
 
+  const isRelationConstraintError = (error) => {
+    const message = String(error?.message || '').toLowerCase();
+    return (
+      message.includes('foreign key') ||
+      message.includes('violates foreign key constraint') ||
+      message.includes('candidate_applications')
+    );
+  };
+
   // 1) RESTful path style: /clients/:id
   try {
     return await tryDelete(`${CLIENTS_PROFILE_API_URL}/${encodeURIComponent(id)}`);
   } catch (pathErr) {
+    if (isRelationConstraintError(pathErr)) throw pathErr;
     // 2) Query style: /clients?id=...
     try {
       return await tryDelete(`${CLIENTS_PROFILE_API_URL}?id=${encodeURIComponent(id)}`);
     } catch (queryErr) {
+      if (isRelationConstraintError(queryErr)) throw queryErr;
       // 3) Body style: DELETE /clients { id }
       return await tryDelete(CLIENTS_PROFILE_API_URL, {
         headers: { 'Content-Type': 'application/json' },
@@ -2829,6 +2840,11 @@ async function handleDetailDelete(company) {
   if (!company?.id) return;
   const companyId = String(company.id);
   const companyName = company.company || company.companyName || '';
+  const linkedCandidates = getFlowCandidates(company);
+  if (Array.isArray(linkedCandidates) && linkedCandidates.length > 0) {
+    alert('この企業には候補者データが紐づいているため削除できません。候補者の応募情報を外してから再実行してください。');
+    return;
+  }
   const ok = confirm(`「${companyName || companyId}」を削除します。よろしいですか？`);
   if (!ok) return;
 
@@ -2847,6 +2863,11 @@ async function handleDetailDelete(company) {
     alert('企業を削除しました。');
   } catch (error) {
     console.error('企業削除に失敗しました:', error);
+    const message = String(error?.message || '').toLowerCase();
+    if (message.includes('foreign key') || message.includes('candidate_applications')) {
+      alert('候補者データとの紐づきがあるため削除できません。候補者の応募情報を外してから削除してください。');
+      return;
+    }
     alert('企業の削除に失敗しました。時間をおいて再度お試しください。');
   } finally {
     if (deleteBtn) {

@@ -124,12 +124,41 @@ const TARGET_CANDIDATE_STORAGE_KEY = 'target_candidate_id';
 
 // Candidates API URL (no trailing slash)
 const CANDIDATES_API_URL = `${PRIMARY_API_BASE}/candidates`;
+const MEMBERS_API_URL = `${PRIMARY_API_BASE}/members`;
+const KPI_YIELD_API_URL = `${PRIMARY_API_BASE}/kpi/yield`;
+const MYPAGE_API_URL = `${PRIMARY_API_BASE}/mypage`;
+const ADVISOR_ACTION_FETCH_LIMIT = 50;
+const ADVISOR_ACTION_PREVIEW_LIMIT = 3;
+const ADVISOR_SCHEDULE_REFRESH_TTL_MS = 15000;
+const ADVISOR_PLANNED_METRICS = [
+  { key: "newInterviews", label: "新規面談" },
+  { key: "proposals", label: "提案" },
+  { key: "recommendations", label: "推薦" },
+  { key: "interviewsScheduled", label: "面接設定" },
+  { key: "interviewsHeld", label: "面接実施" },
+  { key: "offers", label: "内定" },
+  { key: "accepts", label: "承諾" }
+];
 
 let candidateNameMap = new Map(); // Name -> ID
 let candidateIdMap = new Map(); // ID -> Name
 let candidateAttendanceMap = new Map(); // ID -> Boolean
 let candidateAttendanceByName = new Map(); // normalized name -> Boolean
 let candidateNameList = [];
+let dialFormAdvisorOptions = [];
+let dialFormAdvisorMembers = [];
+let dialFormAdvisorMembersPromise = null;
+let dialFormAdvisorPlannedById = new Map();
+let dialFormAdvisorPlannedPromise = null;
+let dialFormAdvisorPlannedLoading = false;
+let dialFormAdvisorPlannedError = "";
+let dialFormAdvisorUpcomingById = new Map();
+let dialFormAdvisorUpcomingPromise = null;
+let dialFormAdvisorUpcomingCacheKey = "";
+let dialFormAdvisorUpcomingLoading = false;
+let dialFormAdvisorUpcomingError = "";
+let dialFormAdvisorPlannedFetchedAt = 0;
+let dialFormAdvisorUpcomingFetchedAt = 0;
 let teleapoCsTaskCandidates = [];
 let teleapoCandidateMaster = [];
 let teleapoCandidateAbort = null;
@@ -446,6 +475,530 @@ function normalizeEmailKey(value) {
   return String(value ?? '').trim().toLowerCase();
 }
 
+function toPositiveInt(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return Math.trunc(num);
+}
+
+function toNonNegativeInt(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return 0;
+  return Math.trunc(num);
+}
+
+function todayIsoDate() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function currentMonthKey() {
+  return todayIsoDate().slice(0, 7);
+}
+
+function toIsoDateKey(value) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const direct = trimmed.split("T")[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+    const parsedFromString = new Date(trimmed);
+    if (!Number.isNaN(parsedFromString.getTime())) {
+      const yyyy = parsedFromString.getFullYear();
+      const mm = String(parsedFromString.getMonth() + 1).padStart(2, "0");
+      const dd = String(parsedFromString.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    return direct;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function buildApiHeaders() {
+  const headers = { Accept: "application/json" };
+  const token = getSession()?.token;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+function normalizeMemberItems(payload) {
+  const raw = Array.isArray(payload)
+    ? payload
+    : (payload?.items || payload?.members || payload?.users || []);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((member) => ({
+      id: toPositiveInt(member?.id ?? member?.user_id ?? member?.userId),
+      name: String(member?.name || member?.fullName || member?.displayName || "").trim(),
+      role: String(member?.role || "").trim()
+    }))
+    .filter((member) => member.id);
+}
+
+function isAdvisorMemberRole(roleValue) {
+  const role = String(roleValue || "").toLowerCase();
+  if (!role) return false;
+  return (
+    role.includes("advisor") ||
+    role.includes("sales") ||
+    role.includes("アドバイザー") ||
+    role.includes("営業")
+  );
+}
+
+function normalizeAdvisorPlannedKpi(raw = {}) {
+  return {
+    newInterviews: toNonNegativeInt(raw?.newInterviews ?? raw?.new_interviews),
+    proposals: toNonNegativeInt(raw?.proposals),
+    recommendations: toNonNegativeInt(raw?.recommendations),
+    interviewsScheduled: toNonNegativeInt(raw?.interviewsScheduled ?? raw?.interviews_scheduled),
+    interviewsHeld: toNonNegativeInt(raw?.interviewsHeld ?? raw?.interviews_held),
+    offers: toNonNegativeInt(raw?.offers),
+    accepts: toNonNegativeInt(raw?.accepts ?? raw?.hires)
+  };
+}
+
+function getAdvisorPlannedKpi(advisorUserId) {
+  const id = String(toPositiveInt(advisorUserId) || "");
+  if (!id) return null;
+  return dialFormAdvisorPlannedById.get(id) || null;
+}
+
+function getAdvisorUpcomingActions(advisorUserId) {
+  const id = String(toPositiveInt(advisorUserId) || "");
+  if (!id) return null;
+  return dialFormAdvisorUpcomingById.get(id) || null;
+}
+
+function normalizeAdvisorActionRows(rawTasks) {
+  const rows = [];
+  (rawTasks || []).forEach((item) => {
+    if (Array.isArray(item?.tasks)) {
+      item.tasks.forEach((task) => {
+        rows.push({
+          ...item,
+          nextAction: task
+        });
+      });
+      return;
+    }
+    if (item?.nextAction) {
+      rows.push(item);
+      return;
+    }
+    if (item?.actionDate || item?.actionName || item?.date || item?.type) {
+      rows.push({
+        ...item,
+        nextAction: {
+          date: item.actionDate ?? item.date ?? null,
+          type: item.actionName ?? item.type ?? item.label ?? item.actionNote ?? item.action_note ?? ""
+        }
+      });
+    }
+  });
+  return rows.map((row) => {
+    const normalizedDate = toIsoDateKey(row?.nextAction?.date);
+    const actionTypeRaw = row?.nextAction?.type ?? row?.nextAction?.label ?? "";
+    const actionType = String(actionTypeRaw || "").trim() || "次回アクション";
+    return {
+      candidateId: row?.candidateId ?? row?.candidate_id ?? "",
+      candidateName: String(row?.candidateName ?? row?.candidate_name ?? "").trim(),
+      phase: String(row?.phase ?? "").trim(),
+      partnerName: String(row?.partnerName ?? row?.partner_name ?? "").trim(),
+      nextAction: {
+        date: normalizedDate || row?.nextAction?.date || null,
+        type: actionType
+      }
+    };
+  });
+}
+
+function sortAdvisorActionRows(rows) {
+  const todayKey = todayIsoDate();
+  return [...rows].sort((a, b) => {
+    const aDateKey = toIsoDateKey(a?.nextAction?.date) || "";
+    const bDateKey = toIsoDateKey(b?.nextAction?.date) || "";
+    const aIsFuture = aDateKey && aDateKey >= todayKey;
+    const bIsFuture = bDateKey && bDateKey >= todayKey;
+    if (aIsFuture !== bIsFuture) return aIsFuture ? -1 : 1;
+    if (aDateKey && bDateKey && aDateKey !== bDateKey) {
+      return aIsFuture ? (aDateKey < bDateKey ? -1 : 1) : (aDateKey > bDateKey ? -1 : 1);
+    }
+    return String(a?.candidateName || "").localeCompare(String(b?.candidateName || ""), "ja");
+  });
+}
+
+function resolveAdvisorIdsForUpcomingFetch(advisorIds = null) {
+  const source = Array.isArray(advisorIds) && advisorIds.length
+    ? advisorIds
+    : dialFormAdvisorOptions.map((item) => item?.id);
+  const uniq = new Set();
+  source.forEach((id) => {
+    const parsed = toPositiveInt(id);
+    if (parsed) uniq.add(parsed);
+  });
+  return Array.from(uniq).sort((a, b) => a - b);
+}
+
+function isAdvisorScheduleStale(fetchedAt) {
+  if (!Number.isFinite(fetchedAt) || fetchedAt <= 0) return true;
+  return (Date.now() - fetchedAt) > ADVISOR_SCHEDULE_REFRESH_TTL_MS;
+}
+
+async function refreshDialFormAdvisorSchedules({ force = false } = {}) {
+  await loadDialFormAdvisorMembers();
+  const advisorIds = resolveAdvisorIdsForUpcomingFetch();
+  const idsKey = advisorIds.join(",");
+  const shouldRefreshPlanned = force || isAdvisorScheduleStale(dialFormAdvisorPlannedFetchedAt);
+  const shouldRefreshUpcoming = force
+    || isAdvisorScheduleStale(dialFormAdvisorUpcomingFetchedAt)
+    || (idsKey && idsKey !== dialFormAdvisorUpcomingCacheKey);
+
+  await Promise.all([
+    loadDialFormAdvisorPlannedKpis({ force: shouldRefreshPlanned }),
+    loadDialFormAdvisorUpcomingActions({ force: shouldRefreshUpcoming, advisorIds })
+  ]);
+}
+
+async function fetchAdvisorUpcomingActions(advisorId) {
+  const url = new URL(MYPAGE_API_URL);
+  url.searchParams.set("userId", String(advisorId));
+  url.searchParams.set("role", "advisor");
+  url.searchParams.set("limit", String(ADVISOR_ACTION_FETCH_LIMIT));
+  url.searchParams.set("month", currentMonthKey());
+  const res = await fetch(url.toString(), { headers: buildApiHeaders(), cache: "no-store" });
+  if (!res.ok) throw new Error(`mypage HTTP ${res.status}`);
+  const json = await res.json().catch(() => ({}));
+  const sourceRows = Array.isArray(json?.tasksUpcoming)
+    ? json.tasksUpcoming
+    : (Array.isArray(json?.tasks) ? json.tasks : []);
+  return sortAdvisorActionRows(normalizeAdvisorActionRows(sourceRows));
+}
+
+function renderAdvisorKpiChips(kpi) {
+  const normalized = normalizeAdvisorPlannedKpi(kpi || {});
+  return ADVISOR_PLANNED_METRICS
+    .map((metric) => `<span class="teleapo-advisor-kpi-chip">${escapeHtml(metric.label)} ${normalized[metric.key]}</span>`)
+    .join("");
+}
+
+function renderAdvisorActionPreviewRows(actions, { error = "" } = {}) {
+  if (error) {
+    return `<li class="teleapo-advisor-action-empty">${escapeHtml(error)}</li>`;
+  }
+  const preview = (actions || []).slice(0, ADVISOR_ACTION_PREVIEW_LIMIT);
+  if (!preview.length) {
+    return `<li class="teleapo-advisor-action-empty">予定アクションはありません</li>`;
+  }
+  return preview.map((row) => {
+    const dateText = row?.nextAction?.date ? formatCandidateDate(row.nextAction.date) : "-";
+    const actionType = row?.nextAction?.type || "次回アクション";
+    const candidateName = row?.candidateName || "候補者未設定";
+    return `
+      <li class="teleapo-advisor-action-row">
+        <span class="teleapo-advisor-action-date">${escapeHtml(dateText)}</span>
+        <span class="teleapo-advisor-action-text">${escapeHtml(`${actionType} / ${candidateName}`)}</span>
+      </li>
+    `;
+  }).join("");
+}
+
+function renderAdvisorScheduleCard({ id, name, selectedId }) {
+  const planned = getAdvisorPlannedKpi(id) || normalizeAdvisorPlannedKpi({});
+  const upcoming = getAdvisorUpcomingActions(id);
+  const rows = Array.isArray(upcoming?.rows) ? upcoming.rows : [];
+  const upcomingError = upcoming?.error || (!upcoming && dialFormAdvisorUpcomingLoading ? "予定アクション読込中..." : "");
+  const todayKey = todayIsoDate();
+  const upcomingCount = rows.filter((row) => {
+    const dateKey = toIsoDateKey(row?.nextAction?.date);
+    return Boolean(dateKey && dateKey >= todayKey);
+  }).length;
+  const isSelected = String(id) === String(selectedId || "");
+  const selectionBadge = isSelected
+    ? `<span class="teleapo-advisor-card-badge">選択中</span>`
+    : "";
+
+  return `
+    <button type="button" class="teleapo-advisor-card${isSelected ? " is-selected" : ""}" data-advisor-id="${escapeHtml(String(id))}" aria-pressed="${isSelected ? "true" : "false"}">
+      <div class="teleapo-advisor-card-head">
+        <div class="teleapo-advisor-card-name">${escapeHtml(name || `ID:${id}`)}</div>
+        ${selectionBadge}
+      </div>
+      <div class="teleapo-advisor-kpi-chips">${renderAdvisorKpiChips(planned)}</div>
+      <div class="teleapo-advisor-actions-summary">
+        <span>予定アクション</span>
+        <span>${rows.length}件 (未来 ${upcomingCount}件)</span>
+      </div>
+      <ul class="teleapo-advisor-actions-list">
+        ${renderAdvisorActionPreviewRows(rows, { error: upcomingError })}
+      </ul>
+    </button>
+  `;
+}
+
+function getAdvisorPlannedFormContexts() {
+  return [
+    {
+      key: "dial",
+      resultElementId: "dialFormResult",
+      advisorSelectElementId: "dialFormAdvisorUserId",
+      panelElementId: "dialFormAdvisorPlannedPanel",
+      infoElementId: "dialFormAdvisorPlannedInfo",
+      cardsElementId: "dialFormAdvisorPlannedCards"
+    },
+    {
+      key: "sms",
+      resultElementId: "smsFormResult",
+      advisorSelectElementId: "smsFormAdvisorUserId",
+      panelElementId: "smsFormAdvisorPlannedPanel",
+      infoElementId: "smsFormAdvisorPlannedInfo",
+      cardsElementId: "smsFormAdvisorPlannedCards"
+    }
+  ];
+}
+
+function renderAdvisorPlannedDisplayForForm(context, { loading = false, error = "" } = {}) {
+  const panel = document.getElementById(context.panelElementId);
+  const info = document.getElementById(context.infoElementId);
+  const cards = document.getElementById(context.cardsElementId);
+  if (!panel || !info || !cards) return;
+
+  const resultValue = document.getElementById(context.resultElementId)?.value;
+  const needsInterview = shouldRequireInterview(resultValue);
+  panel.classList.toggle("hidden", !needsInterview);
+  if (!needsInterview) return;
+
+  const hasOptions = Array.isArray(dialFormAdvisorOptions) && dialFormAdvisorOptions.length > 0;
+  if (!hasOptions) {
+    info.textContent = "担当アドバイザー候補がありません。";
+    cards.innerHTML = "";
+    return;
+  }
+
+  const selectedId = toPositiveInt(document.getElementById(context.advisorSelectElementId)?.value);
+  const selected = dialFormAdvisorOptions.find((item) => String(item.id) === String(selectedId || ""));
+  const hasLoading = loading || dialFormAdvisorPlannedLoading || dialFormAdvisorUpcomingLoading;
+  const errors = [error, dialFormAdvisorPlannedError, dialFormAdvisorUpcomingError]
+    .map((value) => String(value || "").trim())
+    .filter((value) => value);
+
+  if (hasLoading && !dialFormAdvisorPlannedById.size && !dialFormAdvisorUpcomingById.size) {
+    info.textContent = "全アドバイザーの予定を読み込み中です...";
+    cards.innerHTML = `
+      <div class="teleapo-advisor-card is-loading"><div class="teleapo-advisor-action-empty">読み込み中...</div></div>
+      <div class="teleapo-advisor-card is-loading"><div class="teleapo-advisor-action-empty">読み込み中...</div></div>
+    `;
+    return;
+  }
+
+  const infoParts = [];
+  if (selected) {
+    infoParts.push(`選択中: ${selected.name}`);
+  } else {
+    infoParts.push("一覧から担当アドバイザーを選択してください。");
+  }
+  if (errors.length) {
+    infoParts.push(errors.join(" / "));
+  }
+  info.textContent = infoParts.join("  ");
+
+  const sortedCards = [...dialFormAdvisorOptions].sort((a, b) => {
+    const aSelected = String(a.id) === String(selectedId || "");
+    const bSelected = String(b.id) === String(selectedId || "");
+    if (aSelected !== bSelected) return aSelected ? -1 : 1;
+    return String(a.name || "").localeCompare(String(b.name || ""), "ja");
+  });
+  cards.innerHTML = sortedCards
+    .map((item) => renderAdvisorScheduleCard({ id: item.id, name: item.name, selectedId }))
+    .join("");
+}
+
+function setDialFormAdvisorSelection(advisorUserId) {
+  const select = document.getElementById("dialFormAdvisorUserId");
+  if (!select) return;
+  const id = String(toPositiveInt(advisorUserId) || "");
+  if (!id) return;
+  const exists = Array.from(select.options).some((option) => option.value === id);
+  if (!exists) return;
+  select.value = id;
+  updateAdvisorPlannedDisplay();
+}
+
+function setSmsFormAdvisorSelection(advisorUserId) {
+  const select = document.getElementById("smsFormAdvisorUserId");
+  if (!select) return;
+  const id = String(toPositiveInt(advisorUserId) || "");
+  if (!id) return;
+  const exists = Array.from(select.options).some((option) => option.value === id);
+  if (!exists) return;
+  select.value = id;
+  updateAdvisorPlannedDisplay();
+}
+
+function updateAdvisorPlannedDisplay({ loading = false, error = "" } = {}) {
+  const contexts = getAdvisorPlannedFormContexts();
+  contexts.forEach((context) => {
+    renderAdvisorPlannedDisplayForForm(context, { loading, error });
+  });
+}
+
+async function loadDialFormAdvisorMembers({ force = false } = {}) {
+  if (!force && dialFormAdvisorMembers.length) return dialFormAdvisorMembers;
+  if (dialFormAdvisorMembersPromise) return dialFormAdvisorMembersPromise;
+
+  updateAdvisorPlannedDisplay({ loading: true });
+  dialFormAdvisorMembersPromise = (async () => {
+    try {
+      const res = await fetch(MEMBERS_API_URL, { headers: buildApiHeaders(), cache: "no-store" });
+      if (!res.ok) throw new Error(`members HTTP ${res.status}`);
+      const json = await res.json().catch(() => ({}));
+      const normalizedMembers = normalizeMemberItems(json);
+      let members = normalizedMembers.filter((member) => isAdvisorMemberRole(member.role));
+      if (!members.length && normalizedMembers.length) {
+        members = normalizedMembers;
+      }
+      dialFormAdvisorMembers = members.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+    } catch (error) {
+      console.warn("[teleapo] failed to load advisor members:", error);
+      dialFormAdvisorMembers = [];
+    } finally {
+      dialFormAdvisorMembersPromise = null;
+    }
+    refreshDialFormAdvisorSelect();
+    void loadDialFormAdvisorUpcomingActions({
+      advisorIds: dialFormAdvisorMembers.map((member) => member.id)
+    });
+    return dialFormAdvisorMembers;
+  })();
+
+  return dialFormAdvisorMembersPromise;
+}
+
+async function loadDialFormAdvisorUpcomingActions({ force = false, advisorIds = null } = {}) {
+  const ids = resolveAdvisorIdsForUpcomingFetch(advisorIds);
+  const cacheKey = ids.join(",");
+  if (
+    !force &&
+    cacheKey &&
+    dialFormAdvisorUpcomingCacheKey === cacheKey &&
+    !isAdvisorScheduleStale(dialFormAdvisorUpcomingFetchedAt)
+  ) {
+    return dialFormAdvisorUpcomingById;
+  }
+  if (dialFormAdvisorUpcomingPromise) return dialFormAdvisorUpcomingPromise;
+
+  dialFormAdvisorUpcomingLoading = true;
+  dialFormAdvisorUpcomingError = "";
+  updateAdvisorPlannedDisplay();
+  dialFormAdvisorUpcomingPromise = (async () => {
+    try {
+      if (!ids.length) {
+        dialFormAdvisorUpcomingById = new Map();
+        dialFormAdvisorUpcomingCacheKey = "";
+        dialFormAdvisorUpcomingFetchedAt = Date.now();
+        return dialFormAdvisorUpcomingById;
+      }
+
+      const results = await Promise.all(ids.map(async (advisorId) => {
+        try {
+          const rows = await fetchAdvisorUpcomingActions(advisorId);
+          return { advisorId, rows, error: "" };
+        } catch (error) {
+          console.warn(`[teleapo] failed to load mypage actions (advisor:${advisorId}):`, error);
+          return { advisorId, rows: [], error: "予定アクション取得失敗" };
+        }
+      }));
+
+      const map = new Map();
+      let failedCount = 0;
+      results.forEach(({ advisorId, rows, error }) => {
+        if (error) failedCount += 1;
+        map.set(String(advisorId), { rows, error });
+      });
+      dialFormAdvisorUpcomingById = map;
+      dialFormAdvisorUpcomingCacheKey = cacheKey;
+      dialFormAdvisorUpcomingFetchedAt = Date.now();
+      if (failedCount > 0) {
+        dialFormAdvisorUpcomingError = failedCount === ids.length
+          ? "予定アクションの取得に失敗しました。"
+          : `一部の予定アクションを取得できませんでした (${failedCount}/${ids.length})`;
+      }
+    } catch (error) {
+      console.warn("[teleapo] failed to load advisor upcoming actions:", error);
+      dialFormAdvisorUpcomingById = new Map();
+      dialFormAdvisorUpcomingCacheKey = "";
+      dialFormAdvisorUpcomingError = "予定アクションの取得に失敗しました。";
+      dialFormAdvisorUpcomingFetchedAt = 0;
+    } finally {
+      dialFormAdvisorUpcomingLoading = false;
+      dialFormAdvisorUpcomingPromise = null;
+      updateAdvisorPlannedDisplay();
+    }
+    return dialFormAdvisorUpcomingById;
+  })();
+
+  return dialFormAdvisorUpcomingPromise;
+}
+
+async function loadDialFormAdvisorPlannedKpis({ force = false } = {}) {
+  if (!force && dialFormAdvisorPlannedById.size > 0 && !isAdvisorScheduleStale(dialFormAdvisorPlannedFetchedAt)) {
+    return dialFormAdvisorPlannedById;
+  }
+  if (dialFormAdvisorPlannedPromise) return dialFormAdvisorPlannedPromise;
+
+  dialFormAdvisorPlannedLoading = true;
+  dialFormAdvisorPlannedError = "";
+  updateAdvisorPlannedDisplay({ loading: true });
+  dialFormAdvisorPlannedPromise = (async () => {
+    try {
+      const today = todayIsoDate();
+      const query = new URLSearchParams({
+        from: today,
+        to: today,
+        scope: "company",
+        granularity: "summary",
+        groupBy: "advisor",
+        planned: "1",
+        calcMode: "cohort",
+        countBasis: "application",
+        timeBasis: "application"
+      });
+      const url = `${KPI_YIELD_API_URL}?${query.toString()}`;
+      const res = await fetch(url, { headers: buildApiHeaders(), cache: "no-store" });
+      if (!res.ok) throw new Error(`kpi planned HTTP ${res.status}`);
+      const json = await res.json().catch(() => ({}));
+      const items = Array.isArray(json?.items) ? json.items : [];
+      const map = new Map();
+      items.forEach((item) => {
+        const advisorId = toPositiveInt(item?.advisorUserId ?? item?.advisor_user_id ?? item?.id);
+        if (!advisorId) return;
+        map.set(String(advisorId), normalizeAdvisorPlannedKpi(item?.kpi || item));
+      });
+      dialFormAdvisorPlannedById = map;
+      dialFormAdvisorPlannedFetchedAt = Date.now();
+    } catch (error) {
+      console.warn("[teleapo] failed to load advisor planned kpis:", error);
+      dialFormAdvisorPlannedById = new Map();
+      dialFormAdvisorPlannedError = "今後の予定の取得に失敗しました。";
+      dialFormAdvisorPlannedFetchedAt = 0;
+    } finally {
+      dialFormAdvisorPlannedLoading = false;
+      dialFormAdvisorPlannedPromise = null;
+      updateAdvisorPlannedDisplay();
+    }
+    return dialFormAdvisorPlannedById;
+  })();
+
+  return dialFormAdvisorPlannedPromise;
+}
+
 function registerCandidateContactMaps(candidateId, candidate = {}) {
   const idNum = Number(candidateId);
   if (!Number.isFinite(idNum) || idNum <= 0) return;
@@ -503,6 +1056,123 @@ function findCandidateIdFromTarget(target) {
     }
   }
   return bestId;
+}
+
+function findTeleapoCandidate({ candidateId, candidateName } = {}) {
+  const idNum = toPositiveInt(candidateId);
+  if (idNum) {
+    const byId = teleapoCandidateMaster.find((candidate) => {
+      const rawId =
+        candidate?.candidateId ??
+        candidate?.candidate_id ??
+        candidate?.id ??
+        candidate?.candidateID ??
+        null;
+      return toPositiveInt(rawId) === idNum;
+    });
+    if (byId) return byId;
+  }
+
+  const nameKey = normalizeNameKey(candidateName);
+  if (!nameKey) return null;
+  return (
+    teleapoCandidateMaster.find((candidate) => {
+      const rawName = candidate?.candidateName ?? candidate?.candidate_name ?? candidate?.name ?? "";
+      return normalizeNameKey(rawName) === nameKey;
+    }) || null
+  );
+}
+
+function refreshDialFormAdvisorSelect(candidates = teleapoCandidateMaster) {
+  const selectIds = ["dialFormAdvisorUserId", "smsFormAdvisorUserId"];
+  const selects = selectIds
+    .map((id) => ({ id, element: document.getElementById(id) }))
+    .filter((item) => item.element);
+  const entries = new Map();
+
+  (dialFormAdvisorMembers || []).forEach((member) => {
+    if (!member?.id) return;
+    entries.set(member.id, { id: member.id, name: member.name || `ID:${member.id}` });
+  });
+
+  (candidates || []).forEach((candidate) => {
+    const advisorId = toPositiveInt(candidate?.advisorUserId ?? candidate?.advisor_user_id);
+    if (!advisorId) return;
+    const advisorName = String(candidate?.advisorName ?? candidate?.advisor_name ?? "").trim();
+    const current = entries.get(advisorId);
+    if (!current || (!current.name && advisorName)) {
+      entries.set(advisorId, { id: advisorId, name: advisorName || `ID:${advisorId}` });
+    }
+  });
+
+  dialFormAdvisorOptions = Array.from(entries.values()).sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  const hasOptions = dialFormAdvisorOptions.length > 0;
+  const optionsHtml = [
+    `<option value="">${hasOptions ? "選択してください" : "候補がありません"}</option>`,
+    ...dialFormAdvisorOptions.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`)
+  ].join("");
+
+  selects.forEach(({ element }) => {
+    const previous = String(element.value || "");
+    element.innerHTML = optionsHtml;
+    if (previous && dialFormAdvisorOptions.some((item) => String(item.id) === previous)) {
+      element.value = previous;
+    }
+    element.disabled = !hasOptions;
+  });
+
+  updateAdvisorPlannedDisplay();
+  if (hasOptions) {
+    void loadDialFormAdvisorUpcomingActions({
+      advisorIds: dialFormAdvisorOptions.map((item) => item.id)
+    });
+  }
+}
+
+function syncDialFormAdvisorSelection({ candidateId, candidateName, preserveCurrent = false } = {}) {
+  const select = document.getElementById("dialFormAdvisorUserId");
+  if (!select) return;
+  if (preserveCurrent && String(select.value || "").trim()) return;
+
+  const candidate = findTeleapoCandidate({ candidateId, candidateName });
+  const advisorId = toPositiveInt(candidate?.advisorUserId ?? candidate?.advisor_user_id);
+  if (!advisorId) {
+    select.value = "";
+    updateAdvisorPlannedDisplay();
+    return;
+  }
+
+  const advisorIdText = String(advisorId);
+  const exists = Array.from(select.options).some((option) => option.value === advisorIdText);
+  if (exists) {
+    select.value = advisorIdText;
+  } else {
+    select.value = "";
+  }
+  updateAdvisorPlannedDisplay();
+}
+
+function syncSmsFormAdvisorSelection({ candidateId, candidateName, preserveCurrent = false } = {}) {
+  const select = document.getElementById("smsFormAdvisorUserId");
+  if (!select) return;
+  if (preserveCurrent && String(select.value || "").trim()) return;
+
+  const candidate = findTeleapoCandidate({ candidateId, candidateName });
+  const advisorId = toPositiveInt(candidate?.advisorUserId ?? candidate?.advisor_user_id);
+  if (!advisorId) {
+    select.value = "";
+    updateAdvisorPlannedDisplay();
+    return;
+  }
+
+  const advisorIdText = String(advisorId);
+  const exists = Array.from(select.options).some((option) => option.value === advisorIdText);
+  if (exists) {
+    select.value = advisorIdText;
+  } else {
+    select.value = "";
+  }
+  updateAdvisorPlannedDisplay();
 }
 
 function resolveCandidateIdFromLog(log) {
@@ -857,6 +1527,20 @@ function normalizeCandidateDetail(raw) {
     ...raw,
     candidateId: raw.candidateId ?? raw.candidate_id ?? raw.id ?? null,
     candidateName: raw.candidateName ?? raw.candidate_name ?? raw.name ?? "",
+    advisorUserId: toPositiveInt(raw.advisorUserId ?? raw.advisor_user_id),
+    partnerUserId: toPositiveInt(
+      raw.partnerUserId ??
+      raw.partner_user_id ??
+      raw.csUserId ??
+      raw.cs_user_id
+    ),
+    csUserId: toPositiveInt(
+      raw.csUserId ??
+      raw.cs_user_id ??
+      raw.partnerUserId ??
+      raw.partner_user_id
+    ),
+    callerUserId: toPositiveInt(raw.callerUserId ?? raw.caller_user_id),
     advisorName: raw.advisorName ?? raw.advisor_name ?? "",
     partnerName: raw.partnerName ?? raw.partner_name ?? "",
     registeredAt: raw.registeredAt ?? raw.createdAt ?? raw.created_at ?? raw.registered_at ?? null,
@@ -1842,17 +2526,22 @@ function processMissingInfoQueue() {
 
 const RESULT_LABELS = {
   connect: '通電',
+  reply: '返信',
   set: '設定',
   show: '着座',
   callback: 'コールバック',
   no_answer: '不在',
   sms_sent: 'SMS送信'
 };
+const TELEAPO_RESULT_FILTER_BASE_ORDER = ['通電', '返信', '不在', '設定', '着座', 'コールバック', 'SMS送信'];
+const TELEAPO_LOGS_PER_PAGE = 30;
+const TELEAPO_LOG_PAGINATION_MAX_BUTTONS = 7;
 
 let teleapoLogData = [];
 let teleapoPendingLogs = [];
 let teleapoMissingInfoCandidates = [];
 let teleapoFilteredLogs = [];
+let teleapoLogPage = 1;
 let teleapoEmployeeMetrics = [];
 let teleapoSummaryScope = { type: 'company', name: '全体' };
 let teleapoEmployeeTrendMode = 'month';
@@ -1867,6 +2556,63 @@ let teleapoRangeTouched = false;
 let teleapoAutoFallbackDone = false;
 let teleapoActivePreset = 'thisMonth'; // 現在アクティブなプリセット（今日/今週/今月/null）
 let dialFormCurrentUser = { name: '', userId: null };
+
+function resolveResultFilterLabel(log) {
+  const flags = classifyTeleapoResult(log);
+  if (flags.code === 'show') return '着座';
+  if (flags.code === 'set') return '設定';
+  if (flags.code === 'connect') return '通電';
+  if (flags.code === 'reply') return '返信';
+  if (flags.code === 'callback') return 'コールバック';
+  if (flags.code === 'no_answer') return '不在';
+  if (flags.code === 'sms_sent') {
+    return normalizeRoute(log?.route) === ROUTE_TEL ? '不在' : 'SMS送信';
+  }
+  const raw = String(log?.result || log?.resultCode || '').trim();
+  return raw || '';
+}
+
+function refreshTeleapoLogFilterOptions(logs = teleapoLogData) {
+  const source = Array.isArray(logs) ? logs : [];
+  const employeeSelect = document.getElementById('teleapoLogEmployeeFilter');
+  if (employeeSelect) {
+    const previous = String(employeeSelect.value || '').trim();
+    const employees = Array.from(
+      new Set(
+        source
+          .map(log => String(log?.employee || '').trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, 'ja'));
+    employeeSelect.innerHTML = [
+      '<option value="">全員</option>',
+      ...employees.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+    ].join('');
+    employeeSelect.value = previous && employees.includes(previous) ? previous : '';
+  }
+
+  const resultSelect = document.getElementById('teleapoLogResultFilter');
+  if (resultSelect) {
+    const previous = String(resultSelect.value || '').trim();
+    const labels = Array.from(
+      new Set(
+        source
+          .map(resolveResultFilterLabel)
+          .filter(Boolean)
+      )
+    );
+    const known = TELEAPO_RESULT_FILTER_BASE_ORDER.filter(label => labels.includes(label));
+    const extras = labels
+      .filter(label => !TELEAPO_RESULT_FILTER_BASE_ORDER.includes(label))
+      .sort((a, b) => a.localeCompare(b, 'ja'));
+    const ordered = [...known, ...extras];
+    resultSelect.innerHTML = [
+      '<option value="">全て</option>',
+      ...ordered.map(label => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`)
+    ].join('');
+    resultSelect.value = previous && ordered.includes(previous) ? previous : '';
+  }
+}
 
 function resolveDialFormCurrentUser() {
   const session = getSession();
@@ -1892,9 +2638,12 @@ function resolveDialFormCurrentUser() {
 
 function syncDialFormCurrentUser() {
   dialFormCurrentUser = resolveDialFormCurrentUser();
-  const input = document.getElementById("dialFormEmployee");
-  if (!input) return;
-  input.value = dialFormCurrentUser.name || "";
+  const employeeName = dialFormCurrentUser.name || "";
+  const dialInput = document.getElementById("dialFormEmployee");
+  if (dialInput) dialInput.value = employeeName;
+  const smsInput = document.getElementById("smsFormEmployee");
+  if (smsInput) smsInput.value = employeeName;
+  refreshCandidateDatalist();
 }
 
 function resolveDialFormEmployeeName() {
@@ -1981,6 +2730,7 @@ function normalizeResultCode(raw) {
   const t = (raw || '').toString().toLowerCase();
   if (t.includes('show') || t.includes('着座')) return 'show';
   if (t.includes('set') || t.includes('設定') || t.includes('アポ') || t.includes('面談')) return 'set';
+  if (t.includes('reply') || t.includes('返信')) return 'reply';
   if (t.includes('callback') || t.includes('コールバック') || t.includes('折返') || t.includes('折り返')) return 'callback';
   if (t.includes('no_answer') || t.includes('不在')) return 'no_answer';
   if (t.includes('connect') || t.includes('通電')) return 'connect';
@@ -1990,7 +2740,7 @@ function normalizeResultCode(raw) {
 
 function normalizeRoute(raw) {
   const t = (raw || '').toString().toLowerCase();
-  if (t.includes('other') || t.includes('その他')) return ROUTE_OTHER;
+  if (t.includes('other') || t.includes('その他') || t.includes('spir')) return ROUTE_OTHER;
   if (t.includes('sms') || t.includes('mail') || t.includes('メール') || t.includes('line')) return ROUTE_OTHER;
   if (t.includes('tel') || t.includes('call') || t.includes('電話')) return ROUTE_TEL;
   return ROUTE_TEL; // デフォルトは架電扱い
@@ -2152,8 +2902,8 @@ function classifyTeleapoResult(log) {
     ? flowLabels.join('→')
     : (RESULT_LABELS[code] || log.result || '');
   return {
-    isConnect: ['connect', 'set', 'show', 'callback'].includes(code), // 既存の通電判定（後方互換）
-    isConnectPlusSet: ['connect', 'callback', 'set', 'show'].includes(code), // 通電率定義用: 通電＋設定
+    isConnect: ['connect', 'reply', 'set', 'show', 'callback'].includes(code), // 既存の通電判定（後方互換）
+    isConnectPlusSet: ['connect', 'reply', 'callback', 'set', 'show'].includes(code), // 通電率定義用: 通電＋設定
     isSet: ['set', 'show'].includes(code),
     isShow,
     code,
@@ -2192,6 +2942,7 @@ function buildLogHighlightFingerprint(candidateId, calledAt, callerUserId, candi
 }
 
 function setLogHighlightTarget({ id, candidateId, calledAt, callerUserId, candidateName }) {
+  teleapoLogPage = 1;
   teleapoHighlightLogId = id != null && id !== '' ? String(id) : null;
   teleapoHighlightFingerprint = teleapoHighlightLogId
     ? null
@@ -2298,6 +3049,21 @@ function getCallKey(log) {
   if (log.candidateId) return log.candidateId;
   const targetKey = normalizeNameKey(log.target || '');
   return targetKey || log.tel || log.email || '不明';
+}
+
+function getStageCountKey(log) {
+  const base = getCallKey(log);
+  if (base && base !== '不明') return String(base);
+
+  const id = String(log?.id || '').trim();
+  if (id) return `log:${id}`;
+
+  const datetime = String(log?.datetime || '').trim();
+  const employee = String(log?.employee || '').trim();
+  const target = normalizeNameKey(log?.target || '');
+  const route = normalizeRoute(log?.route || '');
+  const code = normalizeResultCode(log?.resultCode || log?.result || '');
+  return `fallback:${route}|${target}|${employee}|${datetime}|${code}`;
 }
 
 
@@ -2481,23 +3247,45 @@ function initRateModeToggle() {
 function computeKpi(logs) {
   const tel = { attempts: 0, contacts: 0, contactsPlusSets: 0, sets: 0, shows: 0 };
   const other = { attempts: 0, contacts: 0, contactsPlusSets: 0, sets: 0, shows: 0 };
+  const telSetKeys = new Set();
+  const telShowKeys = new Set();
+  const otherSetKeys = new Set();
+  const otherShowKeys = new Set();
+  const totalSetKeys = new Set();
+  const totalShowKeys = new Set();
 
   logs.forEach(log => {
-    const bucket = log.route === ROUTE_OTHER ? other : tel;
+    const isOtherRoute = log.route === ROUTE_OTHER;
+    const bucket = isOtherRoute ? other : tel;
     const flags = classifyTeleapoResult(log);
+    const stageKey = getStageCountKey(log);
     bucket.attempts += 1;
     if (flags.isConnect) bucket.contacts += 1;
     if (flags.isConnectPlusSet) bucket.contactsPlusSets += 1;
-    if (flags.isSet) bucket.sets += 1;
-    if (flags.isShow) bucket.shows += 1;
+    if (flags.isSet && stageKey) {
+      const targetSet = isOtherRoute ? otherSetKeys : telSetKeys;
+      if (!targetSet.has(stageKey)) {
+        targetSet.add(stageKey);
+        bucket.sets += 1;
+      }
+      totalSetKeys.add(stageKey);
+    }
+    if (flags.isShow && stageKey) {
+      const targetShow = isOtherRoute ? otherShowKeys : telShowKeys;
+      if (!targetShow.has(stageKey)) {
+        targetShow.add(stageKey);
+        bucket.shows += 1;
+      }
+      totalShowKeys.add(stageKey);
+    }
   });
 
   const total = {
     attempts: tel.attempts + other.attempts,
     contacts: tel.contacts + other.contacts,
     contactsPlusSets: tel.contactsPlusSets + other.contactsPlusSets,
-    sets: tel.sets + other.sets,
-    shows: tel.shows + other.shows
+    sets: totalSetKeys.size,
+    shows: totalShowKeys.size
   };
 
   return { tel, other, total };
@@ -2575,12 +3363,21 @@ function computeEmployeeMetrics(logs) {
   telLogs.forEach(log => {
     const name = log.employee || '未設定';
     const flags = classifyTeleapoResult(log);
-    if (!map.has(name)) map.set(name, { dials: 0, connects: 0, sets: 0, shows: 0 });
+    if (!map.has(name)) {
+      map.set(name, { dials: 0, connects: 0, sets: 0, shows: 0, _setKeys: new Set(), _showKeys: new Set() });
+    }
     const rec = map.get(name);
+    const stageKey = getStageCountKey(log);
     rec.dials += 1;
     if (flags.isConnect) rec.connects += 1;
-    if (flags.isSet) rec.sets += 1;
-    if (flags.isShow) rec.shows += 1;
+    if (flags.isSet && stageKey && !rec._setKeys.has(stageKey)) {
+      rec._setKeys.add(stageKey);
+      rec.sets += 1;
+    }
+    if (flags.isShow && stageKey && !rec._showKeys.has(stageKey)) {
+      rec._showKeys.add(stageKey);
+      rec.shows += 1;
+    }
   });
 
   return Array.from(map.entries()).map(([name, rec]) => {
@@ -2971,6 +3768,58 @@ function getAnalysisScope(logs) {
   return { logs: scopedLogs, from, to: maxDate, label: `${fromStr} ～ ${toStr}`, scopeLabel };
 }
 
+function renderLogPagination(totalCount, totalPages, startIndex, endIndex) {
+  const container = document.getElementById('teleapoLogPagination');
+  if (!container) return;
+
+  if (!Number.isFinite(totalCount) || totalCount <= 0) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    return;
+  }
+
+  const from = Math.max(1, startIndex + 1);
+  const to = Math.max(from, endIndex);
+  const summary = `${from}-${to} / ${totalCount}件`;
+
+  if (!Number.isFinite(totalPages) || totalPages <= 1) {
+    container.innerHTML = `<div class="teleapo-log-pagination-summary">${summary}</div>`;
+    container.style.display = 'flex';
+    return;
+  }
+
+  const maxButtons = Math.max(3, TELEAPO_LOG_PAGINATION_MAX_BUTTONS);
+  let startPage = Math.max(1, teleapoLogPage - Math.floor(maxButtons / 2));
+  let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+  startPage = Math.max(1, endPage - maxButtons + 1);
+
+  const pageButtons = [];
+  for (let page = startPage; page <= endPage; page += 1) {
+    const isActive = page === teleapoLogPage;
+    pageButtons.push(`
+      <button
+        type="button"
+        class="teleapo-log-page-btn ${isActive ? 'is-active' : ''}"
+        data-log-page="${page}"
+        aria-current="${isActive ? 'page' : 'false'}"
+      >${page}</button>
+    `);
+  }
+
+  const isFirstPage = teleapoLogPage <= 1;
+  const isLastPage = teleapoLogPage >= totalPages;
+
+  container.innerHTML = `
+    <div class="teleapo-log-pagination-summary">${summary}</div>
+    <div class="teleapo-log-pagination-controls">
+      <button type="button" class="teleapo-log-page-btn" data-log-page="${teleapoLogPage - 1}" ${isFirstPage ? 'disabled' : ''}>前へ</button>
+      ${pageButtons.join('')}
+      <button type="button" class="teleapo-log-page-btn" data-log-page="${teleapoLogPage + 1}" ${isLastPage ? 'disabled' : ''}>次へ</button>
+    </div>
+  `;
+  container.style.display = 'flex';
+}
+
 function renderLogTable() {
   const tbody = document.getElementById('teleapoLogTableBody');
   if (!tbody) return;
@@ -2988,14 +3837,23 @@ function renderLogTable() {
       : `${valB}`.localeCompare(`${valA}`);
   });
 
-  tbody.innerHTML = sorted.map(row => {
+  const totalCount = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / TELEAPO_LOGS_PER_PAGE));
+  if (!Number.isFinite(teleapoLogPage) || teleapoLogPage < 1) teleapoLogPage = 1;
+  if (teleapoLogPage > totalPages) teleapoLogPage = totalPages;
+  const startIndex = (teleapoLogPage - 1) * TELEAPO_LOGS_PER_PAGE;
+  const pageRows = sorted.slice(startIndex, startIndex + TELEAPO_LOGS_PER_PAGE);
+  const endIndex = startIndex + pageRows.length;
+
+  tbody.innerHTML = pageRows.map(row => {
     const flags = classifyTeleapoResult(row);
     const badgeClass =
       flags.code === 'show' ? 'bg-green-100 text-green-700'
         : flags.code === 'set' ? 'bg-emerald-100 text-emerald-700'
           : flags.code === 'connect' ? 'bg-blue-100 text-blue-700'
-            : flags.code === 'callback' ? 'bg-amber-100 text-amber-700'
-              : 'bg-slate-100 text-slate-700';
+            : flags.code === 'reply' ? 'bg-cyan-100 text-cyan-700'
+              : flags.code === 'callback' ? 'bg-amber-100 text-amber-700'
+                : 'bg-slate-100 text-slate-700';
 
     const attemptLabel = row.callAttempt ? `（${row.callAttempt}回目）` : '';
     const routeLabel = row.route === ROUTE_OTHER ? 'その他' : `架電${attemptLabel}`;
@@ -3015,6 +3873,13 @@ function renderLogTable() {
            data-candidate-id="${escapeHtml(targetCandidateId || '')}"
            data-candidate-name="${escapeHtml(targetLabel)}">${targetText}</button>`
       : targetText;
+
+    // CSステータス解決
+    let csStatusText = "-";
+    if (targetCandidateId && candidateDetailCache.has(Number(targetCandidateId))) {
+      const cached = candidateDetailCache.get(Number(targetCandidateId));
+      if (cached && cached.csStatus) csStatusText = escapeHtml(cached.csStatus);
+    }
 
     // ★ 電話・メールは mapApiLog で candidates 由来が tel/email に入るので表示できる
     const telText = escapeHtml(row.tel || '');
@@ -3041,6 +3906,7 @@ function renderLogTable() {
         <td class="whitespace-nowrap">${escapeHtml(row.employee || '')}</td>
         <td>${escapeHtml(routeLabel)}</td>
         <td>${targetCell}</td>
+        <td>${csStatusText}</td>
         <td>${telText}</td>
         <td class="whitespace-nowrap">${contactTimeText}</td>
         <td>${emailText}</td>
@@ -3082,6 +3948,7 @@ function renderLogTable() {
   // 件数表示
   const countEl = document.getElementById('teleapoLogFilterCount');
   if (countEl) countEl.textContent = `${teleapoFilteredLogs.length}件`;
+  renderLogPagination(totalCount, totalPages, startIndex, endIndex);
 }
 
 async function deleteTeleapoLog(logId) {
@@ -3243,12 +4110,21 @@ function getTrendModeLabel(mode) {
 }
 
 function renderEmployeeSummary(empName, empLogs, trend) {
+  const setKeys = new Set();
+  const showKeys = new Set();
   const summary = empLogs.reduce((acc, log) => {
     const flags = classifyTeleapoResult(log);
+    const stageKey = getStageCountKey(log);
     acc.dials += 1;
     if (flags.isConnect) acc.connects += 1;
-    if (flags.isSet) acc.sets += 1;
-    if (flags.isShow) acc.shows += 1;
+    if (flags.isSet && stageKey && !setKeys.has(stageKey)) {
+      setKeys.add(stageKey);
+      acc.sets += 1;
+    }
+    if (flags.isShow && stageKey && !showKeys.has(stageKey)) {
+      showKeys.add(stageKey);
+      acc.shows += 1;
+    }
     return acc;
   }, { dials: 0, connects: 0, sets: 0, shows: 0 });
 
@@ -3504,6 +4380,7 @@ function renderEmployeeTrendChart(empName, logs) {
 }
 
 function applyFilters() {
+  refreshTeleapoLogFilterOptions(teleapoLogData);
   const empFilter = document.getElementById('teleapoLogEmployeeFilter')?.value || '';
   const resultFilter = document.getElementById('teleapoLogResultFilter')?.value || '';
   const routeFilter = document.getElementById('teleapoLogRouteFilter')?.value || '';
@@ -3710,6 +4587,7 @@ function initFilters() {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener(id.includes('TargetSearch') ? 'input' : 'change', () => {
+      teleapoLogPage = 1;
       if (id.includes('Range')) {
         handleRangeChange();
         return;
@@ -3728,6 +4606,7 @@ function initFilters() {
       if (result) result.value = '';
       if (route) route.value = '';
       if (target) target.value = '';
+      teleapoLogPage = 1;
       applyFilters();
     };
   }
@@ -3890,6 +4769,22 @@ function initLogTableSort() {
     });
   });
   updateLogSortIndicators();
+}
+
+function initLogPagination() {
+  const container = document.getElementById('teleapoLogPagination');
+  if (!container || container.dataset.bound === 'true') return;
+
+  container.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-log-page]');
+    if (!btn || btn.disabled) return;
+    const nextPage = Number(btn.dataset.logPage);
+    if (!Number.isFinite(nextPage) || nextPage <= 0 || nextPage === teleapoLogPage) return;
+    teleapoLogPage = nextPage;
+    renderLogTable();
+  });
+
+  container.dataset.bound = 'true';
 }
 
 function initLogTableActions() {
@@ -4216,7 +5111,8 @@ async function loadCandidates() {
           attendanceConfirmed: normalizeAttendanceValue(
             c.attendanceConfirmed ?? c.first_interview_attended ?? c.attendance_confirmed ?? c.firstInterviewAttended
           ),
-          firstInterviewDate: c.firstInterviewDate ?? c.first_interview_date ?? c.firstInterviewAt ?? c.first_interview_at ?? null
+          firstInterviewDate: c.firstInterviewDate ?? c.first_interview_date ?? c.firstInterviewAt ?? c.first_interview_at ?? null,
+          csStatus: c.csStatus ?? c.cs_status ?? ""
         };
         if (detail.phone) candidatePhoneCache.set(candidateId, detail.phone);
         if (detail.phone || detail.birthday || detail.age !== null || detail.contactPreferredTime) {
@@ -4228,9 +5124,19 @@ async function loadCandidates() {
     candidateNameList = Array.from(candidateNameMap.keys()).sort((a, b) => b.length - a.length);
 
     console.log(`候補者ロード完了: ${candidateNameMap.size}件`);
-    refreshCandidateDatalist(); // datalist更新
-
     teleapoCandidateMaster = items;
+    refreshCandidateDatalist(); // datalist更新
+    refreshDialFormAdvisorSelect(teleapoCandidateMaster);
+    syncDialFormAdvisorSelection({
+      candidateId: document.getElementById("dialFormCandidateId")?.value,
+      candidateName: document.getElementById("dialFormCandidateName")?.value || ""
+    });
+    syncSmsFormAdvisorSelection({
+      candidateId: document.getElementById("smsFormCandidateId")?.value,
+      candidateName: document.getElementById("smsFormCandidateName")?.value || ""
+    });
+    updateInterviewFieldVisibility(document.getElementById("dialFormResult")?.value);
+    updateSmsFormInterviewFieldVisibility(document.getElementById("smsFormResult")?.value);
     prefetchValidApplicationForCandidates(teleapoCandidateMaster);
     rebuildCsTaskCandidates();
     const hydrated = hydrateLogCandidateIds(teleapoLogData);
@@ -4243,6 +5149,10 @@ async function loadCandidates() {
     scheduleAttendanceFetchFromLogs(teleapoLogData);
   } catch (e) {
     console.error("候補者一覧の取得に失敗:", e);
+    teleapoCandidateMaster = [];
+    refreshDialFormAdvisorSelect([]);
+    updateInterviewFieldVisibility(document.getElementById("dialFormResult")?.value);
+    updateSmsFormInterviewFieldVisibility(document.getElementById("smsFormResult")?.value);
     renderCsTaskTable([], { error: true });
   }
 }
@@ -4337,6 +5247,7 @@ export function mount() {
   initEmployeeSortHeaders();
   initEmployeeTrendModeControls();
   initLogTableSort();
+  initLogPagination();
   initLogTableActions();
   initCsTaskTableActions();
   initCsTaskToggle();
@@ -4348,7 +5259,9 @@ export function mount() {
 
   // initLogForm(); // ← ★削除またはコメントアウト（モック用フォームはもう不要）
 
-  initDialForm(); // 本番用フォーム（POST対応版）
+  initDialForm(); // 架電ログ入力（電話固定）
+  initSmsForm(); // SMS連絡登録（その他固定）
+  void refreshDialFormAdvisorSchedules({ force: true });
 
   // データロード開始
   // 目標値をロード
@@ -4398,31 +5311,156 @@ function nowLocalDateTime() {
   return iso.slice(0, 16);
 }
 
+function isAssignedToCurrentUserCandidate(candidate, userId) {
+  const uid = toPositiveInt(userId);
+  if (!uid || !candidate) return false;
+
+  const ownerIds = [
+    candidate.partnerUserId,
+    candidate.partner_user_id,
+    candidate.csUserId,
+    candidate.cs_user_id,
+    candidate.advisorUserId,
+    candidate.advisor_user_id
+  ]
+    .map((value) => toPositiveInt(value))
+    .filter(Boolean);
+
+  return ownerIds.includes(uid);
+}
+
+function buildDialFormCandidateNamesByPriority() {
+  const names = Array.from(candidateNameMap.keys());
+  if (!names.length) return [];
+
+  const userId = toPositiveInt(dialFormCurrentUser?.userId);
+  if (!userId || !Array.isArray(teleapoCandidateMaster) || !teleapoCandidateMaster.length) {
+    return names.sort((a, b) => a.localeCompare(b, "ja"));
+  }
+
+  const mineSet = new Set();
+  teleapoCandidateMaster.forEach((candidate) => {
+    if (!isAssignedToCurrentUserCandidate(candidate, userId)) return;
+    const name = String(
+      candidate?.candidateName ??
+      candidate?.candidate_name ??
+      candidate?.name ??
+      ""
+    ).trim();
+    if (!name) return;
+    if (!candidateNameMap.has(name)) return;
+    mineSet.add(name);
+  });
+
+  return names.sort((a, b) => {
+    const aMine = mineSet.has(a);
+    const bMine = mineSet.has(b);
+    if (aMine !== bMine) return aMine ? -1 : 1;
+    return a.localeCompare(b, "ja");
+  });
+}
+
+function getMyAssignedCandidateEntries({ limit = 16 } = {}) {
+  const userId = toPositiveInt(dialFormCurrentUser?.userId);
+  if (!userId || !Array.isArray(teleapoCandidateMaster) || !teleapoCandidateMaster.length) {
+    return [];
+  }
+  const seen = new Set();
+  const entries = [];
+
+  teleapoCandidateMaster.forEach((candidate) => {
+    if (!isAssignedToCurrentUserCandidate(candidate, userId)) return;
+    const candidateId = toPositiveInt(
+      candidate?.candidateId ??
+      candidate?.candidate_id ??
+      candidate?.id ??
+      candidate?.candidateID
+    );
+    const name = String(
+      candidate?.candidateName ??
+      candidate?.candidate_name ??
+      candidate?.name ??
+      ""
+    ).trim();
+    if (!name || !candidateNameMap.has(name)) return;
+    const key = `${candidateId || ""}:${name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    entries.push({ id: candidateId, name });
+  });
+
+  entries.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  if (!Number.isFinite(limit) || limit <= 0) return entries;
+  return entries.slice(0, limit);
+}
+
+function refreshDialFormMineCandidates() {
+  const field = document.getElementById("dialFormMineCandidatesField");
+  const wrap = document.getElementById("dialFormMineCandidatesWrap");
+  const list = document.getElementById("dialFormMineCandidatesList");
+  const count = document.getElementById("dialFormMineCandidatesCount");
+  if (!wrap || !list || !count) return;
+
+  const allEntries = getMyAssignedCandidateEntries({ limit: 0 });
+  if (!allEntries.length) {
+    field?.classList.add("hidden");
+    wrap.classList.add("hidden");
+    list.innerHTML = "";
+    count.textContent = "0件";
+    return;
+  }
+
+  const visibleEntries = allEntries.slice(0, 16);
+  const overflow = allEntries.length - visibleEntries.length;
+  field?.classList.remove("hidden");
+  wrap.classList.remove("hidden");
+  count.textContent = `${allEntries.length}件`;
+  list.innerHTML = [
+    ...visibleEntries.map((entry) => `
+      <button
+        type="button"
+        class="teleapo-mine-candidate-chip"
+        data-action="select-my-candidate"
+        data-candidate-id="${escapeHtml(String(entry.id || ""))}"
+        data-candidate-name="${escapeHtml(entry.name)}"
+      >
+        ${escapeHtml(entry.name)}
+      </button>
+    `),
+    overflow > 0 ? `<span class="teleapo-mine-candidate-overflow">他 ${overflow} 名</span>` : ""
+  ].join("");
+}
+
 // 既存の refreshCandidateDatalist をこれで上書き
 function refreshCandidateDatalist() {
   const listEl = document.getElementById("dialFormCandidateList");
   if (!listEl) return;
 
-  // APIから取得した候補者リストを使用
-  const names = Array.from(candidateNameMap.keys()).sort((a, b) => a.localeCompare(b, "ja"));
+  // 自分担当候補者を先頭、その後に他候補者を表示
+  const names = buildDialFormCandidateNamesByPriority();
 
   listEl.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join("");
+  refreshDialFormMineCandidates();
 }
 
 function routeLabelFromLogRoute(logRoute) {
   if (!logRoute) return "電話";
   const t = `${logRoute}`.toLowerCase();
   if (t.includes("sms")) return "SMS";
-  if (t.includes("other") || t.includes("mail") || t.includes("line")) return "その他";
+  if (t.includes("other") || t.includes("mail") || t.includes("line")) return "spir";
   return "電話";
 }
 
 function updateCallNoAndRoute(candidateName) {
   const name = (candidateName || "").trim();
   const callNoInput = document.getElementById("dialFormCallNo");
-  const routeSelect = document.getElementById("dialFormRoute");
+  const routeInput = document.getElementById("dialFormRoute");
   const candidateIdHidden = document.getElementById("dialFormCandidateId");
-  if (!name) return;
+  if (routeInput) routeInput.value = "電話";
+  if (!name) {
+    syncDialFormAdvisorSelection({ candidateId: null, candidateName: "" });
+    return;
+  }
 
   const matchedCandidateId = findCandidateIdByName(name);
   if (matchedCandidateId && candidateIdHidden) {
@@ -4434,8 +5472,8 @@ function updateCallNoAndRoute(candidateName) {
     : teleapoLogData.filter(l => normalizeNameKey(l.target || '') === nameKey);
   if (matched.length === 0) {
     if (callNoInput) callNoInput.value = "1";
-    if (routeSelect) routeSelect.value = "電話";
-    if (candidateIdHidden) candidateIdHidden.value = "";
+    if (candidateIdHidden && !matchedCandidateId) candidateIdHidden.value = "";
+    syncDialFormAdvisorSelection({ candidateId: matchedCandidateId, candidateName: name });
     return;
   }
 
@@ -4448,8 +5486,11 @@ function updateCallNoAndRoute(candidateName) {
     const tb = parseDateTime(b.datetime)?.getTime() || 0;
     return tb - ta;
   })[0];
-  if (routeSelect) routeSelect.value = routeLabelFromLogRoute(latest.route);
   if (candidateIdHidden && latest?.candidateId) candidateIdHidden.value = String(latest.candidateId);
+  syncDialFormAdvisorSelection({
+    candidateId: matchedCandidateId ?? latest?.candidateId ?? candidateIdHidden?.value,
+    candidateName: name
+  });
 }
 
 function prefillDialFormFromCandidate(candidateId, candidateName) {
@@ -4457,7 +5498,7 @@ function prefillDialFormFromCandidate(candidateId, candidateName) {
   const nameInput = document.getElementById("dialFormCandidateName");
   const idInput = document.getElementById("dialFormCandidateId");
   const calledAtInput = document.getElementById("dialFormCalledAt");
-  const routeSelect = document.getElementById("dialFormRoute");
+  const routeInput = document.getElementById("dialFormRoute");
 
   const resolvedName = candidateName || candidateIdMap.get(String(candidateId)) || "";
   if (nameInput && resolvedName) {
@@ -4473,9 +5514,10 @@ function prefillDialFormFromCandidate(candidateId, candidateName) {
   if (resolvedName) {
     updateCallNoAndRoute(resolvedName);
   }
-  if (routeSelect) {
-    routeSelect.value = "電話";
+  if (routeInput) {
+    routeInput.value = "電話";
   }
+  syncDialFormAdvisorSelection({ candidateId, candidateName: resolvedName });
   updateInterviewFieldVisibility(document.getElementById("dialFormResult")?.value);
 
   if (form) {
@@ -4495,13 +5537,63 @@ function shouldRequireInterview(resultValue) {
 }
 
 function updateInterviewFieldVisibility(resultValue) {
-  const field = document.getElementById("dialFormInterviewField");
-  const input = document.getElementById("dialFormInterviewAt");
-  if (!field || !input) return;
   const shouldShow = shouldRequireInterview(resultValue ?? document.getElementById("dialFormResult")?.value);
-  field.classList.toggle("hidden", !shouldShow);
-  input.required = shouldShow;
-  if (!shouldShow) input.value = "";
+  const interviewField = document.getElementById("dialFormInterviewField");
+  const interviewInput = document.getElementById("dialFormInterviewAt");
+  if (interviewField && interviewInput) {
+    interviewField.classList.toggle("hidden", !shouldShow);
+    interviewInput.required = shouldShow;
+    if (!shouldShow) interviewInput.value = "";
+  }
+
+  const advisorField = document.getElementById("dialFormAdvisorField");
+  const advisorSelect = document.getElementById("dialFormAdvisorUserId");
+  if (advisorField && advisorSelect) {
+    advisorField.classList.toggle("hidden", !shouldShow);
+    const hasOptions = Array.isArray(dialFormAdvisorOptions) && dialFormAdvisorOptions.length > 0;
+    advisorSelect.required = shouldShow && hasOptions;
+    if (!shouldShow) {
+      advisorSelect.value = "";
+    } else {
+      syncDialFormAdvisorSelection({
+        candidateId: document.getElementById("dialFormCandidateId")?.value,
+        candidateName: document.getElementById("dialFormCandidateName")?.value || "",
+        preserveCurrent: true
+      });
+      void refreshDialFormAdvisorSchedules();
+    }
+    updateAdvisorPlannedDisplay();
+  }
+}
+
+function updateSmsFormInterviewFieldVisibility(resultValue) {
+  const shouldShow = shouldRequireInterview(resultValue ?? document.getElementById("smsFormResult")?.value);
+  const interviewField = document.getElementById("smsFormInterviewField");
+  const interviewInput = document.getElementById("smsFormInterviewAt");
+  if (interviewField && interviewInput) {
+    interviewField.classList.toggle("hidden", !shouldShow);
+    interviewInput.required = shouldShow;
+    if (!shouldShow) interviewInput.value = "";
+  }
+
+  const advisorField = document.getElementById("smsFormAdvisorField");
+  const advisorSelect = document.getElementById("smsFormAdvisorUserId");
+  if (advisorField && advisorSelect) {
+    advisorField.classList.toggle("hidden", !shouldShow);
+    const hasOptions = Array.isArray(dialFormAdvisorOptions) && dialFormAdvisorOptions.length > 0;
+    advisorSelect.required = shouldShow && hasOptions;
+    if (!shouldShow) {
+      advisorSelect.value = "";
+    } else {
+      syncSmsFormAdvisorSelection({
+        candidateId: document.getElementById("smsFormCandidateId")?.value,
+        candidateName: document.getElementById("smsFormCandidateName")?.value || "",
+        preserveCurrent: true
+      });
+      void refreshDialFormAdvisorSchedules();
+    }
+    updateAdvisorPlannedDisplay();
+  }
 }
 
 function resetDialFormDefaults(clearMessage = true) {
@@ -4515,9 +5607,32 @@ function resetDialFormDefaults(clearMessage = true) {
   const result = document.getElementById("dialFormResult");
   if (result) result.value = "通電";
   updateInterviewFieldVisibility(result?.value);
+  if (advisorSelect) advisorSelect.value = "";
+  updateAdvisorPlannedDisplay();
+  const csStatusSelect = document.getElementById("dialFormCsStatus");
+  if (csStatusSelect) csStatusSelect.value = "";
   const memo = document.getElementById("dialFormMemo");
   if (memo) memo.value = "";
   const msg = document.getElementById("dialFormMessage");
+  if (msg && clearMessage) msg.textContent = "";
+}
+
+function resetSmsFormDefaults(clearMessage = true) {
+  const dt = document.getElementById("smsFormCalledAt");
+  if (dt) dt.value = nowLocalDateTime();
+  syncDialFormCurrentUser();
+  const route = document.getElementById("smsFormRoute");
+  if (route) route.value = "spir";
+  const result = document.getElementById("smsFormResult");
+  if (result) result.value = "返信";
+  updateSmsFormInterviewFieldVisibility(result?.value);
+  if (advisorSelect) advisorSelect.value = "";
+  updateAdvisorPlannedDisplay();
+  const csStatusSelect = document.getElementById("smsFormCsStatus");
+  if (csStatusSelect) csStatusSelect.value = "";
+  const memo = document.getElementById("smsFormMemo");
+  if (memo) memo.value = "";
+  const msg = document.getElementById("smsFormMessage");
   if (msg && clearMessage) msg.textContent = "";
 }
 
@@ -4525,6 +5640,7 @@ function resetDialFormDefaults(clearMessage = true) {
 function bindDialForm() {
   const candidateInput = document.getElementById("dialFormCandidateName");
   const resultSelect = document.getElementById("dialFormResult");
+  const advisorSelect = document.getElementById("dialFormAdvisorUserId");
 
   // 名前入力時の自動補完ロジック
   if (candidateInput) {
@@ -4539,6 +5655,19 @@ function bindDialForm() {
         if (hiddenId && foundId) {
           hiddenId.value = foundId;
         }
+        syncDialFormAdvisorSelection({
+          candidateId: foundId ?? hiddenId?.value,
+          candidateName: val
+        });
+
+        // CSステータスの自動セット
+        if (foundId && candidateDetailCache && candidateDetailCache.has(foundId)) {
+          const detail = candidateDetailCache.get(foundId);
+          const csStatusSelect = document.getElementById("dialFormCsStatus");
+          if (csStatusSelect) {
+            csStatusSelect.value = detail.csStatus || "";
+          }
+        }
       })
     );
   }
@@ -4546,6 +5675,48 @@ function bindDialForm() {
   if (resultSelect) {
     resultSelect.addEventListener("change", () => updateInterviewFieldVisibility(resultSelect.value));
     updateInterviewFieldVisibility(resultSelect.value);
+  }
+
+  if (advisorSelect) {
+    advisorSelect.addEventListener("change", () => {
+      updateAdvisorPlannedDisplay();
+      void refreshDialFormAdvisorSchedules();
+    });
+  }
+
+  const advisorCards = document.getElementById("dialFormAdvisorPlannedCards");
+  if (advisorCards) {
+    advisorCards.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-advisor-id]");
+      if (!button) return;
+      const advisorId = button.getAttribute("data-advisor-id");
+      if (!advisorId) return;
+      setDialFormAdvisorSelection(advisorId);
+    });
+  }
+
+  const mineCandidatesList = document.getElementById("dialFormMineCandidatesList");
+  if (mineCandidatesList) {
+    mineCandidatesList.addEventListener("click", (event) => {
+      const button = event.target.closest('[data-action="select-my-candidate"]');
+      if (!button) return;
+      const selectedName = String(button.getAttribute("data-candidate-name") || "").trim();
+      const selectedId = toPositiveInt(button.getAttribute("data-candidate-id"));
+      if (!selectedName) return;
+      if (candidateInput) {
+        candidateInput.value = selectedName;
+      }
+      const hiddenId = document.getElementById("dialFormCandidateId");
+      if (hiddenId && selectedId) {
+        hiddenId.value = String(selectedId);
+      }
+      updateCallNoAndRoute(selectedName);
+      syncDialFormAdvisorSelection({
+        candidateId: selectedId ?? hiddenId?.value,
+        candidateName: selectedName
+      });
+      candidateInput?.focus();
+    });
   }
 
   const submitBtn = document.getElementById("dialFormSubmit");
@@ -4566,9 +5737,11 @@ function bindDialForm() {
 
     const calledAtLocal = document.getElementById("dialFormCalledAt")?.value || nowLocalDateTime();
     const calledAt = localDateTimeToRfc3339(calledAtLocal);
-    const route = document.getElementById("dialFormRoute")?.value || "電話";
+    const route = "電話";
     const result = document.getElementById("dialFormResult")?.value || "通電";
     const interviewAtLocal = document.getElementById("dialFormInterviewAt")?.value || "";
+    const advisorUserIdRaw = document.getElementById("dialFormAdvisorUserId")?.value;
+    const advisorUserIdValue = toPositiveInt(advisorUserIdRaw);
     const needsInterview = shouldRequireInterview(result);
     const employee = resolveDialFormEmployeeName();
     const memo = document.getElementById("dialFormMemo")?.value || "";
@@ -4594,6 +5767,14 @@ function bindDialForm() {
     if (needsInterview && !candidateIdValue) {
       if (msg) msg.textContent = "初回面談日時の登録には候補者を一覧から選択してください";
       return;
+    }
+    if (needsInterview) {
+      const advisorSelect = document.getElementById("dialFormAdvisorUserId");
+      const hasAdvisorOptions = Array.isArray(dialFormAdvisorOptions) && dialFormAdvisorOptions.length > 0;
+      if (advisorSelect && hasAdvisorOptions && !advisorUserIdValue) {
+        if (msg) msg.textContent = "アポ結果が設定の場合は担当アドバイザーを選択してください";
+        return;
+      }
     }
 
     // 3. 担当者ID (callerUserId) の特定
@@ -4665,21 +5846,48 @@ function bindDialForm() {
       teleapoLogData = mergePendingLogs(teleapoLogData);
       annotateCallAttempts(teleapoLogData);
       applyFilters();
-      let interviewUpdateError = "";
+      const postSaveWarnings = [];
+      if (candidateIdValue) {
+        try {
+          await updateCandidateCsOwner(candidateIdValue, callerUserId);
+        } catch (err) {
+          postSaveWarnings.push("担当CSの保存に失敗しました");
+          console.error("candidate cs update error:", err);
+        }
+
+        // CSステータス更新
+        const csStatus = document.getElementById("dialFormCsStatus")?.value;
+        if (csStatus) {
+          try {
+            await updateCandidateCsStatus(candidateIdValue, csStatus);
+          } catch (err) {
+            postSaveWarnings.push("CSステータスの保存に失敗しました");
+            console.error("candidate cs status update error:", err);
+          }
+        }
+      }
       if (needsInterview && candidateIdValue) {
         const interviewAt = localDateTimeToRfc3339(interviewAtLocal);
         try {
-          await updateCandidateFirstInterview(candidateIdValue, interviewAt);
+          await updateCandidateFirstInterview(candidateIdValue, interviewAt, advisorUserIdValue);
         } catch (err) {
-          interviewUpdateError = "（初回面談日時の保存に失敗しました）";
+          postSaveWarnings.push(
+            advisorUserIdValue
+              ? "初回面談日時・担当アドバイザーの保存に失敗しました"
+              : "初回面談日時の保存に失敗しました"
+          );
           console.error("candidate interview update error:", err);
+        }
+        try {
+          await refreshDialFormAdvisorSchedules({ force: true });
+        } catch (refreshError) {
+          console.warn("[teleapo] failed to refresh advisor schedules after save:", refreshError);
         }
       }
       if (msg) {
-        msg.className = `teleapo-form-message text-sm ${interviewUpdateError ? "text-amber-600" : "text-emerald-600"} font-semibold`;
-        msg.textContent = interviewUpdateError
-          ? `架電ログに追加しました${interviewUpdateError}`
-          : "架電ログに追加しました";
+        const warningText = postSaveWarnings.length ? `（${postSaveWarnings.join(" / ")}）` : "";
+        msg.className = `teleapo-form-message text-sm ${warningText ? "text-amber-600" : "text-emerald-600"} font-semibold`;
+        msg.textContent = `架電ログに追加しました${warningText}`;
         setTimeout(() => msg.textContent = "", 3000);
       }
 
@@ -4703,7 +5911,247 @@ function bindDialForm() {
   });
 }
 
-async function updateCandidateFirstInterview(candidateId, interviewDate) {
+function bindSmsForm() {
+  const candidateInput = document.getElementById("smsFormCandidateName");
+  const resultSelect = document.getElementById("smsFormResult");
+  const advisorSelect = document.getElementById("smsFormAdvisorUserId");
+
+  if (candidateInput) {
+    ["change", "blur", "input"].forEach((ev) =>
+      candidateInput.addEventListener(ev, () => {
+        const val = candidateInput.value.trim();
+        const foundId = findCandidateIdByName(val);
+        const hiddenId = document.getElementById("smsFormCandidateId");
+        if (hiddenId) {
+          hiddenId.value = foundId ? String(foundId) : "";
+        }
+        syncSmsFormAdvisorSelection({
+          candidateId: foundId ?? hiddenId?.value,
+          candidateName: val
+        });
+
+        // CSステータスの自動セット
+        if (foundId && candidateDetailCache && candidateDetailCache.has(foundId)) {
+          const detail = candidateDetailCache.get(foundId);
+          const csStatusSelect = document.getElementById("smsFormCsStatus");
+          if (csStatusSelect) {
+            csStatusSelect.value = detail.csStatus || "";
+          }
+        }
+      })
+    );
+  }
+
+  if (resultSelect) {
+    resultSelect.addEventListener("change", () => updateSmsFormInterviewFieldVisibility(resultSelect.value));
+    updateSmsFormInterviewFieldVisibility(resultSelect.value);
+  }
+
+  if (advisorSelect) {
+    advisorSelect.addEventListener("change", () => {
+      updateAdvisorPlannedDisplay();
+      void refreshDialFormAdvisorSchedules();
+    });
+  }
+
+  const advisorCards = document.getElementById("smsFormAdvisorPlannedCards");
+  if (advisorCards) {
+    advisorCards.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-advisor-id]");
+      if (!button) return;
+      const advisorId = button.getAttribute("data-advisor-id");
+      if (!advisorId) return;
+      setSmsFormAdvisorSelection(advisorId);
+    });
+  }
+
+  const submitBtn = document.getElementById("smsFormSubmit");
+  if (!submitBtn) return;
+
+  submitBtn.addEventListener("click", async () => {
+    const msg = document.getElementById("smsFormMessage");
+    if (msg) msg.textContent = "";
+
+    const candidateName = (document.getElementById("smsFormCandidateName")?.value || "").trim();
+    let candidateId = Number(document.getElementById("smsFormCandidateId")?.value);
+    if (!candidateId && candidateName) {
+      candidateId = findCandidateIdByName(candidateName);
+    }
+    const candidateIdValue = Number.isFinite(candidateId) && candidateId > 0 ? candidateId : null;
+
+    const calledAtLocal = document.getElementById("smsFormCalledAt")?.value || nowLocalDateTime();
+    const calledAt = localDateTimeToRfc3339(calledAtLocal);
+    const route = "spir";
+    const result = document.getElementById("smsFormResult")?.value || "返信";
+    const interviewAtLocal = document.getElementById("smsFormInterviewAt")?.value || "";
+    const advisorUserIdRaw = document.getElementById("smsFormAdvisorUserId")?.value;
+    const advisorUserIdValue = toPositiveInt(advisorUserIdRaw);
+    const needsInterview = shouldRequireInterview(result);
+    const employee = resolveDialFormEmployeeName();
+    const memo = document.getElementById("smsFormMemo")?.value || "";
+
+    if (!candidateName) {
+      if (msg) msg.textContent = "候補者名は必須です";
+      return;
+    }
+    if (!calledAt) {
+      if (msg) msg.textContent = "日時は必須です";
+      return;
+    }
+    if (!employee) {
+      if (msg) msg.textContent = "ログインユーザー情報の取得に失敗しました";
+      return;
+    }
+    if (needsInterview && !interviewAtLocal) {
+      if (msg) msg.textContent = "アポ結果が設定の場合は面談設定日を入力してください";
+      return;
+    }
+    if (needsInterview && !candidateIdValue) {
+      if (msg) msg.textContent = "面談設定日の登録には候補者を一覧から選択してください";
+      return;
+    }
+    if (needsInterview) {
+      const hasAdvisorOptions = Array.isArray(dialFormAdvisorOptions) && dialFormAdvisorOptions.length > 0;
+      if (hasAdvisorOptions && !advisorUserIdValue) {
+        if (msg) msg.textContent = "アポ結果が設定の場合は担当アドバイザーを選択してください";
+        return;
+      }
+    }
+
+    let callerUserId = resolveDialFormCallerUserId(employee);
+    if (!callerUserId) {
+      console.warn("社員IDが特定できないため、デモ用ID(1)を使用します");
+      callerUserId = 1;
+    }
+
+    try {
+      const payload = {
+        candidateName,
+        callerUserId,
+        calledAt,
+        route,
+        result,
+        memo
+      };
+      if (candidateIdValue) payload.candidateId = candidateIdValue;
+
+      const res = await fetch(TELEAPO_LOGS_URL, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+
+      let responseJson = null;
+      try {
+        responseJson = await res.json();
+      } catch (e) {
+        responseJson = null;
+      }
+      const responseId =
+        responseJson?.id ??
+        responseJson?.log_id ??
+        responseJson?.logId ??
+        responseJson?.item?.id ??
+        responseJson?.data?.id ??
+        null;
+
+      setLogHighlightTarget({
+        id: responseId,
+        candidateId: candidateIdValue,
+        calledAt,
+        callerUserId,
+        candidateName
+      });
+
+      const pendingLog = buildPendingTeleapoLog({
+        id: responseId,
+        candidateId: candidateIdValue,
+        candidateName,
+        calledAt,
+        employee,
+        route,
+        result,
+        memo,
+        callerUserId
+      });
+      addPendingTeleapoLog(pendingLog);
+      teleapoLogData = mergePendingLogs(teleapoLogData);
+      annotateCallAttempts(teleapoLogData);
+      applyFilters();
+
+      const postSaveWarnings = [];
+      if (candidateIdValue) {
+        try {
+          await updateCandidateCsOwner(candidateIdValue, callerUserId);
+        } catch (err) {
+          postSaveWarnings.push("担当CSの保存に失敗しました");
+          console.error("candidate cs update error:", err);
+        }
+
+        // CSステータス更新
+        const csStatus = document.getElementById("smsFormCsStatus")?.value;
+        if (csStatus) {
+          try {
+            await updateCandidateCsStatus(candidateIdValue, csStatus);
+          } catch (err) {
+            postSaveWarnings.push("CSステータスの保存に失敗しました");
+            console.error("candidate cs status update error:", err);
+          }
+        }
+      }
+      if (needsInterview && candidateIdValue) {
+        const interviewAt = localDateTimeToRfc3339(interviewAtLocal);
+        try {
+          await updateCandidateFirstInterview(candidateIdValue, interviewAt, advisorUserIdValue);
+        } catch (err) {
+          postSaveWarnings.push(
+            advisorUserIdValue
+              ? "面談設定日・担当アドバイザーの保存に失敗しました"
+              : "面談設定日の保存に失敗しました"
+          );
+          console.error("candidate interview update error:", err);
+        }
+        try {
+          await refreshDialFormAdvisorSchedules({ force: true });
+        } catch (refreshError) {
+          console.warn("[teleapo] failed to refresh advisor schedules after sms save:", refreshError);
+        }
+      }
+
+      if (msg) {
+        const warningText = postSaveWarnings.length ? `（${postSaveWarnings.join(" / ")}）` : "";
+        msg.className = `teleapo-form-message text-sm ${warningText ? "text-amber-600" : "text-emerald-600"} font-semibold`;
+        msg.textContent = `SMS連絡ログに追加しました${warningText}`;
+        setTimeout(() => {
+          if (msg.textContent === `SMS連絡ログに追加しました${warningText}`) {
+            msg.textContent = "";
+          }
+        }, 3000);
+      }
+
+      resetSmsFormDefaults(false);
+      const cInput = document.getElementById("smsFormCandidateName");
+      if (cInput) cInput.value = "";
+      const hInput = document.getElementById("smsFormCandidateId");
+      if (hInput) hInput.value = "";
+
+      await loadTeleapoData();
+    } catch (err) {
+      console.error(err);
+      if (msg) {
+        msg.className = "teleapo-form-message text-sm text-red-600 font-semibold";
+        msg.textContent = "保存に失敗しました: " + err.message;
+      }
+    }
+  });
+}
+
+async function updateCandidateFirstInterview(candidateId, interviewDate, advisorUserId = null) {
   const idNum = Number(candidateId);
   if (!Number.isFinite(idNum) || idNum <= 0) return null;
 
@@ -4718,6 +6166,75 @@ async function updateCandidateFirstInterview(candidateId, interviewDate) {
     detailMode: true,
     firstInterviewDate: interviewDate,
     phase: '一次面談設定',
+    updatedAt: new Date().toISOString()
+  };
+  const advisorId = toPositiveInt(advisorUserId);
+  if (advisorId) {
+    body.advisorUserId = advisorId;
+  }
+
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+
+  const updated = await res.json();
+  const normalizedUpdated = normalizeCandidateDetail(updated) || updated;
+  if (candidateDetailCache) {
+    candidateDetailCache.set(idNum, normalizedUpdated);
+  }
+  const masterEntry = findTeleapoCandidate({ candidateId: idNum });
+  if (masterEntry) {
+    const advisorId = toPositiveInt(normalizedUpdated?.advisorUserId ?? normalizedUpdated?.advisor_user_id);
+    const advisorName = String(normalizedUpdated?.advisorName ?? normalizedUpdated?.advisor_name ?? "").trim();
+    if (advisorId) {
+      masterEntry.advisorUserId = advisorId;
+      masterEntry.advisor_user_id = advisorId;
+    }
+    if (advisorName) {
+      masterEntry.advisorName = advisorName;
+      masterEntry.advisor_name = advisorName;
+    }
+  }
+  refreshDialFormAdvisorSelect(teleapoCandidateMaster);
+  syncDialFormAdvisorSelection({
+    candidateId: idNum,
+    candidateName: document.getElementById("dialFormCandidateName")?.value || "",
+    preserveCurrent: true
+  });
+  syncSmsFormAdvisorSelection({
+    candidateId: idNum,
+    candidateName: document.getElementById("smsFormCandidateName")?.value || "",
+    preserveCurrent: true
+  });
+  return normalizedUpdated;
+}
+
+async function updateCandidateCsOwner(candidateId, csUserId) {
+  const idNum = Number(candidateId);
+  if (!Number.isFinite(idNum) || idNum <= 0) return null;
+  const csId = toPositiveInt(csUserId);
+  if (!csId) return null;
+
+  const url = getCandidateDetailApiUrl(idNum);
+  if (!url) return null;
+
+  const session = getSession();
+  const token = session?.token;
+  if (!token) throw new Error("認証トークンがありません");
+
+  const body = {
+    detailMode: true,
+    csUserId: csId,
     updatedAt: new Date().toISOString()
   };
 
@@ -4736,15 +6253,91 @@ async function updateCandidateFirstInterview(candidateId, interviewDate) {
   }
 
   const updated = await res.json();
+  const normalizedUpdated = normalizeCandidateDetail(updated) || updated;
   if (candidateDetailCache) {
-    candidateDetailCache.set(idNum, updated);
+    candidateDetailCache.set(idNum, normalizedUpdated);
   }
-  return updated;
+
+  const masterEntry = findTeleapoCandidate({ candidateId: idNum });
+  if (masterEntry) {
+    const partnerId = toPositiveInt(
+      normalizedUpdated?.partnerUserId ??
+      normalizedUpdated?.partner_user_id ??
+      normalizedUpdated?.csUserId ??
+      normalizedUpdated?.cs_user_id
+    );
+    const partnerName = String(normalizedUpdated?.partnerName ?? normalizedUpdated?.partner_name ?? "").trim();
+    if (partnerId) {
+      masterEntry.partnerUserId = partnerId;
+      masterEntry.partner_user_id = partnerId;
+      masterEntry.csUserId = partnerId;
+      masterEntry.cs_user_id = partnerId;
+    }
+    if (partnerName) {
+      masterEntry.partnerName = partnerName;
+      masterEntry.partner_name = partnerName;
+    }
+  }
+
+  refreshCandidateDatalist();
+  return normalizedUpdated;
+}
+
+async function updateCandidateCsStatus(candidateId, csStatus) {
+  const idNum = Number(candidateId);
+  if (!Number.isFinite(idNum) || idNum <= 0) return null;
+  const status = String(csStatus || "").trim();
+  if (!status) return null;
+
+  const url = getCandidateDetailApiUrl(idNum);
+  if (!url) return null;
+
+  const session = getSession();
+  const token = session?.token;
+  if (!token) throw new Error("認証トークンがありません");
+
+  const body = {
+    detailMode: true,
+    csStatus: status,
+    updatedAt: new Date().toISOString()
+  };
+
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+
+  const updated = await res.json();
+  const normalizedUpdated = normalizeCandidateDetail(updated) || updated;
+  if (candidateDetailCache) {
+    candidateDetailCache.set(idNum, normalizedUpdated);
+  }
+  return normalizedUpdated;
 }
 
 function initDialForm() {
   syncDialFormCurrentUser();
   resetDialFormDefaults();
   refreshCandidateDatalist();
+  refreshDialFormAdvisorSelect(teleapoCandidateMaster);
+  updateInterviewFieldVisibility(document.getElementById("dialFormResult")?.value);
   bindDialForm();
+}
+
+function initSmsForm() {
+  syncDialFormCurrentUser();
+  resetSmsFormDefaults();
+  refreshCandidateDatalist();
+  refreshDialFormAdvisorSelect(teleapoCandidateMaster);
+  updateSmsFormInterviewFieldVisibility(document.getElementById("smsFormResult")?.value);
+  bindSmsForm();
 }

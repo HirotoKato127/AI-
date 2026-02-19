@@ -590,7 +590,7 @@
           <div class="teleapo-kpi-breakdown">
             <div class="teleapo-kpi-breakdown-item"><span>架電</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiContactRateTel">-</span></div>
-            <div class="teleapo-kpi-breakdown-item"><span>その他</span><span class="teleapo-kpi-breakdown-value"
+            <div class="teleapo-kpi-breakdown-item"><span>spir</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiContactRateOther">-</span></div>
           </div>
         </div>
@@ -600,7 +600,7 @@
           <div class="teleapo-kpi-breakdown">
             <div class="teleapo-kpi-breakdown-item"><span>架電</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiSetRateTel">-</span></div>
-            <div class="teleapo-kpi-breakdown-item"><span>その他</span><span class="teleapo-kpi-breakdown-value"
+            <div class="teleapo-kpi-breakdown-item"><span>spir</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiSetRateOther">-</span></div>
           </div>
         </div>
@@ -610,7 +610,7 @@
           <div class="teleapo-kpi-breakdown">
             <div class="teleapo-kpi-breakdown-item"><span>架電</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiShowRateTel">-</span></div>
-            <div class="teleapo-kpi-breakdown-item"><span>その他</span><span class="teleapo-kpi-breakdown-value"
+            <div class="teleapo-kpi-breakdown-item"><span>spir</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiShowRateOther">-</span></div>
           </div>
         </div>
@@ -621,7 +621,7 @@
         <div class="teleapo-kpi-card">
           <div class="teleapo-kpi-label">架電数（架電ルート）</div>
           <div class="teleapo-kpi-value" id="teleapoKpiDialsTel">0</div>
-          <p class="text-xs text-slate-500 mt-2">その他ルートには架電は含まれません</p>
+          <p class="text-xs text-slate-500 mt-2">spirルートには架電は含まれません</p>
         </div>
         <div class="teleapo-kpi-card">
           <div class="teleapo-kpi-label">接触数（全体）</div>
@@ -629,7 +629,7 @@
           <div class="teleapo-kpi-breakdown">
             <div class="teleapo-kpi-breakdown-item"><span>架電</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiContactsTel">0</span></div>
-            <div class="teleapo-kpi-breakdown-item"><span>その他</span><span class="teleapo-kpi-breakdown-value"
+            <div class="teleapo-kpi-breakdown-item"><span>spir</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiContactsOther">0</span></div>
           </div>
         </div>
@@ -639,7 +639,7 @@
           <div class="teleapo-kpi-breakdown">
             <div class="teleapo-kpi-breakdown-item"><span>架電</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiSetsTel">0</span></div>
-            <div class="teleapo-kpi-breakdown-item"><span>その他</span><span class="teleapo-kpi-breakdown-value"
+            <div class="teleapo-kpi-breakdown-item"><span>spir</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiSetsOther">0</span></div>
           </div>
         </div>
@@ -649,7 +649,7 @@
           <div class="teleapo-kpi-breakdown">
             <div class="teleapo-kpi-breakdown-item"><span>架電</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiShowsTel">0</span></div>
-            <div class="teleapo-kpi-breakdown-item"><span>その他</span><span class="teleapo-kpi-breakdown-value"
+            <div class="teleapo-kpi-breakdown-item"><span>spir</span><span class="teleapo-kpi-breakdown-value"
                 id="teleapoKpiShowsOther">0</span></div>
           </div>
         </div>
@@ -744,7 +744,8 @@
             <button type="button" class="teleapo-filter-btn" data-analysis-range="6m">直近半年</button>
           </div>
           <span class="teleapo-filter-label" style="margin-left: 16px;">社員</span>
-          <div id="teleapoHeatmapUserToggles" class="teleapo-filter-toggle-group" role="group" aria-label="通電率ヒートマップの対象社員"></div>
+          <div id="teleapoHeatmapUserToggles" class="teleapo-filter-toggle-group" role="group"
+            aria-label="通電率ヒートマップの対象社員"></div>
         </div>
       </div>
       <p id="teleapoAnalysisPeriodLabel" class="text-xs text-slate-500 mb-4"></p>
@@ -815,11 +816,8 @@
         </div>
         <div class="teleapo-form-field">
           <label>経路</label>
-          <select id="dialFormRoute" required>
-            <option value="電話">電話</option>
-            <option value="SMS">SMS</option>
-            <option value="その他">その他</option>
-          </select>
+          <div class="teleapo-form-fixed-value">電話（固定）</div>
+          <input id="dialFormRoute" type="hidden" value="電話" />
         </div>
         <div class="teleapo-form-field">
           <label>架電回数</label>
@@ -830,14 +828,46 @@
           <select id="dialFormResult" required>
             <option value="通電">通電</option>
             <option value="不在">不在</option>
-            <option value="NG">NG</option>
             <option value="設定">設定</option>
-            <option value="SMS送信">SMS送信</option>
           </select>
+        </div>
+        <div id="dialFormMineCandidatesField"
+          class="teleapo-form-field teleapo-form-field-full teleapo-mine-candidates-field hidden">
+          <div id="dialFormMineCandidatesWrap" class="teleapo-mine-candidates hidden">
+            <div class="teleapo-mine-candidates-head">
+              <span class="teleapo-mine-candidates-title">あなたの担当候補者</span>
+              <span id="dialFormMineCandidatesCount" class="teleapo-mine-candidates-count">0件</span>
+            </div>
+            <div id="dialFormMineCandidatesList" class="teleapo-mine-candidates-list"></div>
+          </div>
         </div>
         <div class="teleapo-form-field hidden" id="dialFormInterviewField">
           <label>初回面談日時</label>
           <input id="dialFormInterviewAt" type="datetime-local" />
+        </div>
+        <div class="teleapo-form-field teleapo-form-field-full hidden" id="dialFormAdvisorField">
+          <label>担当アドバイザー</label>
+          <select id="dialFormAdvisorUserId">
+            <option value="">選択してください</option>
+          </select>
+          <div id="dialFormAdvisorPlannedPanel" class="hidden teleapo-advisor-planned-panel">
+            <div class="teleapo-advisor-planned-header">
+              <div class="teleapo-advisor-planned-title">全アドバイザーの今後の予定</div>
+              <div class="teleapo-advisor-planned-subtitle">個人成績の「今後の予定」と、マイページの「予定アクション」を表示</div>
+            </div>
+            <div id="dialFormAdvisorPlannedInfo" class="teleapo-advisor-planned-info">一覧から担当アドバイザーを選択してください。</div>
+            <div id="dialFormAdvisorPlannedCards" class="teleapo-advisor-planned-cards"></div>
+          </div>
+        </div>
+        <div class="teleapo-form-field">
+          <label>CSステータス</label>
+          <select id="dialFormCsStatus">
+            <option value="">-</option>
+            <option value="未対応">未対応</option>
+            <option value="対応中">対応中</option>
+            <option value="対応完了">対応完了</option>
+            <option value="対応保留">対応保留</option>
+          </select>
         </div>
         <div class="teleapo-form-field teleapo-form-full">
           <label>メモ</label>
@@ -846,10 +876,86 @@
       </div>
       <input type="hidden" id="dialFormCandidateId" />
       <div class="teleapo-form-actions">
-        <div class="teleapo-form-hint">日時と担当者は自動入力、候補者名を選ぶと架電回数・経路を自動セットします</div>
+        <div class="teleapo-form-hint">日時と担当者は自動入力、経路は電話固定です。候補者名を選ぶと架電回数を自動セットします（アポ結果が設定の場合は全アドバイザー予定を見ながら担当を選択できます）
+        </div>
         <button id="dialFormSubmit" type="button" class="teleapo-form-submit">保存</button>
       </div>
       <p id="dialFormMessage" class="text-sm mt-2"></p>
+    </div>
+
+    <!-- SMS連絡登録 -->
+    <div class="teleapo-section" id="teleapoSmsFormSection">
+      <div class="teleapo-section-header">
+        <div>
+          <h4 class="teleapo-section-title">spir結果登録</h4>
+          <p class="teleapo-section-subtitle">経路はspir固定で登録されます</p>
+        </div>
+      </div>
+      <div class="teleapo-form-grid teleapo-form-grid-sms">
+        <div class="teleapo-form-field">
+          <label>日時</label>
+          <input id="smsFormCalledAt" type="datetime-local" required />
+        </div>
+        <div class="teleapo-form-field">
+          <label>担当者</label>
+          <input id="smsFormEmployee" type="text" readonly />
+        </div>
+        <div class="teleapo-form-field">
+          <label>候補者名</label>
+          <input id="smsFormCandidateName" list="dialFormCandidateList" type="text" required placeholder="候補者名を入力" />
+        </div>
+        <div class="teleapo-form-field">
+          <label>経路</label>
+          <div class="teleapo-form-fixed-value">spir（固定）</div>
+          <input id="smsFormRoute" type="hidden" value="spir" />
+        </div>
+        <div class="teleapo-form-field">
+          <label>アポ結果</label>
+          <select id="smsFormResult" required>
+            <option value="通電">通電</option>
+            <option value="不在">不在</option>
+            <option value="設定">設定</option>
+          </select>
+        </div>
+        <div class="teleapo-form-field hidden" id="smsFormInterviewField">
+          <label>面談設定日</label>
+          <input id="smsFormInterviewAt" type="datetime-local" />
+        </div>
+        <div class="teleapo-form-field teleapo-form-field-full hidden" id="smsFormAdvisorField">
+          <label>担当アドバイザー</label>
+          <select id="smsFormAdvisorUserId">
+            <option value="">選択してください</option>
+          </select>
+          <div id="smsFormAdvisorPlannedPanel" class="hidden teleapo-advisor-planned-panel">
+            <div class="teleapo-advisor-planned-header">
+              <div class="teleapo-advisor-planned-title">全アドバイザーの今後の予定</div>
+              <div class="teleapo-advisor-planned-subtitle">個人成績の「今後の予定」と、マイページの「予定アクション」を表示</div>
+            </div>
+            <div id="smsFormAdvisorPlannedInfo" class="teleapo-advisor-planned-info">一覧から担当アドバイザーを選択してください。</div>
+            <div id="smsFormAdvisorPlannedCards" class="teleapo-advisor-planned-cards"></div>
+          </div>
+        </div>
+        <div class="teleapo-form-field">
+          <label>CSステータス</label>
+          <select id="smsFormCsStatus">
+            <option value="">-</option>
+            <option value="未対応">未対応</option>
+            <option value="対応中">対応中</option>
+            <option value="対応完了">対応完了</option>
+            <option value="対応保留">対応保留</option>
+          </select>
+        </div>
+        <div class="teleapo-form-field teleapo-form-full">
+          <label>メモ</label>
+          <textarea id="smsFormMemo" rows="2" placeholder="メモを入力"></textarea>
+        </div>
+      </div>
+      <input type="hidden" id="smsFormCandidateId" />
+      <div class="teleapo-form-actions">
+        <div class="teleapo-form-hint">日時と担当者は自動入力、経路はその他固定です（アポ結果が設定の場合は全アドバイザー予定を見ながら担当を選択できます）</div>
+        <button id="smsFormSubmit" type="button" class="teleapo-form-submit teleapo-form-submit-sms">保存</button>
+      </div>
+      <p id="smsFormMessage" class="text-sm mt-2"></p>
     </div>
 
     <!-- CSタスク管理（折りたたみ） -->
@@ -928,21 +1034,12 @@
             <span class="teleapo-filter-label">担当者</span>
             <select id="teleapoLogEmployeeFilter" class="teleapo-filter-input">
               <option value="">全員</option>
-              <option value="佐藤">佐藤</option>
-              <option value="田中">田中</option>
-              <option value="山本">山本</option>
-              <option value="鈴木">鈴木</option>
             </select>
           </div>
           <div class="teleapo-filter-group">
             <span class="teleapo-filter-label">アポ結果</span>
             <select id="teleapoLogResultFilter" class="teleapo-filter-input">
               <option value="">全て</option>
-              <option value="通電">通電</option>
-              <option value="不在">不在</option>
-              <option value="設定">設定</option>
-              <option value="着座">着座</option>
-              <option value="コールバック">コールバック</option>
             </select>
           </div>
           <div class="teleapo-filter-group">
@@ -950,7 +1047,7 @@
             <select id="teleapoLogRouteFilter" class="teleapo-filter-input">
               <option value="">全て</option>
               <option value="tel">架電</option>
-              <option value="other">その他</option>
+              <option value="other">spir</option>
             </select>
           </div>
           <div class="teleapo-filter-group">
@@ -969,8 +1066,9 @@
                 <th data-sort="datetime" style="cursor: pointer;">日時</th>
                 <th data-sort="employee" style="cursor: pointer;">担当者</th>
                 <th data-sort="route" style="cursor: pointer;">経路</th>
-                <th data-sort="target" style="cursor: pointer;">相手</th>
-                <th>電話番号</th>
+                <th class="whitespace-nowrap w-32 sortable" data-sort="target">相手</th>
+                <th class="whitespace-nowrap w-24">CSステータス</th>
+                <th class="whitespace-nowrap w-24">電話番号</th>
                 <th>連絡希望時間帯</th>
                 <th>メールアドレス</th>
                 <th data-sort="result" style="cursor: pointer;">アポ結果</th>
@@ -981,6 +1079,7 @@
             <tbody id="teleapoLogTableBody"></tbody>
           </table>
         </div>
+        <div id="teleapoLogPagination" class="teleapo-log-pagination" aria-label="架電ログページネーション"></div>
         <p id="teleapoLogPeriodLabel" class="text-xs text-slate-500 mt-2"></p>
         <p id="teleapoLogStatus" class="text-xs text-slate-500"></p>
       </div>

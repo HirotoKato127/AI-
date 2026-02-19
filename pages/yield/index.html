@@ -393,6 +393,25 @@
             </label>
           </div>
         </div>
+        <div class="kpi-v2-summary-unified summary-neutral">
+          <div class="kpi-v2-achievement-section">
+            <div class="kpi-v2-label">売上達成率（期間）</div>
+            <div class="kpi-v2-value kpi-v2-value-large" id="personalPeriodAchievementRate"></div>
+            <div class="kpi-v2-progress" aria-hidden="true">
+              <span class="kpi-v2-progress-fill" id="personalPeriodAchievementBar"></span>
+            </div>
+          </div>
+          <div class="kpi-v2-target-section">
+            <div class="kpi-v2-target-row">
+              <span class="kpi-v2-target-label">売上</span>
+              <span class="kpi-v2-target-value kpi-v2-current" id="personalPeriodCurrent"></span>
+            </div>
+            <div class="kpi-v2-target-row">
+              <span class="kpi-v2-target-label">目標</span>
+              <span class="kpi-v2-target-value kpi-v2-target" id="personalPeriodTarget"></span>
+            </div>
+          </div>
+        </div>
         <div class="kpi-v2-grid" data-kpi-type="counts">
           <div class="kpi-v2-card is-neutral is-compact" data-kpi="proposals">
             <div class="kpi-v2-label">新規面談数</div>
@@ -547,11 +566,6 @@
             <label class="kpi-v2-inline-select">
               <span>評価期間</span>
               <select id="personalDailyPeriodSelect"></select>
-            </label>
-            <label class="kpi-v2-inline-select">
-              <span>進捗率</span>
-              <button type="button" class="kpi-v2-inline-toggle" data-ms-rate-toggle data-ms-rate-scope="personalDaily"
-                aria-pressed="false">毎日</button>
             </label>
           </div>
         </div>
@@ -911,6 +925,25 @@
                 <option value="step">前段階から</option>
               </select>
             </label>
+          </div>
+        </div>
+        <div class="kpi-v2-summary-unified summary-neutral">
+          <div class="kpi-v2-achievement-section">
+            <div class="kpi-v2-label">売上達成率（期間）</div>
+            <div class="kpi-v2-value kpi-v2-value-large" id="companyPeriodAchievementRate"></div>
+            <div class="kpi-v2-progress" aria-hidden="true">
+              <span class="kpi-v2-progress-fill" id="companyPeriodAchievementBar"></span>
+            </div>
+          </div>
+          <div class="kpi-v2-target-section">
+            <div class="kpi-v2-target-row">
+              <span class="kpi-v2-target-label">売上</span>
+              <span class="kpi-v2-target-value kpi-v2-current" id="companyPeriodCurrent"></span>
+            </div>
+            <div class="kpi-v2-target-row">
+              <span class="kpi-v2-target-label">目標</span>
+              <span class="kpi-v2-target-value kpi-v2-target" id="companyPeriodTarget"></span>
+            </div>
           </div>
         </div>
         <div class="kpi-v2-grid" data-kpi-type="counts">
@@ -1381,11 +1414,6 @@
             <label class="kpi-v2-inline-select">
               <span>評価期間</span>
               <select id="companyMsPeriodSelect"></select>
-            </label>
-            <label class="kpi-v2-inline-select">
-              <span>進捗率</span>
-              <button type="button" class="kpi-v2-inline-toggle" data-ms-rate-toggle data-ms-rate-scope="companyMs"
-                aria-pressed="false">毎日</button>
             </label>
           </div>
         </div>

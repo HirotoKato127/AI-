@@ -289,6 +289,8 @@ function buildListItem(row, resolvedValid = null) {
 
     csUserId: row.partner_user_id ?? null,
     csName: row.db_partner_name || row.db_cs_name || "",
+    csStatus: row.cs_status ?? "",
+    cs_status: row.cs_status ?? "",
 
     phase: row.stage_current || "未接触",
 
@@ -352,7 +354,7 @@ export const handler = async (event) => {
     client = await pool.connect();
 
     if (view === "masters") {
-      const [sourcesC, sourcesA, companiesC, companiesCl, advisorsRes, phasesRes] = await Promise.all([
+      const [sourcesC, sourcesA, companiesC, companiesCl, advisorsRes, phasesRes, csStatusesRes] = await Promise.all([
         client.query(
           `SELECT DISTINCT COALESCE(apply_route_text, source, '') AS v
            FROM candidates
@@ -390,6 +392,12 @@ export const handler = async (event) => {
            WHERE COALESCE(stage_current, '') <> ''
            ORDER BY v ASC`
         ),
+        client.query(
+          `SELECT DISTINCT COALESCE(cs_status, '') AS v
+           FROM candidates
+           WHERE COALESCE(cs_status, '') <> ''
+           ORDER BY v ASC`
+        ),
       ]);
 
       const phases = ["未接触"].concat(
@@ -404,6 +412,7 @@ export const handler = async (event) => {
           (companiesC.rows || []).map((r) => r.v).concat((companiesCl.rows || []).map((r) => r.v))
         ),
         advisors: uniqSorted((advisorsRes.rows || []).map((r) => r.v)),
+        csStatuses: uniqSorted((csStatusesRes.rows || []).map((r) => r.v)),
         phases,
       });
     }
@@ -539,6 +548,7 @@ export const handler = async (event) => {
           c.advisor_name AS db_advisor_name_text,
           c.partner_name AS db_partner_name_text,
           c.cs_name AS db_cs_name,
+          c.cs_status,
           c.next_action_date,
           c.next_action_note,
           c.advisor_user_id,
@@ -616,6 +626,7 @@ export const handler = async (event) => {
         c.advisor_name AS db_advisor_name_text,
         c.partner_name AS db_partner_name_text,
         c.cs_name AS db_cs_name,
+        c.cs_status,
         c.next_action_date,
         c.next_action_note,
         c.advisor_user_id,

@@ -61,7 +61,7 @@
       </label>
 
       <label class="filter-field">
-        <span>フェーズ</span>
+        <span>選考フェーズ</span>
         <select id="candidatesFilterPhase" class="filter-input">
           <option value="">すべて</option>
         </select>
@@ -96,10 +96,11 @@
       </div>
 
       <div class="overflow-auto table-surface">
-        <table class="table-grid min-w-[1380px]">
+        <table class="table-grid min-w-[1520px]">
           <colgroup>
             <col style="width: 160px" />
             <col style="width: 220px" />
+            <col style="width: 160px" />
             <col style="width: 110px" />
             <col style="width: 170px" />
             <col style="width: 160px" />
@@ -113,18 +114,19 @@
                 class="sticky top-0 left-0 bg-slate-50 z-[60] cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
                 data-sort-key="registeredAt" style="position: sticky; left: 0; top: 0; z-index: 60;">登録日
               </th>
-              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="phase">フェーズ</th>
+              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="phase">選考フェーズ</th>
+              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="csStatus">CSステータス</th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="source">媒体</th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="validApplication">
                 有効応募</th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="candidateName">
                 求職者名</th>
-              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="nextAction">
-                次回アクション</th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="csName">担当CS
               </th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="advisorName">
                 担当アドバイザー</th>
+              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="nextAction">
+                次回アクション</th>
             </tr>
           </thead>
           <tbody id="candidatesTableBody"></tbody>

@@ -404,6 +404,8 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false, 
         partnerUserId: b.partner_user_id ?? null,
         advisorName: b.advisor_name ?? "",
         partnerName: b.partner_name ?? "",
+        csStatus: b.cs_status ?? "",
+        cs_status: b.cs_status ?? "",
         callerName: b.caller_name ?? "",
         phase,
         phases,
@@ -535,7 +537,8 @@ export const handler = async (event) => {
               contact_preferred_time = COALESCE($37, contact_preferred_time),
               remarks = COALESCE($38, remarks),
               apply_job_name = COALESCE($39, apply_job_name),
-              future_vision = COALESCE($40, future_vision)
+              future_vision = COALESCE($40, future_vision),
+              cs_status = COALESCE($41, cs_status)
             WHERE id = $1
           `;
                     const p = [
@@ -556,7 +559,8 @@ export const handler = async (event) => {
                         emptyToNull(payload.contactPreferredTime),
                         emptyToNull(payload.remarks || payload.applicationNote),
                         emptyToNull(payload.applyJobName),
-                        emptyToNull(payload.futureVision ?? payload.jobChangeMotivation)
+                        emptyToNull(payload.futureVision ?? payload.jobChangeMotivation),
+                        emptyToNull(payload.csStatus ?? payload.cs_status)
                     ];
                     await client.query(updateSql, p);
 
@@ -766,6 +770,31 @@ export const handler = async (event) => {
                         }
                     }
 
+                } else {
+                    const hasValidApplication = typeof payload.validApplication === "boolean";
+                    const hasCsStatus = Object.prototype.hasOwnProperty.call(payload, "csStatus")
+                        || Object.prototype.hasOwnProperty.call(payload, "cs_status");
+
+                    if (hasValidApplication || hasCsStatus) {
+                        const updates = ["updated_at = NOW()"];
+                        const values = [candidateId];
+                        let paramIndex = 2;
+
+                        if (hasValidApplication) {
+                            updates.push(`is_effective_application = $${paramIndex++}`);
+                            values.push(payload.validApplication);
+                            resolvedValidApplication = payload.validApplication;
+                        }
+                        if (hasCsStatus) {
+                            updates.push(`cs_status = $${paramIndex++}`);
+                            values.push(emptyToNull(payload.csStatus ?? payload.cs_status));
+                        }
+
+                        await client.query(
+                            `UPDATE candidates SET ${updates.join(", ")} WHERE id = $1`,
+                            values
+                        );
+                    }
                 }
 
                 const screeningRules = await loadScreeningRules(client);

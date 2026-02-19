@@ -1,0 +1,2 @@
+ALTER TABLE candidates
+ADD COLUMN IF NOT EXISTS cs_status TEXT;

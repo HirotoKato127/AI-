@@ -10,6 +10,71 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+let clientsNameUniqRelaxed = false;
+
+async function ensureClientsNameAllowsDuplicates(client, { force = false } = {}) {
+  if (clientsNameUniqRelaxed && !force) return;
+
+  await client.query(`
+DO $$
+DECLARE
+  c RECORD;
+BEGIN
+  -- Drop unique constraints that make clients.name unique.
+  FOR c IN
+    SELECT con.conname
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+    WHERE nsp.nspname = 'public'
+      AND rel.relname = 'clients'
+      AND con.contype = 'u'
+      AND pg_get_constraintdef(con.oid) ~* 'UNIQUE \\(name\\)'
+  LOOP
+    EXECUTE format('ALTER TABLE public.clients DROP CONSTRAINT IF EXISTS %I', c.conname);
+  END LOOP;
+
+  -- Drop unique indexes on name / lower(name) if they exist.
+  FOR c IN
+    SELECT cls.relname AS index_name
+    FROM pg_index idx
+    JOIN pg_class tbl ON tbl.oid = idx.indrelid
+    JOIN pg_namespace nsp ON nsp.oid = tbl.relnamespace
+    JOIN pg_class cls ON cls.oid = idx.indexrelid
+    WHERE nsp.nspname = 'public'
+      AND tbl.relname = 'clients'
+      AND idx.indisunique = true
+      AND idx.indisprimary = false
+      AND (
+        pg_get_indexdef(idx.indexrelid) ~* '\\(name\\)'
+        OR pg_get_indexdef(idx.indexrelid) ~* 'lower\\(\\(?name\\)?\\)'
+      )
+  LOOP
+    EXECUTE format('DROP INDEX IF EXISTS public.%I', c.index_name);
+  END LOOP;
+END $$;
+  `);
+
+  clientsNameUniqRelaxed = true;
+}
+
+async function queryWithClientsNameRetry(client, query, values) {
+  try {
+    return await client.query(query, values);
+  } catch (err) {
+    const isUniqueViolation = err?.code === '23505';
+    const msg = String(err?.message || '');
+    const nameUniqueLike =
+      /clients.*name/i.test(msg) ||
+      /clients_name/i.test(msg) ||
+      /name_key/i.test(msg);
+    if (!isUniqueViolation || !nameUniqueLike) throw err;
+
+    await ensureClientsNameAllowsDuplicates(client, { force: true });
+    return client.query(query, values);
+  }
+}
+
 export const handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -121,7 +186,8 @@ export const handler = async (event) => {
         RETURNING *;
       `;
 
-      const res = await client.query(updateQuery, values);
+      await ensureClientsNameAllowsDuplicates(client);
+      const res = await queryWithClientsNameRetry(client, updateQuery, values);
       
       if (res.rows.length === 0) {
         return { statusCode: 404, headers, body: JSON.stringify({ error: "Client not found" }) };
@@ -181,7 +247,8 @@ export const handler = async (event) => {
       pickValue(['requiredExperience', 'experiences'], 'experiences') ?? null
     ];
 
-    const res = await client.query(insertQuery, insertValues);
+    await ensureClientsNameAllowsDuplicates(client);
+    const res = await queryWithClientsNameRetry(client, insertQuery, insertValues);
     const newItem = res.rows[0];
 
     return {
