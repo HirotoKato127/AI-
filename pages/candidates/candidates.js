@@ -181,6 +181,19 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     candidate.createdAt ??
     null;
   candidate.candidateName = candidate.candidateName ?? candidate.candidate_name ?? candidate.name ?? "";
+  candidate.hasPastApplication =
+    candidate.hasPastApplication ??
+    candidate.has_past_application ??
+    false;
+  candidate.pastApplicationCount = Number(
+    candidate.pastApplicationCount ??
+    candidate.past_application_count ??
+    0
+  ) || 0;
+  candidate.pastApplicationLatestAt =
+    candidate.pastApplicationLatestAt ??
+    candidate.past_application_latest_at ??
+    null;
   candidate.validApplication =
     candidate.validApplication ??
     candidate.valid_application ??
@@ -2082,11 +2095,34 @@ function buildTableRow(candidate) {
       ${renderTextCell(candidate, "source", { readOnly: true })}
 
       ${renderCheckboxCell(candidate, "validApplication", "有効応募")}
-      ${renderTextCell(candidate, "candidateName", { strong: true, readOnly: true })}
+      ${renderCandidateNameCell(candidate)}
       ${renderTextCell(candidate, "csName", { readOnly: true })}
       ${renderTextCell(candidate, "advisorName", { readOnly: true })}
       ${renderNextActionCell(candidate)}
     </tr>
+  `;
+}
+
+function renderCandidateNameCell(candidate) {
+  const name = formatDisplayValue(candidate?.candidateName);
+  const hasPastApplication = Boolean(candidate?.hasPastApplication);
+  const pastCount = Number(candidate?.pastApplicationCount || 0);
+  const latestAt = candidate?.pastApplicationLatestAt ? formatDateTimeJP(candidate.pastApplicationLatestAt) : "";
+  const tooltipParts = ["過去応募あり"];
+  if (pastCount > 0) tooltipParts.push(`過去応募 ${pastCount}件`);
+  if (latestAt && latestAt !== "-") tooltipParts.push(`最新: ${latestAt}`);
+  const tooltip = tooltipParts.join(" / ");
+
+  return `
+    <td>
+      <div class="candidate-name-cell">
+        <span class="font-semibold text-slate-900">${escapeHtml(name)}</span>
+        ${hasPastApplication
+      ? `<span class="candidate-repeat-badge" title="${escapeHtmlAttr(tooltip)}" aria-label="過去応募あり">再</span>`
+      : ""
+    }
+      </div>
+    </td>
   `;
 }
 

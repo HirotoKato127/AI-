@@ -518,6 +518,31 @@ const CS_CHECKLIST_MAP = [
   { key: "dial10", column: "cs_call_attempt10" },
 ];
 
+const DUPLICATE_INDEED_EMAIL_DOMAIN_REGEX_SQL =
+  "^[^@]+@(indeedmail\\.com|indeedemail\\.com)$";
+
+function buildCandidateOrderTimestampSql(alias) {
+  return `COALESCE(${alias}.registered_at, ${alias}.registered_date::timestamptz, ${alias}.created_at, ${alias}.updated_at)`;
+}
+
+function buildCandidateNameKeySql(alias) {
+  return `LOWER(REGEXP_REPLACE(COALESCE(${alias}.candidate_name, ''), '[\\s　]+', '', 'g'))`;
+}
+
+function buildCandidateEmailExactSql(alias) {
+  return `NULLIF(LOWER(TRIM(COALESCE(${alias}.email, ''))), '')`;
+}
+
+function buildCandidateIndeedEmailKeySql(alias) {
+  return `
+    CASE
+      WHEN LOWER(TRIM(COALESCE(${alias}.email, ''))) ~ '${DUPLICATE_INDEED_EMAIL_DOMAIN_REGEX_SQL}'
+      THEN NULLIF(SPLIT_PART(SPLIT_PART(LOWER(TRIM(COALESCE(${alias}.email, ''))), '@', 1), '-', 1), '')
+      ELSE NULL
+    END
+  `;
+}
+
 function getNestedValue(source, path) {
   if (!source || !path) return undefined;
   return path.split(".").reduce((value, segment) => {
@@ -1147,6 +1172,9 @@ function mapCandidate(row, extras = {}) {
     scheduleConfirmedAt: row.schedule_confirmed_at,
     recommendationDate: row.recommendation_date,
     validApplication: row.valid_application,
+    hasPastApplication: Boolean(row.has_past_application),
+    pastApplicationCount: Number(row.past_application_count || 0),
+    pastApplicationLatestAt: row.past_application_latest_at ?? null,
     phoneConnected: row.phone_connected,
     smsSent: row.sms_sent,
     smsConfirmed: row.sms_confirmed ?? detail.smsConfirmed,
@@ -1290,26 +1318,74 @@ app.get("/api/candidates", async (req, res) => {
     const listValues = values.slice();
     listValues.push(limitValue, offsetValue);
 
+    const currentNameKeySql = buildCandidateNameKeySql("c");
+    const currentEmailExactSql = buildCandidateEmailExactSql("c");
+    const currentEmailKeySql = buildCandidateIndeedEmailKeySql("c");
+    const currentOrderTimestampSql = buildCandidateOrderTimestampSql("c");
+    const historyNameKeySql = buildCandidateNameKeySql("h");
+    const historyEmailExactSql = buildCandidateEmailExactSql("h");
+    const historyEmailKeySql = buildCandidateIndeedEmailKeySql("h");
+    const historyOrderTimestampSql = buildCandidateOrderTimestampSql("h");
+
+    const duplicateHistoryWhereSql = `
+      h.id <> c.id
+      AND ${historyNameKeySql} = ${currentNameKeySql}
+      AND (
+        ${historyEmailExactSql} = ${currentEmailExactSql}
+        OR (
+          ${currentEmailKeySql} IS NOT NULL
+          AND ${historyEmailKeySql} = ${currentEmailKeySql}
+        )
+      )
+      AND (
+        ${historyOrderTimestampSql} < ${currentOrderTimestampSql}
+        OR (
+          ${historyOrderTimestampSql} = ${currentOrderTimestampSql}
+          AND h.id < c.id
+        )
+      )
+    `;
+
     const selectSql = `
-      SELECT *
-      FROM candidates
+      SELECT
+        c.*,
+        CASE
+          WHEN (${currentEmailExactSql} IS NULL AND ${currentEmailKeySql} IS NULL) THEN FALSE
+          ELSE EXISTS (
+            SELECT 1
+            FROM candidates h
+            WHERE ${duplicateHistoryWhereSql}
+          )
+        END AS has_past_application,
+        CASE
+          WHEN (${currentEmailExactSql} IS NULL AND ${currentEmailKeySql} IS NULL) THEN 0
+          ELSE (
+            SELECT COUNT(*)
+            FROM candidates h
+            WHERE ${duplicateHistoryWhereSql}
+          )
+        END AS past_application_count,
+        CASE
+          WHEN (${currentEmailExactSql} IS NULL AND ${currentEmailKeySql} IS NULL) THEN NULL
+          ELSE (
+            SELECT MAX(${historyOrderTimestampSql})
+            FROM candidates h
+            WHERE ${duplicateHistoryWhereSql}
+          )
+        END AS past_application_latest_at
+      FROM candidates c
       ${whereSql}
       ORDER BY
-        COALESCE(
-          registered_at,
-          registered_date::timestamptz,
-          created_at,
-          updated_at
-        ) ${orderDirection},
-        registered_date ${orderDirection},
-        id ${orderDirection}
+        ${currentOrderTimestampSql} ${orderDirection},
+        c.registered_date ${orderDirection},
+        c.id ${orderDirection}
       LIMIT $${values.length + 1}
       OFFSET $${values.length + 2}
     `;
 
     const countSql = `
       SELECT COUNT(*) AS total
-      FROM candidates
+      FROM candidates c
       ${whereSql}
     `;
 
