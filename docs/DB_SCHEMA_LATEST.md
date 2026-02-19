@@ -655,6 +655,26 @@
 インデックス:
 - ms_period_targets_pkey: CREATE UNIQUE INDEX ms_period_targets_pkey ON public.ms_period_targets USING btree (id)
 
+### ms_period_setting
+
+用途: 指標ごとのMSの対象月および集計期間（開始日・終了日）を保持。
+
+| カラム | 型 | NULL許可 | デフォルト |
+| --- | --- | --- | --- |
+| id | bigint | NO | nextval('ms_period_setting_id_seq'::regclass) |
+| target_month | text | YES |  |
+| metric_key | text | YES |  |
+| start_date | date | YES |  |
+| end_date | date | YES |  |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+
+主キー: id
+
+インデックス:
+
+- ms_period_setting_pkey: CREATE UNIQUE INDEX ms_period_setting_pkey ON public.ms_period_setting USING btree (id)
+
 ---
 
 ### placements
