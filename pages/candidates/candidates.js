@@ -52,11 +52,33 @@ const filterConfig = [
   { id: "candidatesFilterAdvisor", event: "change" },
   { id: "candidatesFilterValid", event: "change" },
   { id: "candidatesFilterPhase", event: "change" },
+  { id: "candidatesFilterCsStatus", event: "change" },
 ];
 
 const reportStatusOptions = ["LINE報告済み", "個人シート反映済み", "請求書送付済み"];
 const finalResultOptions = ["----", "リリース(転居不可)", "リリース(精神疾患)", "リリース(人柄)", "飛び", "辞退", "承諾"];
 const refundReportOptions = ["LINE報告済み", "企業報告済み"];
+
+// CSステータスの事前定義オプション
+const PREDEFINED_CS_STATUS_OPTIONS = [
+  "34歳以下メール",
+  "34歳以下メール(tech)",
+  "35歳以上メール",
+  "メール送信済",
+  "LINE未追加(日程調整済み)",
+  "LINE追加済み(日程調整未)",
+  "LINE追加済み(日程調整済)",
+  "外国籍メール",
+  "重複",
+  "設定不可",
+  "リリース",
+  "事務",
+  "面談とび",
+  "Spir面談とび",
+  "エンポケ地方",
+  "見込み(A)",
+  "見込み(B)",
+];
 
 const modalHandlers = { closeButton: null, overlay: null, keydown: null };
 
@@ -152,6 +174,7 @@ const contactPreferredTimeCache = new Map();
 const validityHydrationCache = new Map();
 const validityHydrationInFlight = new Set();
 const customCsStatusOptions = new Set();
+const deletedDefaultCsStatuses = new Set();
 const TABLE_DOUBLE_TAP_INTERVAL_MS = 360;
 let activeInlineCsStatusCandidateId = null;
 let lastCsStatusTouchInfo = { candidateId: null, timestamp: 0 };
@@ -186,7 +209,9 @@ function normalizeCsStatusOption(value) {
 
 function rememberCsStatusOption(value) {
   const normalized = normalizeCsStatusOption(value);
-  if (normalized) customCsStatusOptions.add(normalized);
+  if (normalized && !deletedDefaultCsStatuses.has(normalized)) {
+    customCsStatusOptions.add(normalized);
+  }
   return normalized;
 }
 
@@ -199,10 +224,21 @@ function buildCsStatusOptions(selectedValue = "") {
     if (normalized) values.add(normalized);
   };
 
-  (masterCsStatusOptions || []).forEach((value) => append(value));
-  (allCandidates || []).forEach((candidate) => append(candidate?.csStatus ?? candidate?.cs_status));
+  // 事前定義オプションを常に含める（ただし削除されたものは除く）
+  (PREDEFINED_CS_STATUS_OPTIONS || []).forEach((value) => {
+    if (!deletedDefaultCsStatuses.has(value)) append(value);
+  });
+  (masterCsStatusOptions || []).forEach((value) => {
+    if (!deletedDefaultCsStatuses.has(value)) append(value);
+  });
+  (allCandidates || []).forEach((candidate) => {
+    const val = candidate?.csStatus ?? candidate?.cs_status;
+    if (val && !deletedDefaultCsStatuses.has(val)) append(val);
+  });
   customCsStatusOptions.forEach((value) => append(value));
-  append(selected);
+  if (selected && !deletedDefaultCsStatuses.has(selected)) {
+    append(selected);
+  }
 
   const list = Array.from(values.values()).sort((a, b) => a.localeCompare(b, "ja"));
   const options = [{ value: "", label: "未設定" }].concat(
@@ -273,6 +309,12 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     candidate.hearingMemo ??
     candidate.hearing?.memo ??
     candidate.memo ??
+    "";
+  candidate.hearingFreeMemo =
+    candidate.hearingFreeMemo ??
+    candidate.hearing_free_memo ??
+    candidate.hearing?.freeMemo ??
+    candidate.hearing?.free_memo ??
     "";
   candidate.careerMotivation = candidate.careerMotivation ?? candidate.career_motivation ?? "";
   candidate.careerReason = candidate.careerReason ?? candidate.career_reason ?? "";
@@ -958,6 +1000,8 @@ function buildBooleanOptions(value, { trueLabel = "報告済み", falseLabel = "
 // マウント / アンマウント
 // =========================
 export function mount() {
+  loadCsStatusManageState(); // ローカルストレージから削除済みステータス等を復元
+
   initializeCandidatesFilters();
   initializeSortControl();
   initializeTableInteraction();
@@ -1045,6 +1089,9 @@ function initializeCandidatesFilters() {
 
   // フェーズフィルターの初期化（固定値）
   setFilterSelectOptions("candidatesFilterPhase", PHASE_ORDER);
+
+  // CSステータスフィルターの初期化（事前定義オプション）
+  setFilterSelectOptions("candidatesFilterCsStatus", PREDEFINED_CS_STATUS_OPTIONS);
 }
 
 async function loadFilterMasters() {
@@ -1070,6 +1117,13 @@ async function loadFilterMasters() {
       masterCsStatusOptions = buildUniqueValues(csStatuses);
       masterCsStatusOptions.forEach((status) => rememberCsStatusOption(status));
     }
+    // 事前定義オプションを常に追加する
+    PREDEFINED_CS_STATUS_OPTIONS.forEach((status) => rememberCsStatusOption(status));
+    const allCsStatuses = buildUniqueValues([
+      ...PREDEFINED_CS_STATUS_OPTIONS,
+      ...(masterCsStatusOptions || []),
+    ]);
+    setFilterSelectOptions("candidatesFilterCsStatus", allCsStatuses);
 
     if (phases.length) {
       const uniquePhases = buildUniqueValues(phases);
@@ -1098,8 +1152,7 @@ function initializeTableInteraction() {
   const tableBody = document.getElementById("candidatesTableBody");
   if (tableBody) {
     tableBody.addEventListener("click", handleTableClick);
-    tableBody.addEventListener("dblclick", handleTableDoubleClick);
-    tableBody.addEventListener("touchend", handleTableTouchEnd);
+    // ダブルクリック・ダブルタップでのCSステータス編集は廃止
     tableBody.addEventListener("input", handleInlineEdit);
     tableBody.addEventListener("change", handleInlineEdit);
   }
@@ -1397,6 +1450,7 @@ function collectFilters() {
     advisor: getElementValue("candidatesFilterAdvisor"),
     valid: getElementValue("candidatesFilterValid"),
     phase: getElementValue("candidatesFilterPhase"),
+    csStatus: getElementValue("candidatesFilterCsStatus"),
     sortOrder: getElementValue("candidatesSortOrder") || "desc",
   };
 }
@@ -1737,6 +1791,7 @@ function buildCandidatesQuery(filters, { limit = LIST_PAGE_SIZE, offset = 0, vie
   if (filters.endDate) p.set("to", filters.endDate);
   if (filters.source) p.set("source", filters.source);
   if (filters.phase) p.set("phase", filters.phase);
+  if (filters.csStatus) p.set("csStatus", filters.csStatus);
   if (filters.advisor) p.set("advisor", filters.advisor);
   if (filters.name) p.set("name", filters.name);
   if (filters.company) p.set("company", filters.company);
@@ -1840,6 +1895,11 @@ function applyCandidatesFilters(list, filters) {
     if (filters.phase) {
       const phases = getCandidatePhaseList(candidate);
       if (!phases.some((phase) => String(phase) === String(filters.phase))) return false;
+    }
+
+    if (filters.csStatus) {
+      const candidateCs = normalizeCsStatusOption(candidate.csStatus ?? candidate.cs_status ?? "");
+      if (normalizeFilterText(candidateCs) !== normalizeFilterText(filters.csStatus)) return false;
     }
 
     if (startDate || endDate) {
@@ -2438,8 +2498,11 @@ async function handleInlineCsStatusSave(button) {
 
 function renderTextCell(candidate, field, options = {}) {
   const raw = candidate[field] ?? "";
-  if ((field === "csStatus" || field === "cs_status") && !candidatesEditMode && !options.readOnly) {
-    return renderCsStatusDisplayCell(candidate);
+
+  // CSステータスは常にプルダウンで表示して即時変更できるようにする
+  if (field === "csStatus" || field === "cs_status") {
+    const optionsHtml = buildCsStatusOptionsHtml(raw);
+    return `<td class="candidate-cs-status-cell"><select class="table-inline-input candidate-cs-status-select" data-field="csStatus" data-cs-status-select-edit>${optionsHtml}</select></td>`;
   }
 
   if (!candidatesEditMode || options.readOnly) {
@@ -2459,6 +2522,168 @@ function renderTextCell(candidate, field, options = {}) {
 }
 
 // =========================
+// CSステータス管理パネル
+// =========================
+
+// ユーザーが追加したカスタムCSステータスをセッション内で保持するセット（既存のcustomCsStatusOptionsを使用）
+// PREDEFINED_CS_STATUS_OPTIONS は定数として定義済み
+
+function renderCsStatusManageList() {
+  const listEl = document.getElementById("csStatusManageList");
+  if (!listEl) return;
+
+  // 表示するオプション（事前定義 + ユーザー追加）から削除済みのものを除外
+  const activePredefined = PREDEFINED_CS_STATUS_OPTIONS.filter(s => !deletedDefaultCsStatuses.has(s));
+  const activeCustom = Array.from(customCsStatusOptions).filter(s => !deletedDefaultCsStatuses.has(s));
+
+  const allOptions = buildUniqueValues([
+    ...activePredefined,
+    ...activeCustom,
+  ]);
+
+  if (allOptions.length === 0) {
+    listEl.innerHTML = '<span class="cs-status-manage-empty">登録されているステータスはありません</span>';
+    return;
+  }
+
+  listEl.innerHTML = allOptions.map((status) => {
+    return `
+      <span class="cs-status-manage-tag">
+        <span class="cs-status-manage-tag-label">${escapeHtml(status)}</span>
+        <button type="button" class="cs-status-manage-tag-remove" data-cs-status-delete="${escapeHtmlAttr(status)}" title="削除" aria-label="${escapeHtmlAttr(status)}を削除">×</button>
+      </span>
+    `;
+  }).join("");
+}
+
+function toggleCsStatusManagePanel(show) {
+  const panel = document.getElementById("csStatusManagePanel");
+  if (!panel) return;
+
+  if (show) {
+    panel.style.display = "";
+    panel.removeAttribute("aria-hidden");
+    renderCsStatusManageList();
+
+    // 「追加」ボタンのイベントを設定（重複登録防止）
+    const addBtn = document.getElementById("csStatusManageAddBtn");
+    if (addBtn) {
+      addBtn.onclick = handleCsStatusManageAdd;
+    }
+    const input = document.getElementById("csStatusManageInput");
+    if (input) {
+      input.onkeydown = (e) => { if (e.key === "Enter") handleCsStatusManageAdd(); };
+    }
+
+    // 「削除」ボタンのイベントをリストに設定（イベント委譲）
+    const listEl = document.getElementById("csStatusManageList");
+    if (listEl) {
+      listEl.onclick = (e) => {
+        const btn = e.target.closest("[data-cs-status-delete]");
+        if (btn) handleCsStatusManageDelete(btn.dataset.csStatusDelete);
+      };
+    }
+  } else {
+    panel.style.display = "none";
+    panel.setAttribute("aria-hidden", "true");
+    // 入力欄をクリア
+    const input = document.getElementById("csStatusManageInput");
+    if (input) input.value = "";
+  }
+}
+
+function handleCsStatusManageAdd() {
+  const input = document.getElementById("csStatusManageInput");
+  if (!input) return;
+
+  const value = normalizeCsStatusOption(input.value);
+  if (!value) return;
+
+  // 重複チェック
+  const all = buildUniqueValues([...PREDEFINED_CS_STATUS_OPTIONS, ...Array.from(customCsStatusOptions)]);
+  if (all.includes(value)) {
+    alert(`「${value}」は既に登録されています。`);
+    return;
+  }
+
+  customCsStatusOptions.add(value);
+  deletedDefaultCsStatuses.delete(value); // もし削除済みリストにあれば復帰させる
+  rememberCsStatusOption(value);
+  saveCsStatusManageState(); // 保存
+  input.value = "";
+
+  // パネルのリストを再描画
+  renderCsStatusManageList();
+
+  // テーブル全行のCSステータスプルダウンも更新
+  refreshAllCsStatusSelects();
+}
+
+function handleCsStatusManageDelete(status) {
+  if (!status) return;
+  if (!confirm(`「${status}」を削除しますか？\n（現在このステータスが設定されている候補者には影響しません）`)) return;
+
+  if (customCsStatusOptions.has(status)) {
+    customCsStatusOptions.delete(status);
+  }
+  deletedDefaultCsStatuses.add(status);
+  saveCsStatusManageState(); // 保存
+
+  // パネルのリストを再描画
+  renderCsStatusManageList();
+
+  // テーブル全行のCSステータスプルダウンも更新
+  refreshAllCsStatusSelects();
+}
+
+function refreshAllCsStatusSelects() {
+  // テーブル内の全CSステータスselectの選択肢を再構築する
+  const selects = document.querySelectorAll("[data-cs-status-select-edit]");
+  selects.forEach((select) => {
+    const row = select.closest("tr[data-id]");
+    const candidateId = row?.dataset.id;
+    const candidate = candidateId ? findCandidateById(candidateId) : null;
+    const currentValue = candidate?.csStatus ?? select.value ?? "";
+    select.innerHTML = buildCsStatusOptionsHtml(currentValue);
+  });
+
+  // フィルタープルダウンも更新
+  const activePredefined = PREDEFINED_CS_STATUS_OPTIONS.filter(s => !deletedDefaultCsStatuses.has(s));
+  const activeCustom = Array.from(customCsStatusOptions).filter(s => !deletedDefaultCsStatuses.has(s));
+  const allCsStatuses = buildUniqueValues([
+    ...activePredefined,
+    ...activeCustom,
+  ]);
+  setFilterSelectOptions("candidatesFilterCsStatus", allCsStatuses);
+}
+
+// 状態をLocalStorageに保存するヘルパー
+function saveCsStatusManageState() {
+  try {
+    localStorage.setItem('candidates_custom_cs_statuses', JSON.stringify(Array.from(customCsStatusOptions)));
+    localStorage.setItem('candidates_deleted_default_cs_statuses', JSON.stringify(Array.from(deletedDefaultCsStatuses)));
+  } catch (e) {
+    console.warn("Failed to save CS status options to localStorage", e);
+  }
+}
+
+// 状態をLocalStorageから復元するヘルパー
+function loadCsStatusManageState() {
+  try {
+    const savedCustom = localStorage.getItem('candidates_custom_cs_statuses');
+    if (savedCustom) {
+      JSON.parse(savedCustom).forEach(s => customCsStatusOptions.add(s));
+    }
+    const savedDeleted = localStorage.getItem('candidates_deleted_default_cs_statuses');
+    if (savedDeleted) {
+      JSON.parse(savedDeleted).forEach(s => deletedDefaultCsStatuses.add(s));
+    }
+  } catch (e) {
+    console.warn("Failed to load CS status options from localStorage", e);
+  }
+}
+
+// =========================
 // 編集モード（一覧インライン）
 // =========================
 async function toggleCandidatesEditMode() {
@@ -2471,6 +2696,10 @@ async function toggleCandidatesEditMode() {
     button.classList.toggle("is-active", candidatesEditMode);
   }
 
+  // CSステータス管理パネルの表示・非表示を切り替える
+  toggleCsStatusManagePanel(candidatesEditMode);
+
+  // テーブル再描画（他の編集フィールドのため）
   renderCandidatesTable(filteredCandidates);
 
   if (!nextState) {
@@ -2479,8 +2708,6 @@ async function toggleCandidatesEditMode() {
 }
 
 function handleInlineEdit(event) {
-  if (!candidatesEditMode) return;
-
   const control = event.target.closest("[data-field]");
   if (!control) return;
 
@@ -2491,14 +2718,33 @@ function handleInlineEdit(event) {
   if (!candidate) return;
 
   const field = control.dataset.field;
-  candidate[field] = control.type === "checkbox" ? control.checked : control.value;
 
+  // CSステータスはeditModeに関係なく常に即時保存する
   if (field === "csStatus" || field === "cs_status") {
-    const normalized = normalizeCsStatusOption(candidate[field]);
+    const normalized = normalizeCsStatusOption(control.value);
     candidate.csStatus = normalized;
     candidate.cs_status = normalized;
     rememberCsStatusOption(normalized);
+
+    if (event.type === "change") {
+      const selectEl = control;
+      selectEl.disabled = true;
+      saveCandidateRecord(candidate)
+        .catch((err) => {
+          console.error("CSステータスの保存に失敗しました。", err);
+          alert("CSステータスの保存に失敗しました。");
+        })
+        .finally(() => {
+          selectEl.disabled = false;
+        });
+    }
+    return;
   }
+
+  // 以下はeditModeが必要な通常フィールド
+  if (!candidatesEditMode) return;
+
+  candidate[field] = control.type === "checkbox" ? control.checked : control.value;
 
   if (field === "validApplication") {
     candidate.validApplicationComputed = candidate.validApplication;
@@ -2616,80 +2862,21 @@ async function openCandidateById(id) {
   }
 }
 
-function handleTableDoubleClick(event) {
-  if (event.target.closest("[data-cs-status-editor-inline]")) return;
-  const trigger = event.target.closest("[data-cs-status-open], [data-cs-status-cell]");
-  if (!trigger) return;
-
-  const row = trigger.closest("tr[data-id]");
-  if (!row) return;
-
-  event.preventDefault();
-  event.stopPropagation();
-  openInlineCsStatusEditor(row.dataset.id);
+// ダブルクリックによるCSステータス編集は廃止
+// eslint-disable-next-line no-unused-vars
+function handleTableDoubleClick(_event) {
+  // ダブルクリックでのCSステータス編集機能は廃止した。
+  // 「編集」ボタンで編集モードを有効にしてください。
 }
 
-function handleTableTouchEnd(event) {
-  if (event.target.closest("[data-cs-status-editor-inline]")) return;
-  const trigger = event.target.closest("[data-cs-status-open], [data-cs-status-cell]");
-  if (!trigger) return;
-
-  const row = trigger.closest("tr[data-id]");
-  if (!row) return;
-
-  const candidateId = String(row.dataset.id ?? "");
-  const now = Date.now();
-  const isDoubleTap =
-    lastCsStatusTouchInfo.candidateId === candidateId &&
-    (now - lastCsStatusTouchInfo.timestamp) <= TABLE_DOUBLE_TAP_INTERVAL_MS;
-
-  if (isDoubleTap) {
-    event.preventDefault();
-    event.stopPropagation();
-    lastCsStatusTouchInfo = { candidateId: null, timestamp: 0 };
-    openInlineCsStatusEditor(candidateId);
-    return;
-  }
-
-  lastCsStatusTouchInfo = { candidateId, timestamp: now };
+// ダブルタップによるCSステータス編集は廃止
+// eslint-disable-next-line no-unused-vars
+function handleTableTouchEnd(_event) {
+  // ダブルタップでのCSステータス編集機能は廃止した。
+  // 「編集」ボタンで編集モードを有効にしてください。
 }
 
 async function handleTableClick(event) {
-  const addCsStatusButton = event.target.closest("[data-cs-status-add-inline]");
-  if (addCsStatusButton) {
-    event.preventDefault();
-    event.stopPropagation();
-    handleInlineCsStatusOptionAdd(addCsStatusButton);
-    return;
-  }
-
-  const saveCsStatusButton = event.target.closest("[data-cs-status-save-inline]");
-  if (saveCsStatusButton) {
-    event.preventDefault();
-    event.stopPropagation();
-    await handleInlineCsStatusSave(saveCsStatusButton);
-    return;
-  }
-
-  const cancelCsStatusButton = event.target.closest("[data-cs-status-cancel-inline]");
-  if (cancelCsStatusButton) {
-    event.preventDefault();
-    event.stopPropagation();
-    closeInlineCsStatusEditor({ rerenderTable: true });
-    return;
-  }
-
-  if (event.target.closest("[data-cs-status-editor-inline]")) return;
-  if (event.target.closest("[data-cs-status-open], [data-cs-status-cell]")) return;
-
-  if (activeInlineCsStatusCandidateId) {
-    const clickedRow = event.target.closest("tr[data-id]");
-    const clickedId = clickedRow ? String(clickedRow.dataset.id ?? "") : "";
-    if (clickedId === String(activeInlineCsStatusCandidateId)) return;
-    closeInlineCsStatusEditor({ rerenderTable: true });
-    return;
-  }
-
   if (event.target.closest("[data-field]")) return;
 
   const row = event.target.closest("tr[data-id]");
@@ -2822,8 +3009,8 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
   currentDetailCandidateId = String(candidate.id);
 
   const resolvedValid = resolveValidApplication(candidate);
-  const validBadgeClass = resolvedValid ? "status-badge--valid" : "status-badge--invalid";
   const validBadgeText = resolvedValid ? "有効応募" : "無効応募";
+  const validValueClass = resolvedValid ? " summary-status-value--valid" : " summary-status-value--invalid";
 
   // 1. シンプルな戻るボタン (Modal only)
   const showInlineBackButton = Boolean(document.getElementById("candidateDetailModal"));
@@ -2844,15 +3031,29 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
   // 面談実施日・着座確認の値を準備
   const attendanceValue = candidate.attendanceConfirmed ?? false;
   const interviewDate = formatDateJP(candidate.firstInterviewDate) || "-";
+  const phaseDisplay = resolvePhaseDisplay(candidate) || "-";
+  const csStatusDisplay = normalizeCsStatusOption(candidate.csStatus ?? candidate.cs_status ?? "") || "-";
+  const phaseValueClass = phaseDisplay === "-" ? " is-empty" : "";
+  const csStatusValueClass = csStatusDisplay === "-" ? " is-empty" : "";
 
   const summaryCardHtml = `
     <div class="candidate-summary-card">
       <div class="summary-main-row">
         <div class="summary-candidate-info">
           <h2 class="summary-candidate-name">${escapeHtml(candidate.candidateName || "-")}</h2>
-          <div class="summary-badges">
-            ${renderPhaseBadges(candidate)}
-            <span class="status-badge ${validBadgeClass}">${validBadgeText}</span>
+          <div class="summary-status-line">
+            <div class="summary-status-item">
+              <span class="summary-status-label">選考フェーズ</span>
+              <span class="summary-status-value summary-status-value--phase${phaseValueClass}">${escapeHtml(phaseDisplay)}</span>
+            </div>
+            <div class="summary-status-item">
+              <span class="summary-status-label">CSステータス</span>
+              <span class="summary-status-value summary-status-value--cs${csStatusValueClass}">${escapeHtml(csStatusDisplay)}</span>
+            </div>
+            <div class="summary-status-item">
+              <span class="summary-status-label">有効応募可否</span>
+              <span class="summary-status-value${validValueClass}">${escapeHtml(validBadgeText)}</span>
+            </div>
           </div>
         </div>
         <div class="summary-meta-info">
@@ -3085,9 +3286,9 @@ function renderDetailSection(title, body, key, options = {}) {
     `;
 }
 
-function renderDetailSubsection(title, body) {
+function renderDetailSubsection(title, body, className = "") {
   return `
-    <div class="detail-subsection bg-slate-50 rounded-lg p-4">
+    <div class="detail-subsection bg-slate-50 rounded-lg p-4 ${className}">
       <div class="detail-subsection-header">
         <h5>${escapeHtml(title)}</h5>
       </div>
@@ -3096,6 +3297,20 @@ function renderDetailSubsection(title, body) {
       </div>
     </div>
     `;
+}
+
+function renderDetailSubsectionToggle(title, body, { className = "", open = false } = {}) {
+  return `
+    <details class="detail-subsection detail-subsection--toggle ${className}" ${open ? "open" : ""}>
+      <summary class="detail-subsection-header detail-subsection-toggle">
+        <h5>${escapeHtml(title)}</h5>
+        <span class="detail-subsection-toggle-text"></span>
+      </summary>
+      <div class="detail-subsection-body">
+        ${body}
+      </div>
+    </details>
+  `;
 }
 
 function renderStatusPill(label, variant = "muted") {
@@ -3291,8 +3506,8 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
     : {
       id: candidate.id,
       validApplication: resolveValidApplication(candidate),
-      csStatus: emptyToNull(candidate.csStatus ?? candidate.cs_status),
-      cs_status: emptyToNull(candidate.csStatus ?? candidate.cs_status),
+      csStatus: (candidate.csStatus ?? candidate.cs_status) || null,
+      cs_status: (candidate.csStatus ?? candidate.cs_status) || null,
     };
 
   // ★ Lambdaが必須とするフラグ
@@ -3348,9 +3563,12 @@ function buildCandidateDetailPayload(candidate) {
   const remarks = candidate.applicationNote ?? candidate.remarks ?? "";
   const hearingMemo =
     candidate.firstInterviewNote || candidate.hearing?.memo || candidate.hearingMemo || "";
+  const hearingFreeMemo =
+    candidate.hearingFreeMemo || candidate.hearing?.freeMemo || candidate.hearing?.free_memo || "";
   const hearing = {
     ...(candidate.hearing || {}),
     memo: hearingMemo,
+    freeMemo: hearingFreeMemo,
     mandatoryInterviewItems: candidate.mandatoryInterviewItems,
     desiredLocation: candidate.desiredLocation,
     desiredJobType: candidate.desiredJobType,
@@ -3437,8 +3655,8 @@ function buildCandidateDetailPayload(candidate) {
     advisorUserId: candidate.advisorUserId,
     csUserId: candidate.csUserId,
     partnerUserId: candidate.partnerUserId ?? candidate.csUserId ?? null,
-    csStatus: emptyToNull(candidate.csStatus ?? candidate.cs_status),
-    cs_status: emptyToNull(candidate.csStatus ?? candidate.cs_status),
+      csStatus: (candidate.csStatus ?? candidate.cs_status) || null,
+      cs_status: (candidate.csStatus ?? candidate.cs_status) || null,
 
     // その他（後方互換性のため残すものもあるが、Lambdaが使うものだけで良い）
     advisorName: candidate.advisorName,
@@ -3451,6 +3669,7 @@ function buildCandidateDetailPayload(candidate) {
     memoDetail: candidate.memoDetail,
     hearing,
     hearingMemo,
+    hearingFreeMemo,
     meetingPlans: candidate.meetingPlans,
     resumeDocuments: candidate.resumeDocuments,
     selectionProgress: candidate.selectionProgress,
@@ -4255,6 +4474,11 @@ function handleDetailFieldChange(event) {
     candidate.hearing.memo = value;
     candidate.hearingMemo = value;
   }
+  if (fieldPath === "hearingFreeMemo") {
+    candidate.hearing = candidate.hearing || {};
+    candidate.hearing.freeMemo = value;
+    candidate.hearingFreeMemo = value;
+  }
 
   const selectionMatch = fieldPath.match(/^selectionProgress\.(\d+)\./);
   if (selectionMatch) {
@@ -4452,6 +4676,7 @@ function renderApplicantInfoSection(candidate) {
 
 function renderHearingSection(candidate) {
   const attendanceValue = candidate.attendanceConfirmed ?? false;
+  const editing = detailEditState.hearing;
   const confirmationFields = [
     {
       label: "初回面談日時",
@@ -4469,6 +4694,16 @@ function renderHearingSection(candidate) {
       path: "attendanceConfirmed",
       displayFormatter: (v) => (v ? "確認済" : "未"),
       span: 1,
+    },
+  ];
+
+  const hearingFreeFields = [
+    {
+      label: "ヒアリング自由記述欄",
+      value: candidate.hearingFreeMemo || candidate.hearing?.freeMemo || "",
+      input: "textarea",
+      path: "hearingFreeMemo",
+      span: "full",
     },
   ];
 
@@ -4497,10 +4732,10 @@ function renderHearingSection(candidate) {
     },
     { label: "面接希望日", value: candidate.interviewPreferredDate, input: "textarea", path: "interviewPreferredDate", span: "full" },
   ];
-
   return [
-    renderDetailSubsection("面談実施確認", renderDetailGridFields(confirmationFields, "hearing")),
-    renderDetailSubsection("ヒアリング項目", renderDetailGridFields(hearingFields, "hearing")),
+    renderDetailSubsection("面談実施確認", renderDetailGridFields(confirmationFields, "hearing"), "detail-subsection--confirm"),
+    renderDetailSubsection("ヒアリング自由記述欄", renderDetailGridFields(hearingFreeFields, "hearing")),
+    renderDetailSubsectionToggle("ヒアリング項目", renderDetailGridFields(hearingFields, "hearing"), { open: editing }),
   ].join("");
 }
 
@@ -5317,10 +5552,10 @@ function renderNextActionSection(candidate) {
 
 function renderCsSection(candidate) {
   const csSummary = candidate.csSummary || {};
-  const hasSms = Boolean(csSummary.hasSms ?? candidate.smsSent ?? candidate.smsConfirmed);
   const hasConnected = Boolean(csSummary.hasConnected ?? candidate.phoneConnected);
   const callCount = csSummary.callCount ?? candidate.callCount ?? 0;
   const lastConnectedAt = candidate.callDate ?? csSummary.lastConnectedAt ?? null;
+  const csStatusDisplay = normalizeCsStatusOption(candidate.csStatus ?? candidate.cs_status ?? "") || "-";
   const editing = detailEditState.cs;
 
   // 設定日の自動解決: 架電ログから「設定」を含む最新のものを優先する
@@ -5335,7 +5570,7 @@ function renderCsSection(candidate) {
   }
 
   const items = [
-    { label: "SMS送信", html: renderBooleanPill(hasSms, { trueLabel: "送信済", falseLabel: "未送信" }) },
+    { label: "CSステータス", html: `<span class="cs-status-chip${csStatusDisplay === "-" ? " is-empty" : ""}">${escapeHtml(csStatusDisplay)}</span>` },
     { label: "架電回数", value: Number(callCount) > 0 ? `${callCount} 回` : "-" },
     { label: "通電", html: renderBooleanPill(hasConnected, { trueLabel: "通電済", falseLabel: "未通電" }) },
     { label: "通電日", value: formatDateJP(lastConnectedAt) },
@@ -5512,11 +5747,12 @@ function renderDetailGridFields(fields, sectionKey, options = {}) {
       .map((field) => {
         const value = field.value;
         const spanClass = resolveDetailGridSpanClass(field);
+        const sizeClass = field.path === "hearingFreeMemo" ? " detail-grid-item--large" : "";
 
         // 編集モードで編集可能なフィールド
         if (editing && field.path && field.editable !== false) {
           return `
-              <div class="detail-grid-item ${spanClass}">
+              <div class="detail-grid-item ${spanClass}${sizeClass}">
                 <dt>${field.label}</dt>
                 <dd>${renderDetailFieldInput(field, value, sectionKey)}</dd>
               </div>
@@ -5540,7 +5776,7 @@ function renderDetailGridFields(fields, sectionKey, options = {}) {
           : `<span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 opacity-0 group-hover:opacity-100 text-xs">✎</span>`;
 
         return `
-            <div class="detail-grid-item ${spanClass}">
+            <div class="detail-grid-item ${spanClass}${sizeClass}">
               <dt>${field.label}</dt>
               <dd>
                 <div class="${containerClass}" ${isReadOnly ? '' : `data-section-edit="${sectionKey}" title="クリックして編集"`}>
@@ -5576,7 +5812,8 @@ function renderDetailFieldInput(field, value, sectionKey) {
       .join("");
 
   if (field.input === "textarea") {
-    return `<textarea class="detail-inline-input detail-inline-textarea" ${dataset}${valueType}>${escapeHtml(value || "")}</textarea>`;
+    const extraClass = field?.path === "hearingFreeMemo" ? " detail-inline-textarea--large" : "";
+    return `<textarea class="detail-inline-input detail-inline-textarea${extraClass}" ${dataset}${valueType}>${escapeHtml(value || "")}</textarea>`;
   }
   if (field.input === "creatable-select") {
     const placeholder = escapeHtmlAttr(field.placeholder || "新しい選択肢を入力");

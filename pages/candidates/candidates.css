@@ -77,7 +77,7 @@
   border-color: #bbb;
 }
 
-/* 旧スタイル維持（互換性） */
+/* 旧スタイル維持E��互換性�E�E*/
 /* SmartHR Style - Filter Card - Simplified (Transparent) */
 .candidates-filter-card {
   background: transparent;
@@ -599,6 +599,7 @@
 }
 
 @media (max-width: 720px) {
+
   .candidate-cs-status-editor-row,
   .candidate-cs-status-editor-actions {
     flex-wrap: wrap;
@@ -1095,6 +1096,112 @@ body.has-modal-open {
   padding: 1rem;
 }
 
+.detail-subsection--toggle {
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
+  padding: 0.75rem;
+}
+
+.detail-subsection--toggle > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.detail-subsection--toggle > summary::-webkit-details-marker {
+  display: none;
+}
+
+.detail-subsection-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 0.9rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.detail-subsection-toggle::after {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid #64748b;
+  border-bottom: 2px solid #64748b;
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
+.detail-subsection--toggle[open] > .detail-subsection-toggle {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  box-shadow: 0 8px 16px rgba(99, 102, 241, 0.08);
+}
+
+.detail-subsection--toggle[open] > .detail-subsection-toggle::after {
+  transform: rotate(-135deg);
+}
+
+.detail-subsection--toggle .detail-subsection-header h5 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.detail-subsection-toggle-text {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.detail-subsection-toggle-text::before {
+  content: "Show";
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.detail-subsection--toggle[open] .detail-subsection-toggle-text::before {
+  content: "Hide";
+}
+
+.detail-subsection--toggle .detail-subsection-body {
+  padding-top: 0.9rem;
+}
+.detail-subsection--confirm {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+
+.detail-subsection--confirm .detail-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.detail-subsection--confirm .detail-grid-item {
+  padding: 0.85rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.detail-subsection--confirm .detail-grid-item dt {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.detail-subsection--confirm .detail-grid-item dd {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
 .detail-subsection-header h5 {
   margin: 0;
   font-size: 0.8rem;
@@ -1192,14 +1299,14 @@ body.has-modal-open {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  /* 境界線と背景色を明確に白にして、グレー背景から浮かせる */
+  /* 墁E��線と背景色を�E確に白にして、グレー背景から浮かせめE*/
   border: 1px solid #cbd5f5;
   border-radius: 0.5rem;
   padding: 0.5rem;
   background-color: #ffffff;
   color: #0f172a;
   line-height: 1.5;
-  /* 入力フォームと同じ高さを確保 */
+  /* 入力フォームと同じ高さを確俁E*/
   min-height: 2.6rem;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1224,6 +1331,14 @@ body.has-modal-open {
 
 .detail-inline-textarea {
   min-height: 90px;
+}
+
+.detail-inline-textarea--large {
+  min-height: 260px;
+}
+
+.detail-grid-item--large .detail-value {
+  min-height: 220px;
 }
 
 .detail-textarea-grid {
@@ -1315,7 +1430,7 @@ body.has-modal-open {
   white-space: nowrap;
 }
 
-/* FIX: 固定幅（推薦日〜内定後辞退日） */
+/* FIX: 固定幁E��推薦日〜�E定後辞退日�E�E*/
 .detail-table--wide th:nth-child(4),
 .detail-table--wide th:nth-child(5),
 .detail-table--wide th:nth-child(6),
@@ -1352,7 +1467,7 @@ body.has-modal-open {
   white-space: nowrap;
 }
 
-/* 編集用INPUT - 表示用(.detail-value)と見た目を一致させる */
+/* 編雁E��INPUT - 表示用(.detail-value)と見た目を一致させめE*/
 .detail-inline-input {
   width: 100%;
   box-sizing: border-box;
@@ -1576,6 +1691,26 @@ body.has-modal-open {
   color: #0f172a;
 }
 
+.cs-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid #bae6fd;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.cs-status-chip.is-empty {
+  border-color: #e2e8f0;
+  background: #f1f5f9;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
 .detail-checkbox-row {
   display: flex;
   flex-wrap: wrap;
@@ -1684,7 +1819,7 @@ body.has-modal-open {
 
 /* =========================================
    Phase 2026-02: SmartHR-Style Single Page Layout
-   - Tab → Anchor Navigation
+   - Tab ↁEAnchor Navigation
    - Card-based Sections
    - Emoji-Free Professional Design
    ========================================= */
@@ -2199,8 +2334,9 @@ body.has-modal-open {
 
 .candidate-summary-card {
   background: #ffffff;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
   padding: 24px;
   margin-bottom: 24px;
 }
@@ -2208,7 +2344,7 @@ body.has-modal-open {
 .summary-main-row {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 @media (min-width: 768px) {
@@ -2223,13 +2359,89 @@ body.has-modal-open {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  min-width: 0;
 }
 
 .summary-candidate-name {
-  font-size: 20px;
+  font-size: 30px;
   font-weight: 700;
   color: #0f172a;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
   margin: 0;
+}
+
+.summary-status-line {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.summary-status-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f8fbff, #f5f8ff);
+}
+
+.summary-status-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.summary-status-label::after {
+  content: ":";
+}
+
+.summary-status-value {
+  font-size: 14px;
+  color: #0f172a;
+  font-weight: 700;
+  text-align: right;
+}
+
+.summary-status-value--phase {
+  color: #3730a3;
+}
+
+.summary-status-value--cs {
+  color: #0f766e;
+}
+
+.summary-status-value--valid {
+  color: #166534;
+}
+
+.summary-status-value--invalid {
+  color: #b91c1c;
+}
+
+.summary-status-value.is-empty {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+@media (max-width: 767px) {
+  .summary-status-line {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-status-item {
+    padding: 8px 10px;
+  }
+
+  .summary-candidate-name {
+    font-size: 24px;
+  }
 }
 
 .summary-badges {
@@ -2245,24 +2457,30 @@ body.has-modal-open {
   gap: 8px;
   font-size: 12px;
   color: #64748b;
-  min-width: 200px;
+  min-width: 240px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
 }
 
 .summary-meta-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
 }
 
 .summary-meta-item .meta-label {
-  width: 70px;
+  width: auto;
   color: #94a3b8;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .summary-meta-item .meta-value {
   color: #334155;
   font-weight: 600;
+  word-break: break-word;
 }
 
 .summary-divider {
@@ -2272,16 +2490,21 @@ body.has-modal-open {
 }
 
 .summary-meeting-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 32px;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  align-items: stretch;
 }
 
 .summary-meeting-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #ffffff;
 }
 
 .summary-meeting-item .meeting-label {
@@ -2315,4 +2538,121 @@ body.has-modal-open {
 .detail-nav {
   padding: 0 !important;
   /* Reset padding inside wrapper */
+}
+
+/* =========================================
+   CSスチE�Eタス管琁E��ネル
+   ========================================= */
+.cs-status-manage-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.8rem 1.25rem;
+  background: linear-gradient(90deg, #eff6ff, #eef2ff);
+  border: 1px solid #c7d2fe;
+  border-radius: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.cs-status-manage-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.cs-status-manage-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #3730a3;
+  white-space: nowrap;
+}
+
+.cs-status-manage-hint {
+  font-size: 0.78rem;
+  color: #6366f1;
+}
+
+.cs-status-manage-add {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cs-status-manage-add .filter-input {
+  height: 34px;
+  width: auto;
+  min-width: 200px;
+  max-width: 300px;
+  font-size: 0.85rem;
+  padding: 0 12px;
+}
+
+.cs-status-manage-add .table-action-btn {
+  height: 34px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cs-status-manage-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  padding-top: 0.25rem;
+  border-top: 1px solid #c7d2fe;
+}
+
+.cs-status-manage-empty {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.cs-status-manage-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #ffffff;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.78rem;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.cs-status-manage-tag-label {
+  font-weight: 500;
+}
+
+.cs-status-manage-tag-fixed {
+  font-size: 0.65rem;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 0.05rem 0.3rem;
+  font-weight: 600;
+}
+
+.cs-status-manage-tag-remove {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 0.1rem;
+  line-height: 1;
+  transition: color 0.15s;
+  font-weight: 700;
+}
+
+.cs-status-manage-tag-remove:hover {
+  color: #ef4444;
+}
+
+/* CSスチE�Eタスのselectは常時�Eルダウン表示 */
+.candidate-cs-status-cell select.table-inline-input {
+  min-width: 150px;
+  font-size: 0.82rem;
 }

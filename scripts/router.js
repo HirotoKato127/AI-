@@ -5,7 +5,7 @@
 
 import { getSession, hasRole, onAuthChange } from './auth.js';
 import { authRepo } from './api/repositories/auth.js?v=20260120_2';
-import { MODULE_VERSIONS } from './module-versions.js';
+import { MODULE_VERSIONS } from './module-versions.js?v=20260224_13';
 
 const POST_LOGIN_REDIRECT_KEY = 'dashboard.postLoginRedirect';
 
@@ -20,7 +20,7 @@ const routes = {
   candidates: () => import(`../pages/candidates/candidates.js?v=${MODULE_VERSIONS.candidates}`),
   "candidate-detail": () => import(`../pages/candidate-detail/candidate-detail.js?v=${MODULE_VERSIONS.candidateDetail}`),
   "ad-performance": () => import("../pages/ad-performance/ad-performance.js?v=20260322_14"),
-  teleapo: () => import("../pages/teleapo/teleapo.js?v=20260211_02"),
+  teleapo: () => import("../pages/teleapo/teleapo.js?v=20260224_02"),
   referral: () => import("../pages/referral/referral.js?v=20260322_61"),
   settings: () => import("../pages/settings/settings.js?v=20260322_01"),
   "ms-period-settings": () => import("../pages/ms-period-settings/ms-period-settings.js"),
@@ -54,10 +54,10 @@ const pageCSS = {
   "yield-company": "pages/yield/yield.css?v=20260219_33",
   "yield-admin": "pages/yield/yield.css?v=20260219_33",
   mypage: "pages/mypage/mypage.css?v=20260213_01",
-  candidates: "pages/candidates/candidates.css?v=20260322_58",
-  "candidate-detail": "pages/candidate-detail/candidate-detail.css?v=20260322_02",
+  candidates: "pages/candidates/candidates.css?v=20260224_13",
+  "candidate-detail": "pages/candidate-detail/candidate-detail.css?v=20260224_13",
   "ad-performance": "pages/ad-performance/ad-performance.css?v=20260133",
-  teleapo: "pages/teleapo/teleapo.css?v=20260322_2",
+  teleapo: "pages/teleapo/teleapo.css?v=20260224_03",
   referral: "pages/referral/referral.css?v=20260322_49",
   settings: "pages/settings/settings.css?v=20260322_01",
   "ms-period-settings": "pages/ms-period-settings/ms-period-settings.css",
