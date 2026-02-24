@@ -1454,13 +1454,13 @@
 }
 
 [data-page="teleapo"] .teleapo-form-submit.teleapo-form-submit-sms {
-  background-color: #0f766e;
-  border-color: #0f766e;
+  background-color: #4f46e5;
+  border-color: #4f46e5;
 }
 
 [data-page="teleapo"] .teleapo-form-submit.teleapo-form-submit-sms:hover {
-  background-color: #0d5f59;
-  box-shadow: 0 8px 20px rgba(13, 95, 89, 0.18);
+  background-color: #4338ca;
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.15);
 }
 
 [data-page="teleapo"] .teleapo-form-submit:active {

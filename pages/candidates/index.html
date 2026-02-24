@@ -66,10 +66,35 @@
           <option value="">すべて</option>
         </select>
       </label>
+
+      <label class="filter-field">
+        <span>CSステータス</span>
+        <select id="candidatesFilterCsStatus" class="filter-input">
+          <option value="">すべて</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- CSステータス管理パネル（編集ボタンで表示） -->
+    <div id="csStatusManagePanel" class="cs-status-manage-panel" style="display:none;" aria-hidden="true">
+      <div class="cs-status-manage-header">
+        <span class="cs-status-manage-title">▶ CSステータス管理</span>
+        <span class="cs-status-manage-hint">プルダウンに表示するステータスを登録・削除できます</span>
+      </div>
+      <div class="cs-status-manage-add">
+        <input type="text" id="csStatusManageInput" class="filter-input" placeholder="新しいCSステータスを入力">
+        <button type="button" id="csStatusManageAddBtn" class="table-action-btn">
+          + 追加
+        </button>
+      </div>
+      <div id="csStatusManageList" class="cs-status-manage-list">
+        <!-- JSで動的に生成 -->
+      </div>
     </div>
   </div>
 
   <div class="candidates-main-grid">
+
     <div class="candidates-tab-bar">
       <button type="button" class="candidates-tab-btn is-active" data-candidates-tab="calendar">カレンダー</button>
       <button type="button" class="candidates-tab-btn" data-candidates-tab="list">一覧</button>
@@ -115,7 +140,8 @@
                 data-sort-key="registeredAt" style="position: sticky; left: 0; top: 0; z-index: 60;">登録日
               </th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="phase">選考フェーズ</th>
-              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="csStatus">CSステータス</th>
+              <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="csStatus">CSステータス
+              </th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="source">媒体</th>
               <th class="cursor-pointer hover:bg-slate-100 sortable whitespace-nowrap" data-sort-key="validApplication">
                 有効応募</th>

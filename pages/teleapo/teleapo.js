@@ -111,6 +111,27 @@ const ROUTE_TEL = 'tel';
 const ROUTE_OTHER = 'other';
 const TELEAPO_RATE_MODE_CONTACT = 'contact';
 const TELEAPO_RATE_MODE_STEP = 'step';
+const TELEAPO_CS_STATUS_STORAGE_KEY = 'candidates_custom_cs_statuses';
+const TELEAPO_CS_STATUS_DELETED_KEY = 'candidates_deleted_default_cs_statuses';
+const TELEAPO_PREDEFINED_CS_STATUS_OPTIONS = [
+  '34歳以下メール',
+  '34歳以下メール(tech)',
+  '35歳以上メール',
+  'メール送信済',
+  'LINE未追加(日程調整済み)',
+  'LINE追加済み(日程調整未)',
+  'LINE追加済み(日程調整済)',
+  '外国籍メール',
+  '重複',
+  '設定不可',
+  'リリース',
+  '事務',
+  '面談とび',
+  'Spir面談とび',
+  'エンポケ地方',
+  '見込み(A)',
+  '見込み(B)'
+];
 const TELEAPO_API_URL = `${PRIMARY_API_BASE}/teleapo/logs`;
 const TELEAPO_HEATMAP_DAYS = ['月', '火', '水', '木', '金'];
 const TELEAPO_HEATMAP_SLOTS = ['09-11', '11-13', '13-15', '15-17', '17-19'];
@@ -1127,6 +1148,87 @@ function refreshDialFormAdvisorSelect(candidates = teleapoCandidateMaster) {
       advisorIds: dialFormAdvisorOptions.map((item) => item.id)
     });
   }
+}
+
+function normalizeTeleapoCsStatus(value) {
+  return String(value ?? '').trim();
+}
+
+function readTeleapoCsStatusStorage() {
+  const custom = new Set();
+  const deleted = new Set();
+  try {
+    const rawCustom = JSON.parse(localStorage.getItem(TELEAPO_CS_STATUS_STORAGE_KEY) || '[]');
+    if (Array.isArray(rawCustom)) {
+      rawCustom.forEach((value) => {
+        const normalized = normalizeTeleapoCsStatus(value);
+        if (normalized) custom.add(normalized);
+      });
+    }
+  } catch (err) {
+    console.warn('CSステータスのローカルストレージ読み込みに失敗しました', err);
+  }
+
+  try {
+    const rawDeleted = JSON.parse(localStorage.getItem(TELEAPO_CS_STATUS_DELETED_KEY) || '[]');
+    if (Array.isArray(rawDeleted)) {
+      rawDeleted.forEach((value) => {
+        const normalized = normalizeTeleapoCsStatus(value);
+        if (normalized) deleted.add(normalized);
+      });
+    }
+  } catch (err) {
+    console.warn('CSステータス削除一覧の読み込みに失敗しました', err);
+  }
+
+  return { custom, deleted };
+}
+
+function buildTeleapoCsStatusOptions({ candidates = teleapoCandidateMaster, selectedValues = [] } = {}) {
+  const { custom, deleted } = readTeleapoCsStatusStorage();
+  const values = new Set();
+  const append = (value) => {
+    const normalized = normalizeTeleapoCsStatus(value);
+    if (!normalized) return;
+    if (deleted.has(normalized)) return;
+    values.add(normalized);
+  };
+
+  TELEAPO_PREDEFINED_CS_STATUS_OPTIONS.forEach(append);
+  custom.forEach(append);
+  (candidates || []).forEach((candidate) => {
+    append(candidate?.csStatus ?? candidate?.cs_status ?? '');
+  });
+  (selectedValues || []).forEach((value) => {
+    const normalized = normalizeTeleapoCsStatus(value);
+    if (!normalized || deleted.has(normalized)) return;
+    values.add(normalized);
+  });
+
+  return Array.from(values).sort((a, b) => a.localeCompare(b, 'ja'));
+}
+
+function refreshTeleapoCsStatusSelects({ candidates = teleapoCandidateMaster } = {}) {
+  const selectIds = ['dialFormCsStatus', 'smsFormCsStatus'];
+  const selects = selectIds
+    .map((id) => ({ id, element: document.getElementById(id) }))
+    .filter((item) => item.element);
+  if (!selects.length) return;
+
+  const selectedValues = selects.map(({ element }) => String(element.value || '').trim()).filter(Boolean);
+  const options = buildTeleapoCsStatusOptions({ candidates, selectedValues });
+  const optionsHtml = [
+    '<option value="">-</option>',
+    ...options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
+  ].join('');
+
+  selects.forEach(({ element }) => {
+    const previous = String(element.value || '').trim();
+    element.innerHTML = optionsHtml;
+    if (previous && options.includes(previous)) {
+      element.value = previous;
+    }
+  });
 }
 
 function syncDialFormAdvisorSelection({ candidateId, candidateName, preserveCurrent = false } = {}) {
@@ -3244,39 +3346,52 @@ function initRateModeToggle() {
   updateRateModeUI();
 }
 
+function buildAttributionMap(logs) {
+  const map = new Map();
+  // 刟回愜先（一番古い日甆を正とするため、日甆昇順ソート）
+  const sorted = [...logs].sort((a, b) => {
+    const da = a.dt ? a.dt.getTime() : new Date(a.calledAt || 0).getTime();
+    const db = b.dt ? b.dt.getTime() : new Date(b.calledAt || 0).getTime();
+    return da - db;
+  });
+
+  sorted.forEach(log => {
+    const stageKey = getStageCountKey(log); // candidateId等から一意キーを生成
+    if (!stageKey) return;
+    const flags = classifyTeleapoResult(log);
+
+    if (!map.has(stageKey)) {
+      map.set(stageKey, { setLogId: null, showLogId: null });
+    }
+    const rec = map.get(stageKey);
+
+    // まつ「設定」「着座」が記録されていなければ、このログを初回として記錳
+    if (flags.isSet && !rec.setLogId) rec.setLogId = log.id;
+    if (flags.isShow && !rec.showLogId) rec.showLogId = log.id;
+  });
+  return map;
+}
+
 function computeKpi(logs) {
   const tel = { attempts: 0, contacts: 0, contactsPlusSets: 0, sets: 0, shows: 0 };
   const other = { attempts: 0, contacts: 0, contactsPlusSets: 0, sets: 0, shows: 0 };
-  const telSetKeys = new Set();
-  const telShowKeys = new Set();
-  const otherSetKeys = new Set();
-  const otherShowKeys = new Set();
-  const totalSetKeys = new Set();
-  const totalShowKeys = new Set();
+
+  const attrMap = buildAttributionMap(logs);
 
   logs.forEach(log => {
     const isOtherRoute = log.route === ROUTE_OTHER;
     const bucket = isOtherRoute ? other : tel;
     const flags = classifyTeleapoResult(log);
     const stageKey = getStageCountKey(log);
+
     bucket.attempts += 1;
     if (flags.isConnect) bucket.contacts += 1;
     if (flags.isConnectPlusSet) bucket.contactsPlusSets += 1;
-    if (flags.isSet && stageKey) {
-      const targetSet = isOtherRoute ? otherSetKeys : telSetKeys;
-      if (!targetSet.has(stageKey)) {
-        targetSet.add(stageKey);
-        bucket.sets += 1;
-      }
-      totalSetKeys.add(stageKey);
-    }
-    if (flags.isShow && stageKey) {
-      const targetShow = isOtherRoute ? otherShowKeys : telShowKeys;
-      if (!targetShow.has(stageKey)) {
-        targetShow.add(stageKey);
-        bucket.shows += 1;
-      }
-      totalShowKeys.add(stageKey);
+
+    if (stageKey && attrMap.has(stageKey)) {
+      const rec = attrMap.get(stageKey);
+      if (flags.isSet && rec.setLogId === log.id) bucket.sets += 1;
+      if (flags.isShow && rec.showLogId === log.id) bucket.shows += 1;
     }
   });
 
@@ -3284,8 +3399,8 @@ function computeKpi(logs) {
     attempts: tel.attempts + other.attempts,
     contacts: tel.contacts + other.contacts,
     contactsPlusSets: tel.contactsPlusSets + other.contactsPlusSets,
-    sets: totalSetKeys.size,
-    shows: totalShowKeys.size
+    sets: tel.sets + other.sets,
+    shows: tel.shows + other.shows
   };
 
   return { tel, other, total };
@@ -3358,25 +3473,29 @@ function setTextWithRateColor(id, rate, targetKey) {
 }
 
 function computeEmployeeMetrics(logs) {
-  const telLogs = logs.filter(l => l.route === ROUTE_TEL);
   const map = new Map();
-  telLogs.forEach(log => {
+  const attrMap = buildAttributionMap(logs);
+
+  logs.forEach(log => {
     const name = log.employee || '未設定';
+    const isTel = log.route === ROUTE_TEL;
     const flags = classifyTeleapoResult(log);
+    const stageKey = getStageCountKey(log);
+
     if (!map.has(name)) {
-      map.set(name, { dials: 0, connects: 0, sets: 0, shows: 0, _setKeys: new Set(), _showKeys: new Set() });
+      map.set(name, { dials: 0, connects: 0, sets: 0, shows: 0 });
     }
     const rec = map.get(name);
-    const stageKey = getStageCountKey(log);
-    rec.dials += 1;
-    if (flags.isConnect) rec.connects += 1;
-    if (flags.isSet && stageKey && !rec._setKeys.has(stageKey)) {
-      rec._setKeys.add(stageKey);
-      rec.sets += 1;
+
+    if (isTel) {
+      rec.dials += 1;
+      if (flags.isConnect) rec.connects += 1;
     }
-    if (flags.isShow && stageKey && !rec._showKeys.has(stageKey)) {
-      rec._showKeys.add(stageKey);
-      rec.shows += 1;
+
+    if (stageKey && attrMap.has(stageKey)) {
+      const attr = attrMap.get(stageKey);
+      if (flags.isSet && attr.setLogId === log.id) rec.sets += 1;
+      if (flags.isShow && attr.showLogId === log.id) rec.shows += 1;
     }
   });
 
@@ -5127,6 +5246,7 @@ async function loadCandidates() {
     teleapoCandidateMaster = items;
     refreshCandidateDatalist(); // datalist更新
     refreshDialFormAdvisorSelect(teleapoCandidateMaster);
+    refreshTeleapoCsStatusSelects({ candidates: teleapoCandidateMaster });
     syncDialFormAdvisorSelection({
       candidateId: document.getElementById("dialFormCandidateId")?.value,
       candidateName: document.getElementById("dialFormCandidateName")?.value || ""
@@ -5151,6 +5271,7 @@ async function loadCandidates() {
     console.error("候補者一覧の取得に失敗:", e);
     teleapoCandidateMaster = [];
     refreshDialFormAdvisorSelect([]);
+    refreshTeleapoCsStatusSelects({ candidates: [] });
     updateInterviewFieldVisibility(document.getElementById("dialFormResult")?.value);
     updateSmsFormInterviewFieldVisibility(document.getElementById("smsFormResult")?.value);
     renderCsTaskTable([], { error: true });
@@ -5607,6 +5728,7 @@ function resetDialFormDefaults(clearMessage = true) {
   const result = document.getElementById("dialFormResult");
   if (result) result.value = "通電";
   updateInterviewFieldVisibility(result?.value);
+  const advisorSelect = document.getElementById("dialFormAdvisorUserId");
   if (advisorSelect) advisorSelect.value = "";
   updateAdvisorPlannedDisplay();
   const csStatusSelect = document.getElementById("dialFormCsStatus");
@@ -5626,6 +5748,7 @@ function resetSmsFormDefaults(clearMessage = true) {
   const result = document.getElementById("smsFormResult");
   if (result) result.value = "返信";
   updateSmsFormInterviewFieldVisibility(result?.value);
+  const advisorSelect = document.getElementById("smsFormAdvisorUserId");
   if (advisorSelect) advisorSelect.value = "";
   updateAdvisorPlannedDisplay();
   const csStatusSelect = document.getElementById("smsFormCsStatus");
@@ -6329,6 +6452,7 @@ function initDialForm() {
   resetDialFormDefaults();
   refreshCandidateDatalist();
   refreshDialFormAdvisorSelect(teleapoCandidateMaster);
+  refreshTeleapoCsStatusSelects({ candidates: teleapoCandidateMaster });
   updateInterviewFieldVisibility(document.getElementById("dialFormResult")?.value);
   bindDialForm();
 }
@@ -6341,3 +6465,4 @@ function initSmsForm() {
   updateSmsFormInterviewFieldVisibility(document.getElementById("smsFormResult")?.value);
   bindSmsForm();
 }
+
