@@ -40,6 +40,11 @@ const state = {
   selectedPageRatePeriodId: '', // ページ別率目標用
 };
 
+function formatPeriodLabelShort(period) {
+  const raw = period?.label || period?.id || '';
+  return raw.replace(/（.*?）/g, '').replace(/\(.*?\)/g, '').trim();
+}
+
 export async function mount() {
   try {
     await goalSettingsService.load();
@@ -213,7 +218,7 @@ async function handlePersonalDailyPeriodChange(event) {
 
 function renderPeriodSelects() {
   const optionsHtml = state.evaluationPeriods
-    .map(period => `<option value="${period.id}">${goalSettingsService.formatPeriodLabel(period)}</option>`)
+    .map(period => `<option value="${period.id}">${formatPeriodLabelShort(period)}</option>`)
     .join('');
 
   const firstPeriod = state.evaluationPeriods[0];

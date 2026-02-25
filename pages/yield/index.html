@@ -1,4 +1,4 @@
-<!-- KPI v2: 自分の実績サマリー・全体セクション -->
+﻿<!-- KPI v2: 自分の実績サマリー・全体セクション -->
 <section data-kpi="v2" class="kpi-v2-wrapper space-y-6">
   <!-- 自分の実績サマリー -->
   <div class="kpi-v2-section" data-yield-section="personal">
@@ -95,7 +95,7 @@
         </div>
 
         <div class="kpi-v2-grid" data-kpi-type="counts">
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="proposals">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="newInterviews">
             <div class="kpi-v2-label">新規面談数</div>
             <div class="kpi-v2-value" id="personalProposals"></div>
             <div class="kpi-v2-meta">
@@ -115,7 +115,7 @@
         </div>
 
         <div class="kpi-v2-grid" data-kpi-type="counts">
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="recommendations">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="proposals">
             <div class="kpi-v2-label">提案数</div>
             <div class="kpi-v2-value" id="personalRecommendations"></div>
             <div class="kpi-v2-meta">
@@ -132,7 +132,7 @@
               </div>
             </div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsScheduled">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="recommendations">
             <div class="kpi-v2-label">推薦数</div>
             <div class="kpi-v2-value" id="personalInterviewsScheduled"></div>
             <div class="kpi-v2-meta">
@@ -149,7 +149,7 @@
               </div>
             </div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsHeld">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsScheduled">
             <div class="kpi-v2-label">面接設定数</div>
             <div class="kpi-v2-value" id="personalInterviewsHeld"></div>
             <div class="kpi-v2-meta">
@@ -166,7 +166,7 @@
               </div>
             </div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="offers">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsHeld">
             <div class="kpi-v2-label">面接実施数</div>
             <div class="kpi-v2-value" id="personalOffers"></div>
             <div class="kpi-v2-meta">
@@ -369,7 +369,7 @@
             <span class="kpi-v2-date-separator">〜</span>
             <input type="date" id="personalRangeEnd" class="kpi-v2-date-input" />
             <div class="kpi-v2-preset-group">
-              <button type="button" class="period-preset-btn" data-range="1">今月</button>
+              <button type="button" class="period-preset-btn" data-range="current">今月</button>
               <button type="button" class="period-preset-btn" data-range="3m">直近3ヶ月</button>
               <button type="button" class="period-preset-btn" data-range="6m">直近6ヶ月</button>
               <button type="button" class="period-preset-btn" data-range="12m">直近1年</button>
@@ -413,26 +413,26 @@
           </div>
         </div>
         <div class="kpi-v2-grid" data-kpi-type="counts">
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="proposals">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="newInterviews">
             <div class="kpi-v2-label">新規面談数</div>
             <div class="kpi-v2-value" id="periodProposals"></div>
           </div>
         </div>
 
         <div class="kpi-v2-grid" data-kpi-type="counts">
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="recommendations">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="proposals">
             <div class="kpi-v2-label">提案数</div>
             <div class="kpi-v2-value" id="periodRecommendations"></div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsScheduled">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="recommendations">
             <div class="kpi-v2-label">推薦数</div>
             <div class="kpi-v2-value" id="periodInterviewsScheduled"></div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsHeld">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsScheduled">
             <div class="kpi-v2-label">面接設定数</div>
             <div class="kpi-v2-value" id="periodInterviewsHeld"></div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="offers">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsHeld">
             <div class="kpi-v2-label">面接実施数</div>
             <div class="kpi-v2-value" id="periodOffers"></div>
           </div>
@@ -553,6 +553,54 @@
                 <canvas id="personalAgeChart" aria-label="個人年齢推移グラフ"></canvas>
               </div>
             </div>
+
+            <div class="dashboard-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="dashboard-card-title">他社選考状況</p>
+                  <p class="dashboard-card-subtext">候補者の他社選考状況</p>
+                </div>
+              </div>
+              <div class="dashboard-chart" style="height: 220px;">
+                <canvas id="personalOtherSelectionChart" aria-label="個人他社選考状況"></canvas>
+              </div>
+            </div>
+
+            <div class="dashboard-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="dashboard-card-title">都道府県別</p>
+                  <p class="dashboard-card-subtext">候補者住所の分布</p>
+                </div>
+              </div>
+              <div class="dashboard-chart" style="height: 220px;">
+                <canvas id="personalPrefectureChart" aria-label="個人住所都道府県"></canvas>
+              </div>
+            </div>
+
+            <div class="dashboard-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="dashboard-card-title">持病の有無</p>
+                  <p class="dashboard-card-subtext">候補者の持病有無</p>
+                </div>
+              </div>
+              <div class="dashboard-chart" style="height: 220px;">
+                <canvas id="personalChronicChart" aria-label="個人持病の有無"></canvas>
+              </div>
+            </div>
+
+            <div class="dashboard-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="dashboard-card-title">人物懸念の有無</p>
+                  <p class="dashboard-card-subtext">人物懸念の有無</p>
+                </div>
+              </div>
+              <div class="dashboard-chart" style="height: 220px;">
+                <canvas id="personalConcernChart" aria-label="個人人物懸念の有無"></canvas>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -571,7 +619,7 @@
         </div>
         <div class="kpi-v2-employee-table-wrapper table-white table-surface">
           <div class="kpi-v2-scroll-area">
-            <table class="kpi-v2-employee-table kpi-v2-daily-table">
+            <table class="kpi-v2-employee-table kpi-v2-daily-table kpi-v2-daily-ms-table">
               <thead>
                 <tr id="personalDailyHeaderRow"></tr>
               </thead>
@@ -645,9 +693,8 @@
           </div>
         </div>
 
-        <!-- 全体 7KPI 数の行 -->
         <div class="kpi-v2-grid" data-kpi-type="counts">
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="proposals">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="newInterviews">
             <div class="kpi-v2-label">新規面談数</div>
             <div class="kpi-v2-value" id="companyProposals"></div>
             <div class="kpi-v2-meta">
@@ -664,7 +711,11 @@
               </div>
             </div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="recommendations">
+        </div>
+
+        <!-- 全体 7KPI 数の行 -->
+        <div class="kpi-v2-grid" data-kpi-type="counts">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="proposals">
             <div class="kpi-v2-label">提案数</div>
             <div class="kpi-v2-value" id="companyRecommendations"></div>
             <div class="kpi-v2-meta">
@@ -681,7 +732,7 @@
               </div>
             </div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsScheduled">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="recommendations">
             <div class="kpi-v2-label">推薦数</div>
             <div class="kpi-v2-value" id="companyInterviewsScheduled"></div>
             <div class="kpi-v2-meta">
@@ -698,7 +749,7 @@
               </div>
             </div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsHeld">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsScheduled">
             <div class="kpi-v2-label">面接設定数</div>
             <div class="kpi-v2-value" id="companyInterviewsHeld"></div>
             <div class="kpi-v2-meta">
@@ -715,7 +766,7 @@
               </div>
             </div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="offers">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsHeld">
             <div class="kpi-v2-label">面接実施数</div>
             <div class="kpi-v2-value" id="companyOffers"></div>
             <div class="kpi-v2-meta">
@@ -732,7 +783,7 @@
               </div>
             </div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="accepts">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="offers">
             <div class="kpi-v2-label">内定数</div>
             <div class="kpi-v2-value" id="companyAccepts"></div>
             <div class="kpi-v2-meta">
@@ -760,6 +811,23 @@
               <div class="kpi-v2-achievement-row">
                 <span class="kpi-v2-achv-label">達成率</span>
                 <span class="kpi-v2-achv-rate" data-ref="companyAchv-accepts"></span>
+                <div class="kpi-v2-achv-bar">
+                  <div class="kpi-v2-achv-bar-fill"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="hires">
+            <div class="kpi-v2-label">入社決定数</div>
+            <div class="kpi-v2-value" id="companyHireCount"></div>
+            <div class="kpi-v2-meta">
+              <div class="kpi-v2-goal-row">
+                <span class="kpi-v2-goal-label">目標</span>
+                <span class="kpi-v2-goal-value" data-ref="companyGoal-hires"></span>
+              </div>
+              <div class="kpi-v2-achievement-row">
+                <span class="kpi-v2-achv-label">達成率</span>
+                <span class="kpi-v2-achv-rate" data-ref="companyAchv-hires"></span>
                 <div class="kpi-v2-achv-bar">
                   <div class="kpi-v2-achv-bar-fill"></div>
                 </div>
@@ -903,7 +971,7 @@
             <span class="kpi-v2-date-separator">〜</span>
             <input type="date" id="companyPeriodEnd" class="kpi-v2-date-input" />
             <div class="kpi-v2-preset-group">
-              <button type="button" class="period-preset-btn company" data-range="1">今月</button>
+              <button type="button" class="period-preset-btn company" data-range="current">今月</button>
               <button type="button" class="period-preset-btn company" data-range="3m">直近3ヶ月</button>
               <button type="button" class="period-preset-btn company" data-range="6m">直近6ヶ月</button>
               <button type="button" class="period-preset-btn company" data-range="12m">直近1年</button>
@@ -947,33 +1015,39 @@
           </div>
         </div>
         <div class="kpi-v2-grid" data-kpi-type="counts">
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="proposals">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="newInterviews">
             <div class="kpi-v2-label">新規面談数</div>
             <div class="kpi-v2-value" id="companyPeriodProposals"></div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="recommendations">
+        </div>
+        <div class="kpi-v2-grid" data-kpi-type="counts">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="proposals">
             <div class="kpi-v2-label">提案数</div>
             <div class="kpi-v2-value" id="companyPeriodRecommendations"></div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsScheduled">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="recommendations">
             <div class="kpi-v2-label">推薦数</div>
             <div class="kpi-v2-value" id="companyPeriodInterviewsScheduled"></div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsHeld">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsScheduled">
             <div class="kpi-v2-label">面接設定数</div>
             <div class="kpi-v2-value" id="companyPeriodInterviewsHeld"></div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="offers">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="interviewsHeld">
             <div class="kpi-v2-label">面接実施数</div>
             <div class="kpi-v2-value" id="companyPeriodOffers"></div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="accepts">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="offers">
             <div class="kpi-v2-label">内定数</div>
             <div class="kpi-v2-value" id="companyPeriodAccepts"></div>
           </div>
-          <div class="kpi-v2-card is-neutral is-compact" data-kpi="hires">
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="accepts">
             <div class="kpi-v2-label">承諾数</div>
             <div class="kpi-v2-value" id="companyPeriodHires"></div>
+          </div>
+          <div class="kpi-v2-card is-neutral is-compact" data-kpi="hires">
+            <div class="kpi-v2-label">入社決定数</div>
+            <div class="kpi-v2-value" id="companyPeriodHireCount"></div>
           </div>
         </div>
         <div class="kpi-v2-grid" data-kpi-type="rates">
@@ -1118,6 +1192,54 @@
               </div>
               <div class="dashboard-chart" style="height: 220px;">
                 <canvas id="companyAgeChart" aria-label="社内年齢"></canvas>
+              </div>
+            </div>
+
+            <div class="dashboard-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="dashboard-card-title">他社選考状況（全社）</p>
+                  <p class="dashboard-card-subtext">候補者の他社選考状況</p>
+                </div>
+              </div>
+              <div class="dashboard-chart" style="height: 220px;">
+                <canvas id="companyOtherSelectionChart" aria-label="社内他社選考状況"></canvas>
+              </div>
+            </div>
+
+            <div class="dashboard-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="dashboard-card-title">都道府県別（全社）</p>
+                  <p class="dashboard-card-subtext">候補者住所の分布</p>
+                </div>
+              </div>
+              <div class="dashboard-chart" style="height: 220px;">
+                <canvas id="companyPrefectureChart" aria-label="社内住所都道府県"></canvas>
+              </div>
+            </div>
+
+            <div class="dashboard-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="dashboard-card-title">持病の有無（全社）</p>
+                  <p class="dashboard-card-subtext">候補者の持病有無</p>
+                </div>
+              </div>
+              <div class="dashboard-chart" style="height: 220px;">
+                <canvas id="companyChronicChart" aria-label="社内持病の有無"></canvas>
+              </div>
+            </div>
+
+            <div class="dashboard-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="dashboard-card-title">人物懸念の有無（全社）</p>
+                  <p class="dashboard-card-subtext">人物懸念の有無</p>
+                </div>
+              </div>
+              <div class="dashboard-chart" style="height: 220px;">
+                <canvas id="companyConcernChart" aria-label="社内人物懸念の有無"></canvas>
               </div>
             </div>
           </div>
@@ -1353,7 +1475,7 @@
               <option value="hireRate-desc">入社決定率（降順）</option>
             </select>
             <div class="kpi-v2-preset-group" id="employeePeriodPresets">
-              <button type="button" class="period-preset-btn employee" data-range="1">今月</button>
+              <button type="button" class="period-preset-btn employee" data-range="current">今月</button>
               <button type="button" class="period-preset-btn employee" data-range="3">直近3ヶ月</button>
               <button type="button" class="period-preset-btn employee" data-range="6">直近6ヶ月</button>
               <button type="button" class="period-preset-btn employee" data-range="12">直近1年</button>
@@ -1484,3 +1606,4 @@
     </div>
 
   </div>
+

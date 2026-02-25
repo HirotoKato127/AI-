@@ -1,0 +1,41 @@
+{
+  "normalizeRange": [
+    "  );",
+    "  const isUncontacted = teleapoSummary",
+    "    ? !(teleapoSummary.hasConnected || teleapoSummary.hasSms || teleapoSummary.callCount > 0)",
+    "    : (phaseList.includes(\"未接触\") || phaseText === \"未接触\");",
+    "",
+    "  return {",
+    "    candidateId,",
+    "    candidateName,",
+    "    phaseText,",
+    "    validApplication,",
+    "    registeredAt,",
+    "    phone,",
+    "    contactPreferredTime,",
+    "    isUncontacted,",
+    "    csStatus: candidate.csStatus ?? candidate.cs_status ?? \"\",",
+    "  };",
+    "}",
+    "",
+    "function resolveCandidatePhone(candidateId, candidateName) {",
+    "  const idNum = Number(candidateId);"
+  ],
+  "rebuildRange": [
+    "",
+    "  return bestTel;",
+    "}",
+    "",
+    "function rebuildCsTaskCandidates() {",
+    "  if (!teleapoCandidateMaster.length) return;",
+    "  teleapoCsTaskCandidates = teleapoCandidateMaster",
+    "    .map(normalizeCandidateTask)",
+    "    .filter((c) => c && c.validApplication && !c.csStatus);",
+    "  renderCsTaskTable(teleapoCsTaskCandidates);",
+    "  rebuildMissingInfoCandidates();",
+    "}",
+    "",
+    "function scheduleCandidatePhoneFetch(list) {",
+    "  return;"
+  ]
+}

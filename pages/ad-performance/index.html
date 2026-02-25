@@ -327,6 +327,15 @@
     background: #f8fafc;
   }
 
+  /* ===== Rate Note ===== */
+  .ad-rate-note {
+    font-size: 11px;
+    font-weight: 500;
+    color: #94a3b8;
+    margin-left: 4px;
+    white-space: nowrap;
+  }
+
   /* ===== Pagination ===== */
   .ad-pagination {
     display: flex;
@@ -462,12 +471,12 @@
       <div class="ad-kpi-note">応募全体に対する割合</div>
     </div>
     <div class="ad-kpi-card">
-      <div class="ad-kpi-label">初回面談設定率</div>
+      <div class="ad-kpi-label" id="adSummaryInitialInterviewLabel">初回面談設定率</div>
       <div id="adSummaryInitialInterviewRate" class="ad-kpi-value">-</div>
       <div class="ad-kpi-note">有効応募に対する割合</div>
     </div>
     <div class="ad-kpi-card">
-      <div class="ad-kpi-label">入社率</div>
+      <div class="ad-kpi-label" id="adSummaryHireRateLabel">入社率</div>
       <div id="adSummaryHireRate" class="ad-kpi-value">-</div>
       <div id="adSummaryHireRateNote" class="ad-kpi-note">有効応募数に対する割合</div>
     </div>
@@ -533,7 +542,7 @@
   <!-- テーブルセクション -->
   <div class="ad-table-section">
     <div class="ad-table-header">
-      <h4 class="ad-table-title">媒体パフォーマンス詳細</h4>
+      <h4 class="ad-table-title">媒体詳細</h4>
       <div id="adManagementInfo" class="ad-table-info">0件表示</div>
     </div>
     <div class="ad-table-wrapper">
@@ -545,7 +554,7 @@
             <th class="sortable" data-sort="validApplications">有効応募数</th>
             <th class="sortable" data-sort="validApplicationRate">有効応募率</th>
             <th class="sortable" data-sort="initialInterviews">初回面談数</th>
-            <th class="sortable" data-sort="initialInterviewRate" id="headerNoteInitialInterviewRate">初回面談率</th>
+            <th class="sortable" data-sort="initialInterviewRate" id="headerNoteInitialInterviewRate">初回面談設定率</th>
             <th class="sortable" data-sort="offers">内定数</th>
             <th class="sortable" data-sort="offerRate" id="headerNoteOfferRate">内定率</th>
             <th class="sortable" data-sort="hired">入社数</th>
@@ -566,11 +575,7 @@
     </div>
     <div class="ad-pagination">
       <div class="ad-pagination-info">
-        <select class="ad-filter-input" style="padding: 6px 10px; font-size: 12px;">
-          <option value="25">25件</option>
-          <option value="50" selected>50件</option>
-          <option value="100">100件</option>
-        </select>
+        <span class="text-xs text-slate-500">全件表示</span>
       </div>
       <div class="ad-pagination-controls">
         <button id="adManagementPrevBtn" class="ad-pagination-btn" disabled>前へ</button>

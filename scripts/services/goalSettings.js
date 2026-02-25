@@ -942,8 +942,7 @@ export const goalSettingsService = {
   },
   formatPeriodLabel(period) {
     if (!period) return '';
-    const range = period.startDate && period.endDate ? `（${period.startDate}〜${period.endDate}）` : '';
-    return `${period.label || period.id || '期間未設定'}${range}`;
+    return `${period.label || period.id || '期間未設定'}`;
   },
   generateDefaultPeriods(rule) {
     return buildDefaultPeriods(rule || DEFAULT_RULE);
