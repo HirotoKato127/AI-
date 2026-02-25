@@ -1,0 +1,1306 @@
+{
+  "scripts/router.js": [
+    {
+      "line": 20,
+      "content": "candidates: () => import(`../pages/candidates/candidates.js?v=${MODULE_VERSIONS.candidates}`),"
+    },
+    {
+      "line": 21,
+      "content": "\"candidate-detail\": () => import(`../pages/candidate-detail/candidate-detail.js?v=${MODULE_VERSIONS.candidateDetail}`),"
+    },
+    {
+      "line": 92,
+      "content": "link.href = resolveAsset(`../${pageCSS[page]}`);"
+    },
+    {
+      "line": 152,
+      "content": "const hashQuery = hashQueryRaw ? `?${hashQueryRaw}` : \"\";"
+    },
+    {
+      "line": 157,
+      "content": "const toQuery = toQueryRaw ? `?${toQueryRaw}` : \"\";"
+    },
+    {
+      "line": 164,
+      "content": "location.hash = `#/${guardedPage}`;"
+    },
+    {
+      "line": 185,
+      "content": "const htmlURL = resolveAsset(`../pages/${page}/index.html`);"
+    },
+    {
+      "line": 187,
+      "content": "const htmlUrl = `${htmlURL}?v=${Date.now()}`;"
+    },
+    {
+      "line": 190,
+      "content": "throw new Error(`Failed to load ${page} page (${response.status})`);"
+    },
+    {
+      "line": 206,
+      "content": "history.replaceState({}, \"\", `#/${page}${queryPart}`);"
+    },
+    {
+      "line": 285,
+      "content": "const navLabel = document.querySelector(`[data-target=\"${page}\"] .nav-label`);"
+    },
+    {
+      "line": 360,
+      "content": "const group = document.querySelector(`[data-nav-group=\\\"${key}\\\"]`);"
+    },
+    {
+      "line": 449,
+      "content": "textEl.textContent = roleLabel ? `${name} / ${roleLabel}` : name;"
+    }
+  ],
+  "pages/teleapo/teleapo.js": [
+    {
+      "line": 135,
+      "content": "const TELEAPO_API_URL = `${PRIMARY_API_BASE}/teleapo/logs`;"
+    },
+    {
+      "line": 139,
+      "content": "const SCREENING_RULES_ENDPOINT = `${SETTINGS_API_BASE}/settings-screening-rules`;"
+    },
+    {
+      "line": 140,
+      "content": "const SCREENING_RULES_FALLBACK_ENDPOINT = `${SETTINGS_API_BASE}/settings/screening-rules`;"
+    },
+    {
+      "line": 147,
+      "content": "const CANDIDATES_API_URL = `${PRIMARY_API_BASE}/candidates`;"
+    },
+    {
+      "line": 148,
+      "content": "const MEMBERS_API_URL = `${PRIMARY_API_BASE}/members`;"
+    },
+    {
+      "line": 149,
+      "content": "const KPI_YIELD_API_URL = `${PRIMARY_API_BASE}/kpi/yield`;"
+    },
+    {
+      "line": 150,
+      "content": "const MYPAGE_API_URL = `${PRIMARY_API_BASE}/mypage`;"
+    },
+    {
+      "line": 458,
+      "content": "return `#/candidate-detail?id=${encodeURIComponent(id)}`;"
+    },
+    {
+      "line": 468,
+      "content": "window.location.hash = `/candidate-detail?id=${encodeURIComponent(resolvedIdText)}`;"
+    },
+    {
+      "line": 525,
+      "content": "if (/^\\d{4}-\\d{2}-\\d{2}$/.test(direct)) return direct;"
+    },
+    {
+      "line": 531,
+      "content": "return `${yyyy}-${mm}-${dd}`;"
+    },
+    {
+      "line": 540,
+      "content": "return `${yyyy}-${mm}-${dd}`;"
+    },
+    {
+      "line": 547,
+      "content": "headers.Authorization = `Bearer ${token}`;"
+    },
+    {
+      "line": 698,
+      "content": "if (!res.ok) throw new Error(`mypage HTTP ${res.status}`);"
+    },
+    {
+      "line": 709,
+      "content": ".map((metric) => `<span class=\"teleapo-advisor-kpi-chip\">${escapeHtml(metric.label)} ${normalized[metric.key]}</span>`)"
+    },
+    {
+      "line": 715,
+      "content": "return `<li class=\"teleapo-advisor-action-empty\">${escapeHtml(error)}</li>`;"
+    },
+    {
+      "line": 727,
+      "content": "<span class=\"teleapo-advisor-action-date\">${escapeHtml(dateText)}</span>"
+    },
+    {
+      "line": 728,
+      "content": "<span class=\"teleapo-advisor-action-text\">${escapeHtml(`${actionType} / ${candidateName}`)}</span>"
+    },
+    {
+      "line": 750,
+      "content": "<button type=\"button\" class=\"teleapo-advisor-card${isSelected ? \" is-selected\" : \"\"}\" data-advisor-id=\"${escapeHtml(String(id))}\" aria-pressed=\"${isSelected ? \"true\" : \"false\"}\">"
+    },
+    {
+      "line": 752,
+      "content": "<div class=\"teleapo-advisor-card-name\">${escapeHtml(name || `ID:${id}`)}</div>"
+    },
+    {
+      "line": 753,
+      "content": "${selectionBadge}"
+    },
+    {
+      "line": 755,
+      "content": "<div class=\"teleapo-advisor-kpi-chips\">${renderAdvisorKpiChips(planned)}</div>"
+    },
+    {
+      "line": 758,
+      "content": "<span>${rows.length}件 (未来 ${upcomingCount}件)</span>"
+    },
+    {
+      "line": 761,
+      "content": "${renderAdvisorActionPreviewRows(rows, { error: upcomingError })}"
+    },
+    {
+      "line": 824,
+      "content": "infoParts.push(`選択中: ${selected.name}`);"
+    },
+    {
+      "line": 881,
+      "content": "if (!res.ok) throw new Error(`members HTTP ${res.status}`);"
+    },
+    {
+      "line": 935,
+      "content": "console.warn(`[teleapo] failed to load mypage actions (advisor:${advisorId}):`, error);"
+    },
+    {
+      "line": 952,
+      "content": ": `一部の予定アクションを取得できませんでした (${failedCount}/${ids.length})`;"
+    },
+    {
+      "line": 994,
+      "content": "const url = `${KPI_YIELD_API_URL}?${query.toString()}`;"
+    },
+    {
+      "line": 996,
+      "content": "if (!res.ok) throw new Error(`kpi planned HTTP ${res.status}`);"
+    },
+    {
+      "line": 1116,
+      "content": "entries.set(member.id, { id: member.id, name: member.name || `ID:${member.id}` });"
+    },
+    {
+      "line": 1125,
+      "content": "entries.set(advisorId, { id: advisorId, name: advisorName || `ID:${advisorId}` });"
+    },
+    {
+      "line": 1132,
+      "content": "`<option value=\"\">${hasOptions ? \"選択してください\" : \"候補がありません\"}</option>`,"
+    },
+    {
+      "line": 1133,
+      "content": "...dialFormAdvisorOptions.map((item) => `<option value=\"${item.id}\">${escapeHtml(item.name)}</option>`)"
+    },
+    {
+      "line": 1222,
+      "content": "...options.map((value) => `<option value=\"${escapeHtml(value)}\">${escapeHtml(value)}</option>`)"
+    },
+    {
+      "line": 1413,
+      "content": "return `${yyyy}/${mm}/${dd} ${hh}:${min}`;"
+    },
+    {
+      "line": 1423,
+      "content": "return `${yyyy}/${mm}/${dd}`;"
+    },
+    {
+      "line": 1430,
+      "content": "return `${date.getMonth() + 1}/${date.getDate()}`;"
+    },
+    {
+      "line": 1445,
+      "content": "return `${yyyy}-${mm}-${dd}`;"
+    },
+    {
+      "line": 1451,
+      "content": "return `${CANDIDATES_API_URL}/${encodeURIComponent(id)}`;"
+    },
+    {
+      "line": 1467,
+      "content": "throw new Error(`HTTP ${res.status}: ${text}`);"
+    },
+    {
+      "line": 1520,
+      "content": "console.log(`[teleapo] Fetched detail for ${idNum}:`, {"
+    },
+    {
+      "line": 1557,
+      "content": "console.warn(`[teleapo] Detail fetch error for ${idNum}:`, err);"
+    },
+    {
+      "line": 1593,
+      "content": "const headers = token ? { Authorization: `Bearer ${token}` } : {};"
+    },
+    {
+      "line": 1599,
+      "content": "throw new Error(`HTTP ${response.status}`);"
+    },
+    {
+      "line": 1702,
+      "content": "<span class=\"teleapo-candidate-pill teleapo-candidate-pill--info\">${escapeHtml(value || \"-\")}</span>"
+    },
+    {
+      "line": 1841,
+      "content": "throw new Error(`HTTP ${res.status}: ${text}`);"
+    },
+    {
+      "line": 1868,
+      "content": "const message = err?.message ? `保存に失敗しました: ${err.message}` : \"保存に失敗しました。\";"
+    },
+    {
+      "line": 1887,
+      "content": "const ageText = Number.isFinite(ageValue) && ageValue > 0 ? `${ageValue}歳` : \"-\";"
+    },
+    {
+      "line": 1893,
+      "content": "setCandidateQuickViewTitle(name ? `${name} の詳細` : \"候補者詳細\");"
+    },
+    {
+      "line": 1919,
+      "content": "<div class=\"teleapo-candidate-log-meta\">${escapeHtml(formatCandidateDateTime(calledAt))}</div>"
+    },
+    {
+      "line": 1921,
+      "content": "<div class=\"teleapo-candidate-log-title\">${formatCandidateValue(callerName, \"担当者不明\")}</div>"
+    },
+    {
+      "line": 1922,
+      "content": "<div class=\"teleapo-candidate-log-memo\">${formatCandidateValue(memo, \"-\")}</div>"
+    },
+    {
+      "line": 1924,
+      "content": "${callNo ? `<span class=\"teleapo-candidate-log-tag\">#${escapeHtml(String(callNo))}</span>` : \"\"}"
+    },
+    {
+      "line": 1933,
+      "content": "<div><dt>企業名</dt><dd>${formatCandidateValue(selectionCompany)}</dd></div>"
+    },
+    {
+      "line": 1934,
+      "content": "<div><dt>職種</dt><dd>${formatCandidateValue(selectionJob)}</dd></div>"
+    },
+    {
+      "line": 1935,
+      "content": "<div><dt>ステータス</dt><dd>${formatCandidateValue(selectionStatus)}</dd></div>"
+    },
+    {
+      "line": 1936,
+      "content": "<div><dt>次回面談</dt><dd>${escapeHtml(formatCandidateDate(selectionInterview))}</dd></div>"
+    },
+    {
+      "line": 1944,
+      "content": "<button type=\"button\" data-candidate-action=\"save\" ${editDisabled}"
+    },
+    {
+      "line": 1959,
+      "content": "? `<input id=\"teleapoQuickEditApplyRoute\" class=\"teleapo-candidate-edit-input\" value=\"${escapeHtml(candidate.applyRouteText || \"\")}\" />`"
+    },
+    {
+      "line": 1962,
+      "content": "? `<input id=\"teleapoQuickEditApplyCompany\" class=\"teleapo-candidate-edit-input\" value=\"${escapeHtml(candidate.applyCompanyName || \"\")}\" />`"
+    },
+    {
+      "line": 1965,
+      "content": "? `<input id=\"teleapoQuickEditApplyJob\" class=\"teleapo-candidate-edit-input\" value=\"${escapeHtml(candidate.applyJobName || \"\")}\" />`"
+    },
+    {
+      "line": 1968,
+      "content": "? `<input id=\"teleapoQuickEditBirthday\" type=\"date\" class=\"teleapo-candidate-edit-input\" value=\"${escapeHtml(formatDateInputValue(birthdayValue))}\" />`"
+    },
+    {
+      "line": 1974,
+      "content": "? `<input id=\"teleapoQuickEditAge\" type=\"number\" min=\"0\" class=\"teleapo-candidate-edit-input\" value=\"${escapeHtml(String(ageInputValue))}\" />`"
+    },
+    {
+      "line": 1977,
+      "content": "? `<input id=\"teleapoQuickEditPhone\" class=\"teleapo-candidate-edit-input\" value=\"${escapeHtml(candidate.phone || \"\")}\" />`"
+    },
+    {
+      "line": 1980,
+      "content": "? `<input id=\"teleapoQuickEditEmail\" class=\"teleapo-candidate-edit-input\" value=\"${escapeHtml(candidate.email || \"\")}\" />`"
+    },
+    {
+      "line": 1983,
+      "content": "? `<input id=\"teleapoQuickEditContactTime\" class=\"teleapo-candidate-edit-input\" value=\"${escapeHtml(candidate.contactPreferredTime || \"\")}\" />`"
+    },
+    {
+      "line": 1989,
+      "content": "<div class=\"teleapo-candidate-name\">${escapeHtml(name)}</div>"
+    },
+    {
+      "line": 1991,
+      "content": "${phaseBadges}"
+    },
+    {
+      "line": 1992,
+      "content": "${validBadge}"
+    },
+    {
+      "line": 1998,
+      "content": "data-candidate-id=\"${escapeHtml(String(candidateId || ''))}\""
+    },
+    {
+      "line": 2003,
+      "content": "${actionHtml}"
+    },
+    {
+      "line": 2009,
+      "content": "<div><dt>登録日</dt><dd>${escapeHtml(formatCandidateDate(candidate.registeredAt))}</dd></div>"
+    },
+    {
+      "line": 2010,
+      "content": "<div><dt>応募経路</dt><dd>${applyRouteField}</dd></div>"
+    },
+    {
+      "line": 2011,
+      "content": "<div><dt>応募企業</dt><dd>${applyCompanyField}</dd></div>"
+    },
+    {
+      "line": 2012,
+      "content": "<div><dt>応募職種</dt><dd>${applyJobField}</dd></div>"
+    },
+    {
+      "line": 2013,
+      "content": "<div><dt>生年月日</dt><dd>${birthdayField}</dd></div>"
+    },
+    {
+      "line": 2014,
+      "content": "<div><dt>年齢</dt><dd>${ageField}</dd></div>"
+    },
+    {
+      "line": 2015,
+      "content": "<div><dt>担当CS</dt><dd>${formatCandidateValue(candidate.advisorName)}</dd></div>"
+    },
+    {
+      "line": 2016,
+      "content": "<div><dt>担当パートナー</dt><dd>${formatCandidateValue(candidate.partnerName)}</dd></div>"
+    },
+    {
+      "line": 2022,
+      "content": "<div><dt>電話</dt><dd>${phoneField}</dd></div>"
+    },
+    {
+      "line": 2023,
+      "content": "<div><dt>メール</dt><dd>${emailField}</dd></div>"
+    },
+    {
+      "line": 2024,
+      "content": "<div><dt>希望時間</dt><dd>${contactTimeField}</dd></div>"
+    },
+    {
+      "line": 2025,
+      "content": "<div><dt>現住所</dt><dd>${formatCandidateValue(candidate.address)}</dd></div>"
+    },
+    {
+      "line": 2031,
+      "content": "<div><dt>通電</dt><dd>${csConnected ? \"通電済\" : \"未通電\"}</dd></div>"
+    },
+    {
+      "line": 2032,
+      "content": "<div><dt>SMS</dt><dd>${csSms ? \"送信済\" : \"未送信\"}</dd></div>"
+    },
+    {
+      "line": 2033,
+      "content": "<div><dt>架電回数</dt><dd>${escapeHtml(String(csCallCount || 0))}回</dd></div>"
+    },
+    {
+      "line": 2034,
+      "content": "<div><dt>最終通電</dt><dd>${escapeHtml(formatCandidateDateTime(csLastConnected))}</dd></div>"
+    },
+    {
+      "line": 2042,
+      "content": "${selectionHtml}"
+    },
+    {
+      "line": 2049,
+      "content": "<div class=\"teleapo-candidate-log-list\">${logsHtml}</div>"
+    },
+    {
+      "line": 2091,
+      "content": "throw new Error(`HTTP ${res.status}: ${text}`);"
+    },
+    {
+      "line": 2180,
+      "content": "return `<span class=\"inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${classes}\">${label}</span>`;"
+    },
+    {
+      "line": 2317,
+      "content": "countEl.textContent = state.loading ? \"読み込み中...\" : `${list.length}件`;"
+    },
+    {
+      "line": 2372,
+      "content": "data-candidate-id=\"${escapeHtml(candidateId || '')}\""
+    },
+    {
+      "line": 2373,
+      "content": "data-candidate-name=\"${escapeHtml(row.candidateName || '')}\">"
+    },
+    {
+      "line": 2381,
+      "content": "data-candidate-id=\"${escapeHtml(candidateId || '')}\""
+    },
+    {
+      "line": 2382,
+      "content": "data-candidate-name=\"${escapeHtml(row.candidateName || '')}\">${escapeHtml(nameLabel)}</button>`"
+    },
+    {
+      "line": 2386,
+      "content": "<td class=\"whitespace-nowrap\">${escapeHtml(row.phaseText || \"-\")}</td>"
+    },
+    {
+      "line": 2387,
+      "content": "<td class=\"whitespace-nowrap\">${renderValidApplicationBadge(row.validApplication)}</td>"
+    },
+    {
+      "line": 2388,
+      "content": "<td class=\"whitespace-nowrap\">${nameCell}</td>"
+    },
+    {
+      "line": 2389,
+      "content": "<td class=\"whitespace-nowrap\">${escapeHtml(formatCandidateDateTime(row.registeredAt))}</td>"
+    },
+    {
+      "line": 2390,
+      "content": "<td class=\"whitespace-nowrap\">${escapeHtml(phoneValue || \"-\")}</td>"
+    },
+    {
+      "line": 2391,
+      "content": "<td class=\"whitespace-nowrap\">${contactTimeText}</td>"
+    },
+    {
+      "line": 2392,
+      "content": "<td class=\"whitespace-nowrap\">${dialBtn}</td>"
+    },
+    {
+      "line": 2513,
+      "content": "countEl.textContent = state.loading ? \"読み込み中...\" : `${list.length}件`;"
+    },
+    {
+      "line": 2549,
+      "content": "対象が多いため一覧を一時的に非表示にしています（${list.length}件）。"
+    },
+    {
+      "line": 2566,
+      "content": "data-candidate-id=\"${escapeHtml(candidateId || '')}\""
+    },
+    {
+      "line": 2567,
+      "content": "data-candidate-name=\"${escapeHtml(row.candidateName || '')}\">${escapeHtml(nameLabel)}</button>`"
+    },
+    {
+      "line": 2575,
+      "content": "${escapeHtml(tag)}"
+    },
+    {
+      "line": 2579,
+      "content": "const ageText = Number.isFinite(row.age) && row.age > 0 ? `${row.age}歳` : \"-\";"
+    },
+    {
+      "line": 2584,
+      "content": "<td class=\"whitespace-nowrap\">${missingHtml || \"-\"}</td>"
+    },
+    {
+      "line": 2585,
+      "content": "<td class=\"whitespace-nowrap\">${nameCell}</td>"
+    },
+    {
+      "line": 2586,
+      "content": "<td class=\"whitespace-nowrap\">${escapeHtml(formatCandidateDateTime(row.registeredAt))}</td>"
+    },
+    {
+      "line": 2587,
+      "content": "<td class=\"whitespace-nowrap\">${escapeHtml(ageText)}</td>"
+    },
+    {
+      "line": 2588,
+      "content": "<td class=\"whitespace-nowrap\">${escapeHtml(phoneText)}</td>"
+    },
+    {
+      "line": 2691,
+      "content": "...employees.map(name => `<option value=\"${escapeHtml(name)}\">${escapeHtml(name)}</option>`)"
+    },
+    {
+      "line": 2713,
+      "content": "...ordered.map(label => `<option value=\"${escapeHtml(label)}\">${escapeHtml(label)}</option>`)"
+    },
+    {
+      "line": 2828,
+      "content": "return new Date(`${y}-${m}-${d}T${hh}:${mm}:00`);"
+    },
+    {
+      "line": 2998,
+      "content": "? `面談(${formatShortMonthDay(interviewDate)})`"
+    },
+    {
+      "line": 3020,
+      "content": "return `${n}`.padStart(2, '0');"
+    },
+    {
+      "line": 3026,
+      "content": "if (Number.isNaN(d.getTime())) return `${value}`; // 変換できない場合はそのまま返す"
+    },
+    {
+      "line": 3027,
+      "content": "return `${d.getFullYear()}/${zeroPad(d.getMonth() + 1)}/${zeroPad(d.getDate())} ${zeroPad(d.getHours())}:${zeroPad(d.getMinutes())}`;"
+    },
+    {
+      "line": 3161,
+      "content": "if (id) return `log:${id}`;"
+    },
+    {
+      "line": 3168,
+      "content": "return `fallback:${route}|${target}|${employee}|${datetime}|${code}`;"
+    },
+    {
+      "line": 3237,
+      "content": "el.className = `${baseClass} ${colorClass}`;"
+    },
+    {
+      "line": 3244,
+      "content": "el.className = `${baseClass} text-slate-500`;"
+    },
+    {
+      "line": 3252,
+      "content": "return `${rate.toFixed(1)}%`;"
+    },
+    {
+      "line": 3268,
+      "content": "if (startStr && endStr) return `${startStr.replace(/-/g, '/')} ～ ${endStr.replace(/-/g, '/')}`;"
+    },
+    {
+      "line": 3269,
+      "content": "if (startStr) return `${startStr.replace(/-/g, '/')} ～`;"
+    },
+    {
+      "line": 3270,
+      "content": "return `～ ${endStr.replace(/-/g, '/')}`;"
+    },
+    {
+      "line": 3280,
+      "content": "return `${dt.getFullYear()}-${zeroPad(dt.getMonth() + 1)}-${zeroPad(dt.getDate())}`;"
+    },
+    {
+      "line": 3304,
+      "content": "return `設定率=設定数/接触数・着座率=着座数/${denomLabel}`;"
+    },
+    {
+      "line": 3309,
+      "content": "return `通電率=通電数/架電数・設定率=設定数/通電数・着座率=着座数/${denomLabel}`;"
+    },
+    {
+      "line": 3514,
+      "content": "const sortedMetrics = sortEmployeeMetrics(metrics, `${teleapoEmployeeSortState.key}-${teleapoEmployeeSortState.dir}`);"
+    },
+    {
+      "line": 3521,
+      "content": "<tr class=\"teleapo-employee-row hover:bg-slate-50 cursor-pointer\" data-employee-name=\"${emp.name}\">"
+    },
+    {
+      "line": 3522,
+      "content": "<td class=\"font-medium text-slate-800\">${emp.name}</td>"
+    },
+    {
+      "line": 3523,
+      "content": "<td class=\"text-right\">${emp.dials}</td>"
+    },
+    {
+      "line": 3524,
+      "content": "<td class=\"text-right\">${emp.connects}</td>"
+    },
+    {
+      "line": 3525,
+      "content": "<td class=\"text-right\">${emp.sets}</td>"
+    },
+    {
+      "line": 3526,
+      "content": "<td class=\"text-right\">${emp.shows}</td>"
+    },
+    {
+      "line": 3527,
+      "content": "<td class=\"text-right font-semibold ${connectClass}\">${emp.connectRate.toFixed(1)}%</td>"
+    },
+    {
+      "line": 3528,
+      "content": "<td class=\"text-right font-semibold ${setClass}\">${emp.setRate.toFixed(1)}%</td>"
+    },
+    {
+      "line": 3529,
+      "content": "<td class=\"text-right font-semibold ${showClass}\">${emp.showRate.toFixed(1)}%</td>"
+    },
+    {
+      "line": 3661,
+      "content": "const rateText = rate == null ? '-' : `${rate.toFixed(0)}%`;"
+    },
+    {
+      "line": 3662,
+      "content": "const countText = rate == null ? '' : `(${c.dials}-${c.connects})`;"
+    },
+    {
+      "line": 3664,
+      "content": "<td class=\"px-2 py-2 border border-slate-200 text-center ${intensity}\">"
+    },
+    {
+      "line": 3666,
+      "content": "<span class=\"teleapo-heatmap-rate\">${rateText}</span>"
+    },
+    {
+      "line": 3667,
+      "content": "<span class=\"teleapo-heatmap-count\">${countText}</span>"
+    },
+    {
+      "line": 3672,
+      "content": "return `<tr><th class=\"px-3 py-2 border border-slate-200 text-left bg-slate-50\">${slot}帯</th>${cells}</tr>`;"
+    },
+    {
+      "line": 3685,
+      "content": "const key = `${day}-${slot}`;"
+    },
+    {
+      "line": 3781,
+      "content": "const rateText = Number.isFinite(heatmap.rate) ? `${heatmap.rate.toFixed(0)}%` : '-';"
+    },
+    {
+      "line": 3782,
+      "content": "const baseText = Number.isFinite(heatmap.baselineRate) ? `${heatmap.baselineRate.toFixed(0)}%` : '-';"
+    },
+    {
+      "line": 3785,
+      "content": "const sampleNote = heatmap.minSamples ? `（母数${heatmap.minSamples}件以上の中で）` : '';"
+    },
+    {
+      "line": 3786,
+      "content": "el.textContent = `通電は${attempt.attempt}回目が勝負！${heatmap.scopeLabel}の${heatmap.day}${heatmap.slot}帯は通電率${rateText}（${connects}/${dials}件）で平均${baseText}より${lift}ポイント高い${sampleNote}ため、ここを集中攻略しましょう！`;"
+    },
+    {
+      "line": 3790,
+      "content": "el.textContent = `通電は${attempt.attempt}回目が勝負！${heatmap.scopeLabel}の${heatmap.day}${heatmap.slot}帯が母数最多（${heatmap.dials}件）なので、ここを底上げすると伸びます！`;"
+    },
+    {
+      "line": 3794,
+      "content": "el.textContent = `通電は${attempt.attempt}回目が勝負！ヒートマップは母数が少なめなので、まず件数を積み上げましょう！`;"
+    },
+    {
+      "line": 3798,
+      "content": "const baseText = `${attempt.attempt}回目の通電率が${attempt.rate.toFixed(0)}%！`;"
+    },
+    {
+      "line": 3800,
+      "content": "? `${baseText} ただし差は小さめなので、まずは母数を増やして精度を上げましょう！`"
+    },
+    {
+      "line": 3801,
+      "content": ": `${baseText} 粘りが結果につながっています、あと一押し行きましょう！`;"
+    },
+    {
+      "line": 3806,
+      "content": "const rateText = Number.isFinite(heatmap.rate) ? `${heatmap.rate.toFixed(0)}%` : '-';"
+    },
+    {
+      "line": 3807,
+      "content": "const baseText = Number.isFinite(heatmap.baselineRate) ? `${heatmap.baselineRate.toFixed(0)}%` : '-';"
+    },
+    {
+      "line": 3810,
+      "content": "const sampleNote = heatmap.minSamples ? `（母数${heatmap.minSamples}件以上の中で）` : '';"
+    },
+    {
+      "line": 3811,
+      "content": "el.textContent = `${heatmap.scopeLabel}の${heatmap.day}${heatmap.slot}帯は通電率${rateText}（${connects}/${dials}件）で平均${baseText}より${lift}ポイント高く好調${sampleNote}！この時間帯を攻めて伸ばしましょう！`;"
+    },
+    {
+      "line": 3815,
+      "content": "el.textContent = `${heatmap.scopeLabel}の${heatmap.day}${heatmap.slot}帯が母数最多（${heatmap.dials}件）！ここを磨けば全体が伸びます！`;"
+    },
+    {
+      "line": 3853,
+      "content": "<button type=\"button\" class=\"teleapo-filter-btn ${isActive ? 'active' : ''}\" data-heatmap-user=\"${escapeHtml(name)}\" aria-pressed=\"${isActive ? 'true' : 'false'}\">"
+    },
+    {
+      "line": 3854,
+      "content": "${escapeHtml(label)}"
+    },
+    {
+      "line": 3864,
+      "content": "const scopeLabel = employeeFilter === 'all' ? '全体' : `${employeeFilter}さん`;"
+    },
+    {
+      "line": 3887,
+      "content": "return { logs: scopedLogs, from, to: maxDate, label: `${fromStr} ～ ${toStr}`, scopeLabel };"
+    },
+    {
+      "line": 3902,
+      "content": "const summary = `${from}-${to} / ${totalCount}件`;"
+    },
+    {
+      "line": 3905,
+      "content": "container.innerHTML = `<div class=\"teleapo-log-pagination-summary\">${summary}</div>`;"
+    },
+    {
+      "line": 3921,
+      "content": "class=\"teleapo-log-page-btn ${isActive ? 'is-active' : ''}\""
+    },
+    {
+      "line": 3922,
+      "content": "data-log-page=\"${page}\""
+    },
+    {
+      "line": 3923,
+      "content": "aria-current=\"${isActive ? 'page' : 'false'}\""
+    },
+    {
+      "line": 3924,
+      "content": ">${page}</button>"
+    },
+    {
+      "line": 3932,
+      "content": "<div class=\"teleapo-log-pagination-summary\">${summary}</div>"
+    },
+    {
+      "line": 3934,
+      "content": "<button type=\"button\" class=\"teleapo-log-page-btn\" data-log-page=\"${teleapoLogPage - 1}\" ${isFirstPage ? 'disabled' : ''}>前へ</button>"
+    },
+    {
+      "line": 3935,
+      "content": "${pageButtons.join('')}"
+    },
+    {
+      "line": 3936,
+      "content": "<button type=\"button\" class=\"teleapo-log-page-btn\" data-log-page=\"${teleapoLogPage + 1}\" ${isLastPage ? 'disabled' : ''}>次へ</button>"
+    },
+    {
+      "line": 3955,
+      "content": "? `${valA}`.localeCompare(`${valB}`)"
+    },
+    {
+      "line": 3956,
+      "content": ": `${valB}`.localeCompare(`${valA}`);"
+    },
+    {
+      "line": 3977,
+      "content": "const attemptLabel = row.callAttempt ? `（${row.callAttempt}回目）` : '';"
+    },
+    {
+      "line": 3978,
+      "content": "const routeLabel = row.route === ROUTE_OTHER ? 'その他' : `架電${attemptLabel}`;"
+    },
+    {
+      "line": 3992,
+      "content": "data-candidate-id=\"${escapeHtml(targetCandidateId || '')}\""
+    },
+    {
+      "line": 3993,
+      "content": "data-candidate-name=\"${escapeHtml(targetLabel)}\">${targetText}</button>`"
+    },
+    {
+      "line": 4015,
+      "content": "const rowIdAttr = row.id ? `data-log-id=\"${escapeHtml(String(row.id))}\"` : '';"
+    },
+    {
+      "line": 4019,
+      "content": "data-action=\"delete-log\" data-log-id=\"${escapeHtml(String(row.id))}\">削除</button>`"
+    },
+    {
+      "line": 4023,
+      "content": "<tr class=\"${rowClass}\" ${rowIdAttr}>"
+    },
+    {
+      "line": 4024,
+      "content": "<td class=\"whitespace-nowrap\">${escapeHtml(row.datetime)}</td>"
+    },
+    {
+      "line": 4025,
+      "content": "<td class=\"whitespace-nowrap\">${escapeHtml(row.employee || '')}</td>"
+    },
+    {
+      "line": 4026,
+      "content": "<td>${escapeHtml(routeLabel)}</td>"
+    },
+    {
+      "line": 4027,
+      "content": "<td>${targetCell}</td>"
+    },
+    {
+      "line": 4028,
+      "content": "<td>${csStatusText}</td>"
+    },
+    {
+      "line": 4029,
+      "content": "<td>${telText}</td>"
+    },
+    {
+      "line": 4030,
+      "content": "<td class=\"whitespace-nowrap\">${contactTimeText}</td>"
+    },
+    {
+      "line": 4031,
+      "content": "<td>${emailText}</td>"
+    },
+    {
+      "line": 4033,
+      "content": "${flags.flowLabels"
+    },
+    {
+      "line": 4036,
+      "content": "${flags.flowLabels.map((label, index) => {"
+    },
+    {
+      "line": 4047,
+      "content": "return `<span class=\"px-2 py-0.5 rounded text-[10px] font-semibold ${variantClass}\">${escapeHtml(label)}</span>${arrow}`;"
+    },
+    {
+      "line": 4051,
+      "content": ": `<span class=\"px-2 py-1 rounded text-xs font-semibold ${badgeClass}\">"
+    },
+    {
+      "line": 4052,
+      "content": "${escapeHtml(flags.displayLabel || RESULT_LABELS[flags.code] || row.result || '')}"
+    },
+    {
+      "line": 4055,
+      "content": "<td>${memoText}</td>"
+    },
+    {
+      "line": 4056,
+      "content": "<td class=\"text-center\">${deleteCell}</td>"
+    },
+    {
+      "line": 4069,
+      "content": "if (countEl) countEl.textContent = `${teleapoFilteredLogs.length}件`;"
+    },
+    {
+      "line": 4081,
+      "content": "throw new Error(`HTTP ${res.status}: ${text}`);"
+    },
+    {
+      "line": 4179,
+      "content": "label = `${String(hour).padStart(2, '0')}:00`;"
+    },
+    {
+      "line": 4189,
+      "content": "key = `${dt.getFullYear()}-${dt.getMonth() + 1}-W${week}`;"
+    },
+    {
+      "line": 4190,
+      "content": "label = `${dt.getMonth() + 1}月${week}週`;"
+    },
+    {
+      "line": 4194,
+      "content": "key = `${dt.getFullYear()}-${month}`;"
+    },
+    {
+      "line": 4195,
+      "content": "label = `${dt.getFullYear()}/${String(month).padStart(2, '0')}`;"
+    },
+    {
+      "line": 4199,
+      "content": "key = `${year}`;"
+    },
+    {
+      "line": 4200,
+      "content": "label = `${year}年`;"
+    },
+    {
+      "line": 4281,
+      "content": "const connectDetail = p.dials ? `${p.connects}/${p.dials}` : '-';"
+    },
+    {
+      "line": 4282,
+      "content": "const setDetail = p.connects ? `${p.sets}/${p.connects}` : '-';"
+    },
+    {
+      "line": 4284,
+      "content": "const showDetail = showDenom ? `${p.shows}/${showDenom}` : '-';"
+    },
+    {
+      "line": 4287,
+      "content": "<td>${escapeHtml(p.label)}</td>"
+    },
+    {
+      "line": 4288,
+      "content": "<td class=\"text-right\">${p.dials}</td>"
+    },
+    {
+      "line": 4290,
+      "content": "<div class=\"teleapo-employee-table-rate ${rateClass(p.connectRate, 'teleapoConnectionRate')}\">${formatRate(p.connectRate)}</div>"
+    },
+    {
+      "line": 4291,
+      "content": "<div class=\"teleapo-employee-table-detail\">${connectDetail}</div>"
+    },
+    {
+      "line": 4294,
+      "content": "<div class=\"teleapo-employee-table-rate ${rateClass(p.setRate, 'teleapoSetupRate')}\">${formatRate(p.setRate)}</div>"
+    },
+    {
+      "line": 4295,
+      "content": "<div class=\"teleapo-employee-table-detail\">${setDetail}</div>"
+    },
+    {
+      "line": 4298,
+      "content": "<div class=\"teleapo-employee-table-rate ${rateClass(p.showRate, 'teleapoAttendanceRate')}\">${formatRate(p.showRate)}</div>"
+    },
+    {
+      "line": 4299,
+      "content": "<div class=\"teleapo-employee-table-detail\">${showDetail}</div>"
+    },
+    {
+      "line": 4318,
+      "content": "if (note) note.textContent = `平均 ${average.toFixed(1)} 回目で通電（架電 ${sampleDials}件 / 通電 ${sampleConnects}件）`;"
+    },
+    {
+      "line": 4348,
+      "content": "const label = b.rate == null ? '-' : `${rateVal.toFixed(0)}%`;"
+    },
+    {
+      "line": 4350,
+      "content": "<rect x=\"${x}\" y=\"${y}\" width=\"${barWidth}\" height=\"${h}\" rx=\"8\" class=\"fill-indigo-400 opacity-90\" />"
+    },
+    {
+      "line": 4351,
+      "content": "<text x=\"${x + barWidth / 2}\" y=\"${height - padding.bottom + 12}\" text-anchor=\"middle\" class=\"text-[10px] fill-slate-700\">${b.attempt}回目</text>"
+    },
+    {
+      "line": 4352,
+      "content": "<text x=\"${x + barWidth / 2}\" y=\"${y - 6}\" text-anchor=\"middle\" class=\"text-[10px] fill-slate-800 font-semibold\">${label}</text>"
+    },
+    {
+      "line": 4359,
+      "content": "<line x1=\"${padding.left}\" y1=\"${y}\" x2=\"${width - padding.right}\" y2=\"${y}\" stroke=\"rgb(226 232 240)\" stroke-width=\"1\" />"
+    },
+    {
+      "line": 4360,
+      "content": "<text x=\"${padding.left - 10}\" y=\"${y + 4}\" text-anchor=\"end\" class=\"text-[10px] fill-slate-600\">${t}%</text>"
+    },
+    {
+      "line": 4365,
+      "content": "<line x1=\"${padding.left}\" y1=\"${padding.top}\" x2=\"${padding.left}\" y2=\"${height - padding.bottom}\" stroke=\"rgb(148 163 184)\" stroke-width=\"1\" />"
+    },
+    {
+      "line": 4366,
+      "content": "<line x1=\"${padding.left}\" y1=\"${height - padding.bottom}\" x2=\"${width - padding.right}\" y2=\"${height - padding.bottom}\" stroke=\"rgb(148 163 184)\" stroke-width=\"1\" />"
+    },
+    {
+      "line": 4367,
+      "content": "${yGrid}"
+    },
+    {
+      "line": 4373,
+      "content": "<text x=\"${(padding.left + width - padding.right) / 2}\" y=\"${height - 6}\" text-anchor=\"middle\" class=\"text-[10px] fill-slate-600\">架電回数</text>"
+    },
+    {
+      "line": 4374,
+      "content": "<text x=\"${yLabelX}\" y=\"${yLabelY}\" text-anchor=\"middle\" class=\"text-[10px] fill-slate-600\" transform=\"rotate(-90 ${yLabelX} ${yLabelY})\">通電率</text>"
+    },
+    {
+      "line": 4377,
+      "content": "svg.setAttribute('viewBox', `0 0 ${width} ${height}`);"
+    },
+    {
+      "line": 4378,
+      "content": "svg.innerHTML = `${yAxis}${bars}${axisLabels}`;"
+    },
+    {
+      "line": 4390,
+      "content": "titleEl.textContent = `${empName} さんのKPI推移（架電のみ）`;"
+    },
+    {
+      "line": 4408,
+      "content": "if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;"
+    },
+    {
+      "line": 4410,
+      "content": "let d = `M ${pts[0].x} ${pts[0].y}`;"
+    },
+    {
+      "line": 4420,
+      "content": "d += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${p2.x} ${p2.y}`;"
+    },
+    {
+      "line": 4428,
+      "content": "return `<path d=\"${d}\" fill=\"none\" stroke=\"${color}\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />`;"
+    },
+    {
+      "line": 4438,
+      "content": "<line x1=\"${padding.left}\" y1=\"${y}\" x2=\"${width - padding.right}\" y2=\"${y}\" stroke=\"rgb(226 232 240)\" stroke-width=\"1\" />"
+    },
+    {
+      "line": 4439,
+      "content": "<text x=\"${padding.left - 14}\" y=\"${y + 4}\" text-anchor=\"end\" class=\"teleapo-chart-axis-tick\">${t}%</text>"
+    },
+    {
+      "line": 4447,
+      "content": "<text x=\"${(padding.left + width - padding.right) / 2}\" y=\"${height - 8}\" text-anchor=\"middle\" class=\"teleapo-chart-axis-label\">${xAxisLabel}</text>"
+    },
+    {
+      "line": 4448,
+      "content": "<text x=\"${yLabelX}\" y=\"${yLabelY}\" text-anchor=\"middle\" class=\"teleapo-chart-axis-label\" transform=\"rotate(-90 ${yLabelX} ${yLabelY})\">率（%）</text>"
+    },
+    {
+      "line": 4451,
+      "content": "svg.setAttribute('viewBox', `0 0 ${width} ${height}`);"
+    },
+    {
+      "line": 4453,
+      "content": "${grid}"
+    },
+    {
+      "line": 4454,
+      "content": "<line x1=\"${padding.left}\" y1=\"${padding.top}\" x2=\"${padding.left}\" y2=\"${height - padding.bottom}\" stroke=\"rgb(148 163 184)\" stroke-width=\"1\" />"
+    },
+    {
+      "line": 4455,
+      "content": "<line x1=\"${padding.left}\" y1=\"${height - padding.bottom}\" x2=\"${width - padding.right}\" y2=\"${height - padding.bottom}\" stroke=\"rgb(148 163 184)\" stroke-width=\"1\" />"
+    },
+    {
+      "line": 4456,
+      "content": "${connectPath}"
+    },
+    {
+      "line": 4457,
+      "content": "${setPath}"
+    },
+    {
+      "line": 4458,
+      "content": "${showPath}"
+    },
+    {
+      "line": 4459,
+      "content": "${points.map((p, i) => {"
+    },
+    {
+      "line": 4460,
+      "content": "const tip = `${p.label}"
+    },
+    {
+      "line": 4461,
+      "content": "架電: ${p.dials}件"
+    },
+    {
+      "line": 4462,
+      "content": "通電率: ${p.connectRate.toFixed(1)}% (${p.connects}/${p.dials})"
+    },
+    {
+      "line": 4463,
+      "content": "設定率: ${p.setRate.toFixed(1)}% (${p.sets}/${Math.max(p.connects, 1)})"
+    },
+    {
+      "line": 4464,
+      "content": "着座率: ${p.showRate.toFixed(1)}% (${p.shows}/${Math.max(getShowDenominator(p.sets, p.connects), 1)})`;"
+    },
+    {
+      "line": 4465,
+      "content": "return `<circle cx=\"${toX(i)}\" cy=\"${toY(p.connectRate)}\" r=\"4\" fill=\"#2563eb\"><title>${tip}</title></circle>`;"
+    },
+    {
+      "line": 4467,
+      "content": "${points.map((p, i) => {"
+    },
+    {
+      "line": 4468,
+      "content": "const tip = `${p.label}"
+    },
+    {
+      "line": 4469,
+      "content": "架電: ${p.dials}件"
+    },
+    {
+      "line": 4470,
+      "content": "通電率: ${p.connectRate.toFixed(1)}% (${p.connects}/${p.dials})"
+    },
+    {
+      "line": 4471,
+      "content": "設定率: ${p.setRate.toFixed(1)}% (${p.sets}/${Math.max(p.connects, 1)})"
+    },
+    {
+      "line": 4472,
+      "content": "着座率: ${p.showRate.toFixed(1)}% (${p.shows}/${Math.max(getShowDenominator(p.sets, p.connects), 1)})`;"
+    },
+    {
+      "line": 4473,
+      "content": "return `<circle cx=\"${toX(i)}\" cy=\"${toY(p.setRate)}\" r=\"4\" fill=\"#f59e0b\"><title>${tip}</title></circle>`;"
+    },
+    {
+      "line": 4475,
+      "content": "${points.map((p, i) => {"
+    },
+    {
+      "line": 4476,
+      "content": "const tip = `${p.label}"
+    },
+    {
+      "line": 4477,
+      "content": "架電: ${p.dials}件"
+    },
+    {
+      "line": 4478,
+      "content": "通電率: ${p.connectRate.toFixed(1)}% (${p.connects}/${p.dials})"
+    },
+    {
+      "line": 4479,
+      "content": "設定率: ${p.setRate.toFixed(1)}% (${p.sets}/${Math.max(p.connects, 1)})"
+    },
+    {
+      "line": 4480,
+      "content": "着座率: ${p.showRate.toFixed(1)}% (${p.shows}/${Math.max(getShowDenominator(p.sets, p.connects), 1)})`;"
+    },
+    {
+      "line": 4481,
+      "content": "return `<circle cx=\"${toX(i)}\" cy=\"${toY(p.showRate)}\" r=\"4\" fill=\"#10b981\"><title>${tip}</title></circle>`;"
+    },
+    {
+      "line": 4483,
+      "content": "${points.map((p, i) => `<text x=\"${toX(i)}\" y=\"${height - padding.bottom + 18}\" text-anchor=\"middle\" class=\"teleapo-chart-axis-tick\">${p.label}</text>`).join('')}"
+    },
+    {
+      "line": 4484,
+      "content": "${axisLabels}"
+    },
+    {
+      "line": 4520,
+      "content": "const resultText = `${flags.displayLabel || ''}${log.result || ''}${log.resultCode || ''}`;"
+    },
+    {
+      "line": 4526,
+      "content": "if (targetSearch && !(`${log.target || ''}`.toLowerCase().includes(targetSearch))) return false;"
+    },
+    {
+      "line": 4534,
+      "content": "renderSummary(scopeLogs, teleapoSummaryScope.type === 'employee' ? `${teleapoSummaryScope.name}さんのKPI` : '全体KPI', rangeLabel ? `${teleapoSummaryScope.name} / ${rangeLabel}` : teleapoSummaryScope.name);"
+    },
+    {
+      "line": 4556,
+      "content": "setText('teleapoAnalysisPeriodLabel', analysisScope.label ? `集計期間: ${analysisScope.label}` : '集計期間: -');"
+    },
+    {
+      "line": 4567,
+      "content": "const start = startStr ? new Date(`${startStr}T00:00:00`) : null;"
+    },
+    {
+      "line": 4568,
+      "content": "const end = endStr ? new Date(`${endStr}T23:59:59`) : null;"
+    },
+    {
+      "line": 4624,
+      "content": "return `${y}-${m}-${d}`;"
+    },
+    {
+      "line": 4948,
+      "content": "setLogStatus(`削除に失敗しました: ${err.message}`, 'error');"
+    },
+    {
+      "line": 5168,
+      "content": "if (!res.ok) throw new Error(`Teleapo API HTTP ${res.status}`);"
+    },
+    {
+      "line": 5180,
+      "content": "if (!res.ok) throw new Error(`Candidates API Error: ${res.status}`);"
+    },
+    {
+      "line": 5245,
+      "content": "console.log(`候補者ロード完了: ${candidateNameMap.size}件`);"
+    },
+    {
+      "line": 5346,
+      "content": "const todayStr = `${y}-${m}-${d}`;"
+    },
+    {
+      "line": 5420,
+      "content": "return `${y}-${pad2(m)}-${pad2(d)}T${pad2(hh)}:${pad2(mm)}:00${sign}${tzH}:${tzM}`;"
+    },
+    {
+      "line": 5426,
+      "content": "const TELEAPO_LOGS_URL = `${TELEAPO_API_BASE}${TELEAPO_LOGS_PATH}`;"
+    },
+    {
+      "line": 5507,
+      "content": "const key = `${candidateId || \"\"}:${name}`;"
+    },
+    {
+      "line": 5538,
+      "content": "count.textContent = `${allEntries.length}件`;"
+    },
+    {
+      "line": 5545,
+      "content": "data-candidate-id=\"${escapeHtml(String(entry.id || \"\"))}\""
+    },
+    {
+      "line": 5546,
+      "content": "data-candidate-name=\"${escapeHtml(entry.name)}\""
+    },
+    {
+      "line": 5548,
+      "content": "${escapeHtml(entry.name)}"
+    },
+    {
+      "line": 5551,
+      "content": "overflow > 0 ? `<span class=\"teleapo-mine-candidate-overflow\">他 ${overflow} 名</span>` : \"\""
+    },
+    {
+      "line": 5563,
+      "content": "listEl.innerHTML = names.map(n => `<option value=\"${escapeHtml(n)}\"></option>`).join(\"\");"
+    },
+    {
+      "line": 5569,
+      "content": "const t = `${logRoute}`.toLowerCase();"
+    },
+    {
+      "line": 5933,
+      "content": "throw new Error(`HTTP ${res.status}: ${text}`);"
+    },
+    {
+      "line": 6011,
+      "content": "const warningText = postSaveWarnings.length ? `（${postSaveWarnings.join(\" / \")}）` : \"\";"
+    },
+    {
+      "line": 6012,
+      "content": "msg.className = `teleapo-form-message text-sm ${warningText ? \"text-amber-600\" : \"text-emerald-600\"} font-semibold`;"
+    },
+    {
+      "line": 6013,
+      "content": "msg.textContent = `架電ログに追加しました${warningText}`;"
+    },
+    {
+      "line": 6169,
+      "content": "throw new Error(`HTTP ${res.status}: ${text}`);"
+    },
+    {
+      "line": 6250,
+      "content": "const warningText = postSaveWarnings.length ? `（${postSaveWarnings.join(\" / \")}）` : \"\";"
+    },
+    {
+      "line": 6251,
+      "content": "msg.className = `teleapo-form-message text-sm ${warningText ? \"text-amber-600\" : \"text-emerald-600\"} font-semibold`;"
+    },
+    {
+      "line": 6252,
+      "content": "msg.textContent = `SMS連絡ログに追加しました${warningText}`;"
+    },
+    {
+      "line": 6254,
+      "content": "if (msg.textContent === `SMS連絡ログに追加しました${warningText}`) {"
+    },
+    {
+      "line": 6303,
+      "content": "\"Authorization\": `Bearer ${token}`"
+    },
+    {
+      "line": 6310,
+      "content": "throw new Error(`HTTP ${res.status}: ${text}`);"
+    },
+    {
+      "line": 6368,
+      "content": "\"Authorization\": `Bearer ${token}`"
+    },
+    {
+      "line": 6375,
+      "content": "throw new Error(`HTTP ${res.status}: ${text}`);"
+    },
+    {
+      "line": 6432,
+      "content": "\"Authorization\": `Bearer ${token}`"
+    },
+    {
+      "line": 6439,
+      "content": "throw new Error(`HTTP ${res.status}: ${text}`);"
+    }
+  ]
+}

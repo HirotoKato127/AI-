@@ -34,7 +34,7 @@ const adState = {
   sortField: 'applications',
   sortDirection: 'desc',
   currentPage: 1,
-  pageSize: 50,
+  pageSize: Number.MAX_SAFE_INTEGER,
   calcMode: 'base' // 'base' | 'step'
 };
 
@@ -362,10 +362,16 @@ async function saveContractInfo(mediaName, payload, mediaId) {
 async function loadAdPerformanceData() {
   const startEl = document.getElementById('adStartDate');
   const endEl = document.getElementById('adEndDate');
-  const startYm = (startEl?.value || '').trim();
-  const endYm = (endEl?.value || '').trim();
-  const isAutoRange = !startYm && !endYm;
+  let startYm = (startEl?.value || '').trim();
+  let endYm = (endEl?.value || '').trim();
   const nowYm = ymFromDate(new Date());
+  const isAutoRange = !startYm && !endYm;
+  if (isAutoRange) {
+    startYm = nowYm;
+    endYm = nowYm;
+    if (startEl) startEl.value = startYm;
+    if (endEl) endEl.value = endYm;
+  }
   const requestStart = startYm || '2000-01';
   const requestEnd = endYm || nowYm;
 
@@ -380,13 +386,7 @@ async function loadAdPerformanceData() {
 
   const data = await res.json();
   const items = Array.isArray(data?.items) ? data.items : [];
-  if (isAutoRange && items.length) {
-    const periods = items.map(item => item.period).filter(Boolean).sort();
-    const minPeriod = periods[0];
-    const maxPeriod = periods[periods.length - 1];
-    if (startEl && minPeriod) startEl.value = minPeriod;
-    if (endEl && maxPeriod) endEl.value = maxPeriod;
-  }
+  // Default is latest month; do not auto-expand to full range.
 
   adState.summary = data?.summary ?? null;
   adState.summary = data?.summary ?? null;
@@ -566,20 +566,33 @@ function updateHeaderNotes() {
   const mode = adState.calcMode;
   const isStep = mode === 'step';
 
-  const setNote = (id, text) => {
+  const setNote = (id, label, note) => {
     const el = document.getElementById(id);
-    if (el) el.textContent = text;
+    if (!el) return;
+    if (!note) {
+      el.textContent = label || '';
+      return;
+    }
+    el.innerHTML = `${label}<span class="ad-rate-note">${note}</span>`;
   };
 
-  if (isStep) {
-    setNote('headerNoteInitialInterviewRate', '（初回面談数/有効応募数）');
-    setNote('headerNoteOfferRate', '（内定数/初回面談数）'); // Step logic
-    setNote('headerNoteHireRate', '（入社数/内定数）'); // Step logic
-  } else {
-    setNote('headerNoteInitialInterviewRate', '（初回面談数/有効応募数）');
-    setNote('headerNoteOfferRate', '（内定数/有効応募数）'); // Base logic
-    setNote('headerNoteHireRate', '（入社数/有効応募数）'); // Base logic
-  }
+  const initialLabel = '初回面談設定率';
+  const initialNote = '（初回面談数/有効応募数）';
+  const offerLabel = '内定率';
+  const offerNote = isStep
+    ? '（内定数/初回面談数）'
+    : '（内定数/有効応募数）';
+  const hireLabel = '入社率';
+  const hireNote = isStep
+    ? '（入社数/内定数）'
+    : '（入社数/有効応募数）';
+
+  setNote('headerNoteInitialInterviewRate', initialLabel, initialNote);
+  setNote('headerNoteOfferRate', offerLabel, offerNote);
+  setNote('headerNoteHireRate', hireLabel, hireNote);
+
+  setNote('adSummaryInitialInterviewLabel', initialLabel, initialNote);
+  setNote('adSummaryHireRateLabel', hireLabel, hireNote);
 }
 
 function aggregateByMedia(items) {

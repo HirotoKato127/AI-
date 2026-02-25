@@ -1,12 +1,118 @@
 import { getSession } from '../../scripts/auth.js';
 import { authRepo } from '../../scripts/api/repositories/auth.js';
-import { mount as mountYield } from '../yield/yield.js?v=20260211_01';
+import { goalSettingsService } from '../../scripts/services/goalSettings.js';
+import { mount as mountYield } from '../yield/yield.js?v=20260225_18';
 import { mount as mountGoalSettings } from '../goal-settings/goal-settings.js';
 
 const MYPAGE_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
 const MYPAGE_PATH = '/mypage';
 const MYPAGE_FETCH_LIMIT = 50;
 const CANDIDATES_PAGE_SIZE = 10;
+
+const IMPORTANT_METRIC_MAP = {
+  marketing: [
+    { key: 'valid_applications', label: '有効応募数' }
+  ],
+  cs: [
+    { key: 'appointments', label: '設定数' },
+    { key: 'sitting', label: '着座数' }
+  ],
+  sales: [
+    { key: 'new_interviews', label: '新規面談数' },
+    { key: 'proposals', label: '提案数' },
+    { key: 'recommendations', label: '推薦数' },
+    { key: 'interviews_scheduled', label: '面談設定数' },
+    { key: 'interviews_held', label: '面談実施数' },
+    { key: 'offers', label: '内定数' },
+    { key: 'accepts', label: '承諾数' }
+  ]
+};
+
+function mapRoleToDepartment(role) {
+  const r = String(role || '').toLowerCase();
+  if (!r) return '';
+  if (
+    r.includes('caller') ||
+    r.includes('call') ||
+    r.includes('teleapo') ||
+    r.includes('cs') ||
+    r.includes('support') ||
+    r.includes('customer_success')
+  ) return 'cs';
+  if (
+    r.includes('marketer') ||
+    r.includes('marketing') ||
+    r.includes('market') ||
+    r.includes('admin')
+  ) return 'marketing';
+  if (r.includes('advisor') || r.includes('sales')) return 'sales';
+  return '';
+}
+
+function resolveUserDepartmentKey(session) {
+  const roleCandidates = [
+    session?.user?.role,
+    session?.user?.department,
+    session?.user?.division,
+    session?.user?.team,
+    session?.user?.jobTitle
+  ];
+  for (const candidate of roleCandidates) {
+    const mapped = mapRoleToDepartment(candidate);
+    if (mapped) return mapped;
+  }
+  return 'sales';
+}
+
+function resolveUserNumericId(session) {
+  const candidates = [
+    session?.user?.advisorUserId,
+    session?.user?.advisor_user_id,
+    session?.user?.employeeId,
+    session?.user?.userId,
+    session?.user?.id
+  ];
+  for (const value of candidates) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+function resolveDepartmentLabel(deptKey) {
+  if (deptKey === 'marketing') return 'マーケ';
+  if (deptKey === 'cs') return 'CS';
+  if (deptKey === 'sales') return '営業';
+  return deptKey || '';
+}
+
+function resolveImportantMetricLabel(deptKey, metricKey) {
+  const list = IMPORTANT_METRIC_MAP[deptKey] || [];
+  const matched = list.find(item => item.key === metricKey);
+  return matched?.label || metricKey || '-';
+}
+
+async function buildImportantMetricNotification(session) {
+  if (!session || session?.token === 'mock') return null;
+  const deptKey = resolveUserDepartmentKey(session);
+  const userId = resolveUserNumericId(session);
+  if (!deptKey || !userId) return null;
+  try {
+    const items = await goalSettingsService.loadImportantMetrics({ departmentKey: deptKey, userId });
+    const entry = Array.isArray(items) ? items[0] : null;
+    const metricKey = entry?.metricKey ?? entry?.metric_key ?? '';
+    if (!metricKey) return null;
+    const deptLabel = resolveDepartmentLabel(deptKey);
+    const metricLabel = resolveImportantMetricLabel(deptKey, metricKey);
+    return {
+      date: new Date().toISOString(),
+      label: `今月の注目指標（${deptLabel}）：${metricLabel}`
+    };
+  } catch (error) {
+    console.warn('[mypage] failed to load important metric', error);
+    return null;
+  }
+}
 
 const state = {
   roleView: 'advisor',
@@ -134,7 +240,11 @@ async function loadMypageData(session, { monthKey } = {}) {
     state.calendarProgress = mockData.calendar.progressEvents;
     state.candidatesPage = 1;
     renderCalendar();
-    renderNotifications(mockData.notifications);
+    const importantNotice = await buildImportantMetricNotification(session);
+    const notificationList = importantNotice
+      ? [importantNotice, ...mockData.notifications]
+      : mockData.notifications;
+    renderNotifications(notificationList);
     renderCandidates(mockData.candidates, mockData.closedCandidates);
     return;
   }
@@ -164,7 +274,12 @@ async function loadMypageData(session, { monthKey } = {}) {
     state.calendarProgress = data.calendar?.progressEvents || [];
     state.candidatesPage = 1;
     renderCalendar();
-    renderNotifications(data.notifications || []);
+    const importantNotice = await buildImportantMetricNotification(session);
+    const baseNotifications = data.notifications || [];
+    const notificationList = importantNotice
+      ? [importantNotice, ...baseNotifications]
+      : baseNotifications;
+    renderNotifications(notificationList);
     renderCandidates(data.candidates || [], data.closedCandidates || []);
   } catch (error) {
     console.error('[mypage] failed to load data', error);

@@ -1207,13 +1207,12 @@ function buildTeleapoCsStatusOptions({ candidates = teleapoCandidateMaster, sele
 
   return Array.from(values).sort((a, b) => a.localeCompare(b, 'ja'));
 }
-
 function refreshTeleapoCsStatusSelects({ candidates = teleapoCandidateMaster } = {}) {
   const selectIds = ['dialFormCsStatus', 'smsFormCsStatus'];
   const selects = selectIds
     .map((id) => ({ id, element: document.getElementById(id) }))
     .filter((item) => item.element);
-  if (!selects.length) return;
+  if (!selects.length && !document.querySelector('.teleapo-cs-status-select')) return;
 
   const selectedValues = selects.map(({ element }) => String(element.value || '').trim()).filter(Boolean);
   const options = buildTeleapoCsStatusOptions({ candidates, selectedValues });
@@ -1229,6 +1228,170 @@ function refreshTeleapoCsStatusSelects({ candidates = teleapoCandidateMaster } =
       element.value = previous;
     }
   });
+
+  // テーブル内のセレクトボックスも更新
+  const tableSelects = document.querySelectorAll('.teleapo-cs-status-select');
+  tableSelects.forEach(select => {
+    const current = select.value;
+    select.innerHTML = optionsHtml;
+    if (current && options.includes(current)) {
+      select.value = current;
+    }
+  });
+}
+
+/**
+ * CSステータスを削除（非表示リストに追加）
+ * @param {string} status 削除するステータス名
+ */
+window.deleteTeleapoCsStatus = function (status) {
+  const normalized = normalizeTeleapoCsStatus(status);
+  if (!normalized) return;
+
+  if (!window.confirm(`「${normalized}」を削除してもよろしいですか？\n※既に設定済みの候補者のデータには影響しません。`)) return;
+
+  const { custom, deleted } = readTeleapoCsStatusStorage();
+
+  // カスタムステータスならカスタムから削除
+  if (custom.has(normalized)) {
+    custom.delete(normalized);
+    localStorage.setItem(TELEAPO_CS_STATUS_STORAGE_KEY, JSON.stringify(Array.from(custom)));
+  } else {
+    // デフォルトステータスなら非表示リストに追加
+    deleted.add(normalized);
+    localStorage.setItem(TELEAPO_CS_STATUS_DELETED_KEY, JSON.stringify(Array.from(deleted)));
+  }
+
+  refreshTeleapoCsStatusSelects();
+  renderTeleapoCsStatusManager(); // 管理画面を再描画
+};
+
+/**
+ * CSステータスを復元（非表示リストから削除）
+ * @param {string} status 復元するステータス名
+ */
+window.restoreTeleapoCsStatus = function (status) {
+  const normalized = normalizeTeleapoCsStatus(status);
+  if (!normalized) return;
+
+  const { deleted } = readTeleapoCsStatusStorage();
+  if (deleted.has(normalized)) {
+    deleted.delete(normalized);
+    localStorage.setItem(TELEAPO_CS_STATUS_DELETED_KEY, JSON.stringify(Array.from(deleted)));
+  }
+
+  refreshTeleapoCsStatusSelects();
+  renderTeleapoCsStatusManager();
+};
+
+/**
+ * 新規CSステータスを追加
+ * @param {string} status 追加するステータス名
+ */
+window.addTeleapoCsStatus = function (status) {
+  const normalized = normalizeTeleapoCsStatus(status);
+  if (!normalized) return;
+
+  const options = buildTeleapoCsStatusOptions();
+  if (options.includes(normalized)) {
+    window.alert('このステータスは既に存在します');
+    return;
+  }
+
+  const { custom, deleted } = readTeleapoCsStatusStorage();
+
+  // 非表示リストに入っている場合はそこから削除（復元扱い）
+  if (deleted.has(normalized)) {
+    deleted.delete(normalized);
+    localStorage.setItem(TELEAPO_CS_STATUS_DELETED_KEY, JSON.stringify(Array.from(deleted)));
+  } else {
+    // そうでなければカスタムリストに追加
+    custom.add(normalized);
+    localStorage.setItem(TELEAPO_CS_STATUS_STORAGE_KEY, JSON.stringify(Array.from(custom)));
+  }
+
+  refreshTeleapoCsStatusSelects();
+  renderTeleapoCsStatusManager();
+};
+
+/**
+ * CSステータス管理モーダルを表示
+ */
+window.openTeleapoCsStatusManager = function () {
+  const modal = document.getElementById('teleapoCsStatusModal');
+  if (!modal) return;
+
+  renderTeleapoCsStatusManager();
+  modal.classList.remove('hidden');
+};
+
+/**
+ * CSステータス管理モーダルを閉じる
+ */
+window.closeTeleapoCsStatusManager = function () {
+  const modal = document.getElementById('teleapoCsStatusModal');
+  if (modal) modal.classList.add('hidden');
+};
+
+/**
+ * CSステータス管理モーダルの初期設定（イベントバインドなど）
+ */
+function initCsStatusManager() {
+  const input = document.getElementById('newCsStatusInput');
+  if (input) {
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        window.addTeleapoCsStatus(input.value);
+        input.value = '';
+      }
+    });
+  }
+}
+
+/**
+ * CSステータス管理画面の内容を描画
+ */
+function renderTeleapoCsStatusManager() {
+  const listEl = document.getElementById('teleapoCsStatusManagerList');
+  if (!listEl) return;
+
+  const options = buildTeleapoCsStatusOptions();
+  const { deleted } = readTeleapoCsStatusStorage();
+
+  // デフォルトステータスのうち、削除（非表示）されているものも表示して復元できるようにする
+  const allPossibleDefaults = TELEAPO_PREDEFINED_CS_STATUS_OPTIONS;
+  const deletedDefaults = allPossibleDefaults.filter(d => deleted.has(d));
+
+  let html = '';
+
+  // 現在有効なステータス
+  options.forEach(status => {
+    html += `
+      <div class="flex items-center justify-between p-2 hover:bg-slate-50 border-b border-slate-100 last:border-0">
+        <span class="text-sm text-slate-700">${escapeHtml(status)}</span>
+        <button type="button" onclick="deleteTeleapoCsStatus('${escapeHtml(status)}')" class="text-xs text-rose-500 hover:text-rose-700 font-semibold px-2 py-1">
+          削除
+        </button>
+      </div>
+    `;
+  });
+
+  // 非表示中のデフォルトステータス
+  if (deletedDefaults.length > 0) {
+    html += `<div class="mt-4 pt-2 border-t border-slate-200"><p class="text-[11px] font-bold text-slate-400 mb-1">削除済みのデフォルト項目</p></div>`;
+    deletedDefaults.forEach(status => {
+      html += `
+        <div class="flex items-center justify-between p-2 opacity-60">
+          <span class="text-sm text-slate-500 line-through">${escapeHtml(status)}</span>
+          <button type="button" onclick="restoreTeleapoCsStatus('${escapeHtml(status)}')" class="text-xs text-indigo-500 hover:text-indigo-700 font-semibold px-2 py-1">
+            復元
+          </button>
+        </div>
+      `;
+    });
+  }
+
+  listEl.innerHTML = html || '<p class="text-center py-4 text-slate-400 text-sm">ステータスがありません</p>';
 }
 
 function syncDialFormAdvisorSelection({ candidateId, candidateName, preserveCurrent = false } = {}) {
@@ -1411,6 +1574,13 @@ function formatCandidateDateTime(value) {
   const hh = String(date.getHours()).padStart(2, "0");
   const min = String(date.getMinutes()).padStart(2, "0");
   return `${yyyy}/${mm}/${dd} ${hh}:${min}`;
+}
+
+function normalizeCsStatusOption(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (["-", "ー", "未設定", "未入力", "未登録", "未指定"].includes(text)) return "";
+  return text;
 }
 
 function formatCandidateDate(value) {
@@ -2262,6 +2432,7 @@ function normalizeCandidateTask(candidate) {
     phone,
     contactPreferredTime,
     isUncontacted,
+    csStatus: candidate.csStatus ?? candidate.cs_status ?? "",
   };
 }
 
@@ -2300,7 +2471,7 @@ function rebuildCsTaskCandidates() {
   if (!teleapoCandidateMaster.length) return;
   teleapoCsTaskCandidates = teleapoCandidateMaster
     .map(normalizeCandidateTask)
-    .filter((c) => c && c.validApplication && c.isUncontacted);
+    .filter((c) => c && c.validApplication && !c.csStatus);
   renderCsTaskTable(teleapoCsTaskCandidates);
   rebuildMissingInfoCandidates();
 }
@@ -2381,9 +2552,22 @@ function renderCsTaskTable(list, state = {}) {
            data-candidate-id="${escapeHtml(candidateId || '')}"
            data-candidate-name="${escapeHtml(row.candidateName || '')}">${escapeHtml(nameLabel)}</button>`
       : escapeHtml(nameLabel);
+
+    const csStatusOptions = ["", ...buildTeleapoCsStatusOptions()];
+    const currentCsStatusRaw = normalizeCsStatusOption(row.csStatus) || "";
+    const csStatusCell = candidateId ? `
+      <select class="teleapo-cs-status-select teleapo-filter-input" data-candidate-id="${escapeHtml(String(candidateId))}" style="padding: 2px 4px; font-size: 0.875rem; min-width: 6rem; width: 100%;">
+        ${csStatusOptions.map(opt => `
+          <option value="${escapeHtml(opt)}" ${currentCsStatusRaw === opt || (currentCsStatusRaw === "-" && opt === "") ? 'selected' : ''}>
+            ${escapeHtml(opt || "-")}
+          </option>
+        `).join('')}
+      </select>
+    ` : escapeHtml(currentCsStatusRaw || "-");
+
     return `
       <tr>
-        <td class="whitespace-nowrap">${escapeHtml(row.phaseText || "-")}</td>
+        <td class="whitespace-nowrap">${csStatusCell}</td>
         <td class="whitespace-nowrap">${renderValidApplicationBadge(row.validApplication)}</td>
         <td class="whitespace-nowrap">${nameCell}</td>
         <td class="whitespace-nowrap">${escapeHtml(formatCandidateDateTime(row.registeredAt))}</td>
@@ -3994,11 +4178,21 @@ function renderLogTable() {
       : targetText;
 
     // CSステータス解決
-    let csStatusText = "-";
+    let csStatusRaw = "";
     if (targetCandidateId && candidateDetailCache.has(Number(targetCandidateId))) {
       const cached = candidateDetailCache.get(Number(targetCandidateId));
-      if (cached && cached.csStatus) csStatusText = escapeHtml(cached.csStatus);
+      if (cached && cached.csStatus) csStatusRaw = cached.csStatus;
     }
+    const csStatusOptions = ["", ...buildTeleapoCsStatusOptions()];
+    const csStatusCell = targetCandidateId ? `
+      <select class="teleapo-cs-status-select teleapo-filter-input" data-candidate-id="${escapeHtml(String(targetCandidateId))}" style="padding: 2px 4px; font-size: 0.875rem; min-width: 6rem; width: 100%;">
+        ${csStatusOptions.map(opt => `
+          <option value="${escapeHtml(opt)}" ${csStatusRaw === opt || (csStatusRaw === "-" && opt === "") ? 'selected' : ''}>
+            ${escapeHtml(opt || "-")}
+          </option>
+        `).join('')}
+      </select>
+    ` : escapeHtml(csStatusRaw || "-");
 
     // ★ 電話・メールは mapApiLog で candidates 由来が tel/email に入るので表示できる
     const telText = escapeHtml(row.tel || '');
@@ -4025,7 +4219,7 @@ function renderLogTable() {
         <td class="whitespace-nowrap">${escapeHtml(row.employee || '')}</td>
         <td>${escapeHtml(routeLabel)}</td>
         <td>${targetCell}</td>
-        <td>${csStatusText}</td>
+        <td>${csStatusCell}</td>
         <td>${telText}</td>
         <td class="whitespace-nowrap">${contactTimeText}</td>
         <td>${emailText}</td>
@@ -4910,6 +5104,56 @@ function initLogTableActions() {
   const tbody = document.getElementById('teleapoLogTableBody');
   if (!tbody) return;
 
+  tbody.addEventListener('click', (event) => {
+    if (event.target.matches('.teleapo-cs-status-select')) {
+      event.stopPropagation();
+    }
+  });
+
+  tbody.addEventListener('change', async (event) => {
+    if (!event.target.matches('.teleapo-cs-status-select')) return;
+    const select = event.target;
+    const candidateId = select.dataset.candidateId;
+    const newStatus = select.value;
+
+    if (!candidateId) return;
+
+    const oldStatusObj = teleapoLogData.find(l => String(l.candidateId) === String(candidateId));
+    const oldStatus = oldStatusObj ? (oldStatusObj.csStatus ?? oldStatusObj.cs_status ?? "") : "";
+    const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
+    if (newStatus !== oldStatus && MAIL_TRIGGER_STATUSES.includes(newStatus)) {
+      if (!window.confirm(`CSステータスを「${newStatus}」に変更すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
+        select.value = oldStatus;
+        return;
+      }
+    }
+
+    const originalBg = select.style.backgroundColor;
+    select.disabled = true;
+    select.style.backgroundColor = '#f1f5f9';
+
+    try {
+      await updateCandidateCsStatus(candidateId, newStatus);
+      select.style.backgroundColor = '#dcfce7';
+      setTimeout(() => {
+        select.style.backgroundColor = originalBg;
+      }, 1500);
+
+      const allSelects = tbody.querySelectorAll(`.teleapo-cs-status-select[data-candidate-id="${candidateId}"]`);
+      allSelects.forEach(s => {
+        if (s !== select) s.value = newStatus;
+      });
+
+      rebuildCsTaskCandidates();
+    } catch (err) {
+      console.error("Failed to update CS status", err);
+      select.style.backgroundColor = '#fee2e2';
+      window.alert("CSステータスの更新に失敗しました: " + err.message);
+    } finally {
+      select.disabled = false;
+    }
+  });
+
   tbody.addEventListener('click', async (event) => {
     const candidateBtn = event.target.closest('[data-action="open-candidate"]');
     if (candidateBtn) {
@@ -4955,6 +5199,58 @@ function initLogTableActions() {
 function initCsTaskTableActions() {
   const tbody = document.getElementById('teleapoCsTaskTableBody');
   if (!tbody) return;
+
+  tbody.addEventListener('click', (event) => {
+    if (event.target.matches('.teleapo-cs-status-select')) {
+      event.stopPropagation();
+    }
+  });
+
+  tbody.addEventListener('change', async (event) => {
+    if (!event.target.matches('.teleapo-cs-status-select')) return;
+    const select = event.target;
+    const candidateId = select.dataset.candidateId;
+    const newStatus = select.value;
+
+    if (!candidateId) return;
+    const idNum = Number(candidateId);
+
+    const oldStatusObj = teleapoCsTaskCandidates?.find(c => Number(c.candidateId) === idNum);
+    const oldStatus = oldStatusObj ? (oldStatusObj.csStatus ?? oldStatusObj.cs_status ?? "") : "";
+    const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
+    if (newStatus !== oldStatus && MAIL_TRIGGER_STATUSES.includes(newStatus)) {
+      if (!window.confirm(`CSステータスを「${newStatus}」に変更すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
+        select.value = oldStatus;
+        return;
+      }
+    }
+
+    const originalBg = select.style.backgroundColor;
+    select.disabled = true;
+    select.style.backgroundColor = '#f1f5f9';
+
+    try {
+      await updateCandidateCsStatus(candidateId, newStatus);
+      select.style.backgroundColor = '#dcfce7';
+      setTimeout(() => {
+        select.style.backgroundColor = originalBg;
+      }, 1500);
+
+      const allSelects = document.querySelectorAll(`.teleapo-cs-status-select[data-candidate-id="${candidateId}"]`);
+      allSelects.forEach(s => {
+        if (s !== select) s.value = newStatus;
+      });
+
+      rebuildCsTaskCandidates();
+    } catch (err) {
+      console.error("Failed to update CS status", err);
+      select.style.backgroundColor = '#fee2e2';
+      window.alert("CSステータスの更新に失敗しました: " + err.message);
+    } finally {
+      select.disabled = false;
+    }
+  });
+
   tbody.addEventListener('click', (event) => {
     const dialBtn = event.target.closest('[data-action="prefill-dial"]');
     if (dialBtn) {
@@ -5377,6 +5673,7 @@ export function mount() {
   initLogToggle();
   initCandidateQuickView(); // 既存の初期化関数を使用
   initRateModeToggle();
+  initCsStatusManager(); // CSステータス管理の初期化
 
   // initLogForm(); // ← ★削除またはコメントアウト（モック用フォームはもう不要）
 
@@ -5900,6 +6197,19 @@ function bindDialForm() {
       }
     }
 
+    // ---- 既存のステータスチェック ----
+    const csStatus = document.getElementById("dialFormCsStatus")?.value;
+    if (candidateIdValue && csStatus) {
+      const oldLogInfo = teleapoLogData?.find(l => String(l.candidateId) === String(candidateIdValue)) || csTaskData?.find(c => String(c.candidateId) === String(candidateIdValue));
+      const oldStatus = oldLogInfo ? (oldLogInfo.csStatus ?? oldLogInfo.cs_status ?? "") : "";
+      const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
+      if (csStatus !== oldStatus && MAIL_TRIGGER_STATUSES.includes(csStatus)) {
+        if (!window.confirm(`CSステータスを「${csStatus}」に変更して保存すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
+          return;
+        }
+      }
+    }
+
     // 3. 担当者ID (callerUserId) の特定
     // ログから特定できない場合（新規環境など）、デモ用に強制的に '1' を割り当てる安全策を追加
     let callerUserId = resolveDialFormCallerUserId(employee);
@@ -5986,6 +6296,17 @@ function bindDialForm() {
           } catch (err) {
             postSaveWarnings.push("CSステータスの保存に失敗しました");
             console.error("candidate cs status update error:", err);
+          }
+        }
+
+        // 他社選考状況更新
+        const otherSelectionStatus = document.getElementById("dialFormOtherSelectionStatus")?.value;
+        if (otherSelectionStatus) {
+          try {
+            await updateCandidateOtherSelectionStatus(candidateIdValue, otherSelectionStatus);
+          } catch (err) {
+            postSaveWarnings.push("他社選考状況の保存に失敗しました");
+            console.error("candidate other selection status update error:", err);
           }
         }
       }
@@ -6141,6 +6462,19 @@ function bindSmsForm() {
       }
     }
 
+    // ---- 既存のステータスチェック ----
+    const csStatus = document.getElementById("smsFormCsStatus")?.value;
+    if (candidateIdValue && csStatus) {
+      const oldLogInfo = teleapoLogData?.find(l => String(l.candidateId) === String(candidateIdValue)) || csTaskData?.find(c => String(c.candidateId) === String(candidateIdValue));
+      const oldStatus = oldLogInfo ? (oldLogInfo.csStatus ?? oldLogInfo.cs_status ?? "") : "";
+      const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
+      if (csStatus !== oldStatus && MAIL_TRIGGER_STATUSES.includes(csStatus)) {
+        if (!window.confirm(`CSステータスを「${csStatus}」に変更して保存すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
+          return;
+        }
+      }
+    }
+
     let callerUserId = resolveDialFormCallerUserId(employee);
     if (!callerUserId) {
       console.warn("社員IDが特定できないため、デモ用ID(1)を使用します");
@@ -6224,6 +6558,17 @@ function bindSmsForm() {
           } catch (err) {
             postSaveWarnings.push("CSステータスの保存に失敗しました");
             console.error("candidate cs status update error:", err);
+          }
+        }
+
+        // 他社選考状況更新
+        const otherSelectionStatus = document.getElementById("smsFormOtherSelectionStatus")?.value;
+        if (otherSelectionStatus) {
+          try {
+            await updateCandidateOtherSelectionStatus(candidateIdValue, otherSelectionStatus);
+          } catch (err) {
+            postSaveWarnings.push("他社選考状況の保存に失敗しました");
+            console.error("candidate other selection status update error:", err);
           }
         }
       }
@@ -6422,6 +6767,50 @@ async function updateCandidateCsStatus(candidateId, csStatus) {
   const body = {
     detailMode: true,
     csStatus: status,
+    updatedAt: new Date().toISOString()
+  };
+
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+
+  const updated = await res.json();
+
+  if (updated.cs_mail_sent) {
+    window.alert("🎉 自動メールを送信しました！\n（※反映まで少し時間がかかる場合があります）");
+  }
+
+  const normalizedUpdated = normalizeCandidateDetail(updated) || updated;
+  if (candidateDetailCache) {
+    candidateDetailCache.set(idNum, normalizedUpdated);
+  }
+  return normalizedUpdated;
+}
+
+async function updateCandidateOtherSelectionStatus(candidateId, otherSelectionStatus) {
+  const idNum = Number(candidateId);
+  if (!Number.isFinite(idNum) || idNum <= 0) return null;
+
+  const url = getCandidateDetailApiUrl(idNum);
+  if (!url) return null;
+
+  const session = getSession();
+  const token = session?.token;
+  if (!token) throw new Error("認証トークンがありません");
+
+  const body = {
+    detailMode: true,
+    otherSelectionStatus: otherSelectionStatus,
     updatedAt: new Date().toISOString()
   };
 

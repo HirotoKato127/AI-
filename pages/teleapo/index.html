@@ -528,6 +528,80 @@
     color: #475569;
     line-height: 1.6;
   }
+
+  /* ===== CS Status Management Modal ===== */
+  .teleapo-status-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+
+  .teleapo-status-modal.hidden {
+    display: none;
+  }
+
+  .teleapo-status-panel {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 400px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  }
+
+  .teleapo-status-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .teleapo-status-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #1e293b;
+  }
+
+  .teleapo-status-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .teleapo-status-input-group {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+
+  .teleapo-status-input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+
+  .teleapo-status-add-btn {
+    padding: 8px 16px;
+    background: #0077c7;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
 </style>
 
 <section data-page="teleapo" id="teleapoPage" class="kpi-v2-wrapper">
@@ -869,6 +943,19 @@
             <option value="対応保留">対応保留</option>
           </select>
         </div>
+        <div class="teleapo-form-field">
+          <label>他社選考状況</label>
+          <select id="dialFormOtherSelectionStatus">
+            <option value="">未選択</option>
+            <option value="0">0</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6以上">6以上</option>
+          </select>
+        </div>
         <div class="teleapo-form-field teleapo-form-full">
           <label>メモ</label>
           <textarea id="dialFormMemo" rows="2" placeholder="メモを入力"></textarea>
@@ -944,6 +1031,19 @@
             <option value="対応保留">対応保留</option>
           </select>
         </div>
+        <div class="teleapo-form-field">
+          <label>他社選考状況</label>
+          <select id="smsFormOtherSelectionStatus">
+            <option value="">未選択</option>
+            <option value="0">0</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6以上">6以上</option>
+          </select>
+        </div>
         <div class="teleapo-form-field teleapo-form-full">
           <label>メモ</label>
           <textarea id="smsFormMemo" rows="2" placeholder="メモを入力"></textarea>
@@ -962,9 +1062,13 @@
       <div class="teleapo-collapsible-header" id="teleapoCsTaskToggle">
         <div>
           <p class="teleapo-collapsible-title">CSタスク管理</p>
-          <p class="teleapo-collapsible-subtitle">対応が必要な候補者（未接触かつ有効応募）</p>
+          <p class="teleapo-collapsible-subtitle">対応が必要な候補者（CSステータス未設定かつ有効応募）</p>
         </div>
         <div class="teleapo-collapsible-toggle">
+          <button type="button" class="teleapo-filter-btn" onclick="openTeleapoCsStatusManager()"
+            style="margin-right: 8px;">
+            ステータス編集
+          </button>
           <span id="teleapoCsTaskCount" class="teleapo-collapsible-count">0件</span>
           <span class="teleapo-collapsible-btn">一覧を開く</span>
         </div>
@@ -974,7 +1078,7 @@
           <table class="teleapo-table" id="teleapoCsTaskTable">
             <thead>
               <tr>
-                <th>フェーズ</th>
+                <th>CSステータス</th>
                 <th>有効応募</th>
                 <th>求職者名</th>
                 <th>登録日時</th>
@@ -1097,6 +1201,32 @@
       </div>
       <div id="teleapoCandidateDetailContent" class="teleapo-candidate-body">
         <p class="teleapo-candidate-muted">候補者を選択すると詳細が表示されます。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- CSステータス管理モーダル -->
+  <div id="teleapoCsStatusModal" class="teleapo-status-modal hidden">
+    <div class="teleapo-status-panel">
+      <div class="teleapo-status-header">
+        <h3 class="teleapo-status-title">CSステータス管理</h3>
+        <button type="button" onclick="closeTeleapoCsStatusManager()"
+          class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+      </div>
+      <div class="teleapo-status-body">
+        <div class="teleapo-status-input-group">
+          <input type="text" id="newCsStatusInput" class="teleapo-status-input" placeholder="新しいステータス名">
+          <button type="button"
+            onclick="addTeleapoCsStatus(document.getElementById('newCsStatusInput').value); document.getElementById('newCsStatusInput').value='';"
+            class="teleapo-status-add-btn">追加</button>
+        </div>
+        <div id="teleapoCsStatusManagerList" class="flex flex-col gap-1">
+          <!-- ここにステータス一覧が描画される -->
+        </div>
+      </div>
+      <div class="p-4 border-t border-slate-100 flex justify-end">
+        <button type="button" onclick="closeTeleapoCsStatusManager()"
+          class="px-4 py-2 bg-slate-100 text-slate-600 rounded-md text-sm font-medium hover:bg-slate-200">閉じる</button>
       </div>
     </div>
   </div>

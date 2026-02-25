@@ -21,7 +21,7 @@ const DEFAULT_ADVISOR_USER_ID = 30;
 const DEFAULT_CALC_MODE = 'cohort';
 const DEFAULT_RATE_CALC_MODE = 'base';
 const RATE_CALC_MODE_STORAGE_KEY = 'yieldRateCalcMode.v1';
-const YIELD_UI_VERSION = '20260211_01';
+const YIELD_UI_VERSION = '20260225_18';
 const MODE_SCOPE_KEYS = ['personalMonthly', 'personalPeriod', 'companyMonthly', 'companyPeriod', 'companyTerm', 'employee'];
 
 if (typeof window !== 'undefined') {
@@ -928,7 +928,8 @@ const COUNT_ID_MAP = {
     interviewsScheduled: 'companyInterviewsHeld',
     interviewsHeld: 'companyOffers',
     offers: 'companyAccepts',
-    accepts: 'companyHires'
+    accepts: 'companyHires',
+    hires: 'companyHireCount'
   },
   companyPeriod: {
     newInterviews: 'companyPeriodProposals',
@@ -937,7 +938,8 @@ const COUNT_ID_MAP = {
     interviewsScheduled: 'companyPeriodInterviewsHeld',
     interviewsHeld: 'companyPeriodOffers',
     offers: 'companyPeriodAccepts',
-    accepts: 'companyPeriodHires'
+    accepts: 'companyPeriodHires',
+    hires: 'companyPeriodHireCount'
   }
 };
 
@@ -1897,7 +1899,7 @@ export async function mount(root) {
   if (typeof document !== 'undefined') {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = './pages/yield/yield.css?v=20260205_140149';
+    link.href = './pages/yield/yield.css?v=20260225_18';
     document.head.appendChild(link);
   }
 }
@@ -1947,6 +1949,13 @@ function setupRangePresets({ buttonSelector, startInputId, endInputId, onApply }
   if (!buttons.length || !startInput || !endInput) return;
 
   const applyRange = rawRange => {
+    if (rawRange === 'current') {
+      const monthRange = getCurrentMonthRange();
+      startInput.value = monthRange.startDate;
+      endInput.value = monthRange.endDate;
+      if (onApply) onApply(startInput.value, endInput.value);
+      return;
+    }
     const months = parseInt(rawRange, 10) || 0;
     const baseEnd = endInput.value ? new Date(endInput.value) : new Date();
     const normalizedEnd = new Date(baseEnd.getFullYear(), baseEnd.getMonth(), baseEnd.getDate());
@@ -3545,7 +3554,11 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
       const metricKey = metricOption.key;
       const metricLabel = metricOption.label || '';
       const isImportant = !isRevenue && importantMetricKey && metricKey === importantMetricKey;
-      const highlightClass = isImportant ? 'ms-important-row' : '';
+      const highlightBase = isImportant ? 'ms-important-row' : '';
+      const highlightSingle = isImportant ? 'ms-important-row--single' : '';
+      const highlightTop = isImportant ? 'ms-important-row--top' : '';
+      const highlightMiddle = isImportant ? 'ms-important-row--middle' : '';
+      const highlightBottom = isImportant ? 'ms-important-row--bottom' : '';
 
       // MS譛滄俣險ｭ螳壹′譛ｪ險ｭ螳壹・蝣ｴ蜷医・豕ｨ諢剰｡後ｒ陦ｨ遉ｺ縺励※繧ｹ繧ｭ繝・・
       const hasMsPeriod = isRevenue || rowsPerMetricArr[metricIndex] === 3;
@@ -3559,10 +3572,12 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
                </div>
              </th>`
           : '';
+        const noticeRowClass = [noticeTriplet, highlightBase, highlightSingle].filter(Boolean).join(' ');
+        const noticeMetricClass = isImportant ? ' ms-important-metric-cell' : '';
         rows.push(`
-          <tr class="${noticeTriplet} ${highlightClass}">
+          <tr class="${noticeRowClass}">
             ${noticeDeptCell}
-            <th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="1">
+            <th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric${noticeMetricClass}" rowspan="1">
               <div class="ms-metric-cell"><span>${metricLabel}</span></div>
             </th>
             <td class="daily-type ms-no-period-notice" colspan="${dates.length + 1}">
@@ -3574,7 +3589,8 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
       }
 
       const distributeButton = `<div class="ms-distribute-wrap"><button type="button" class="ms-distribute-btn" data-ms-distribute data-scope="personalDaily" data-dept="${dept}" data-metric="${metricKey}">日割り配分</button></div>`;
-      const metricCell = `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric" rowspan="3">
+      const metricHighlightClass = isImportant ? ' ms-important-metric-cell' : '';
+      const metricCell = `<th scope="row" class="kpi-v2-sticky-label kpi-v2-ms-metric${metricHighlightClass}" rowspan="3">
            <div class="ms-metric-cell">
              <span>${metricLabel}</span>
              ${distributeButton}
@@ -3692,8 +3708,11 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
 
       // 3陦梧ｧ矩縺ｧ邨ｱ荳: MS 竊・進捗率 竊・実績
       // 1陦檎岼: MS・・eptCell 縺ｨ metricCell 繧貞・蜉幢ｼ・
+      const topRowClass = [tripletAlt, highlightBase, highlightTop].filter(Boolean).join(' ');
+      const middleRowClass = [tripletAlt, highlightBase, highlightMiddle].filter(Boolean).join(' ');
+      const bottomRowClass = [tripletAlt, highlightBase, highlightBottom].filter(Boolean).join(' ');
       rows.push(`
-        <tr class="${tripletAlt} ${highlightClass}">
+        <tr class="${topRowClass}">
           ${deptCell}
           ${metricCell}
           <td class="daily-type">MS</td>
@@ -3702,14 +3721,14 @@ function renderPersonalDailyTable(periodId, dailyData = {}) {
       `);
       // 2陦檎岼: 進捗率・・owspan縺ｧ邨仙粋貂医∩縺ｪ縺ｮ縺ｧ遨ｺ繧ｻ繝ｫ荳崎ｦ・ｼ・
       rows.push(`
-        <tr class="${tripletAlt} ${highlightClass}">
+        <tr class="${middleRowClass}">
           <td class="daily-type">進捗率</td>
           ${rateCells}
         </tr>
       `);
       // 3陦檎岼: 実績
       rows.push(`
-        <tr class="${tripletAlt} ${highlightClass}">
+        <tr class="${bottomRowClass}">
           <td class="daily-type">実績</td>
           ${actualCells}
         </tr>
@@ -4296,6 +4315,7 @@ async function loadCompanyMsTargets(periodId) {
 
 // MS逶ｮ讓吝・蜉帙ワ繝ｳ繝峨Λ
 function handleMsTargetInput(event) {
+  if (state.yieldScope === 'admin') return;
   const input = event.target;
   const { dept, date, metric } = input.dataset;
   const value = Number(input.value) || 0;
@@ -4335,6 +4355,7 @@ function distributeMsTargets(totalTarget, dates, deptKey, periodId, metricKey = 
 }
 
 function handleCompanyMsDistribute(event) {
+  if (state.yieldScope === 'admin') return;
   const button = event.target;
   const deptKey = button.dataset.dept;
   const metricKey = button.dataset.metric;
@@ -4419,6 +4440,7 @@ function renderCompanyMsTable() {
   const headerRow = document.getElementById('companyMsHeaderRow');
   const body = document.getElementById('companyMsTableBody');
   if (!headerRow || !body) return;
+  const isAdminScope = state.yieldScope === 'admin';
 
   const periodId = state.companyMsPeriodId;
 
@@ -4511,7 +4533,7 @@ function renderCompanyMsTable() {
     ).join('');
 
     // 謖・ｨ吶そ繝ｫ・医そ繝ｬ繧ｯ繝医・繝・け繧ｹ縺ｾ縺溘・繝ｩ繝吶Ν・・
-    const distributeButton = hasMsPeriod
+    const distributeButton = (!isAdminScope && hasMsPeriod)
       ? `<div class="ms-distribute-wrap"><button type="button" class="ms-distribute-btn" data-ms-distribute data-scope="company" data-dept="${dept.key}" data-metric="${metricKey}">日割り配分</button></div>`
       : '';
     const metricRowspan = hasMsPeriod ? 3 : 1;
@@ -4576,6 +4598,7 @@ function renderCompanyMsTable() {
       if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
       const savedMs = cumulativeTargets[idx];
       const displayValue = Number.isFinite(savedMs) ? savedMs : '';
+      const readonlyAttr = isAdminScope ? 'readonly' : '';
       return `
         <td class="ms-target-cell">
           <input type="number" class="ms-target-input company-ms-input"
@@ -4583,7 +4606,8 @@ function renderCompanyMsTable() {
                  data-date="${date}"
                  data-metric="${metricKey || ''}"
                  value="${displayValue}"
-                 min="0" />
+                 min="0"
+                 ${readonlyAttr} />
         </td>
       `;
     }).join('');
@@ -4657,17 +4681,21 @@ function renderCompanyMsTable() {
   });
 
   // MS逶ｮ讓吝・蜉帙・繧､繝吶Φ繝医ヰ繧､繝ｳ繝・
-  body.querySelectorAll('.ms-target-input').forEach(input => {
-    if (input.dataset.bound) return;
-    input.addEventListener('change', handleMsTargetInput);
-    input.dataset.bound = 'true';
-  });
+  if (!isAdminScope) {
+    body.querySelectorAll('.ms-target-input').forEach(input => {
+      if (input.dataset.bound) return;
+      input.addEventListener('change', handleMsTargetInput);
+      input.dataset.bound = 'true';
+    });
+  }
 
-  body.querySelectorAll('[data-ms-distribute][data-scope="company"]').forEach(button => {
-    if (button.dataset.bound) return;
-    button.addEventListener('click', handleCompanyMsDistribute);
-    button.dataset.bound = 'true';
-  });
+  if (!isAdminScope) {
+    body.querySelectorAll('[data-ms-distribute][data-scope="company"]').forEach(button => {
+      if (button.dataset.bound) return;
+      button.addEventListener('click', handleCompanyMsDistribute);
+      button.dataset.bound = 'true';
+    });
+  }
 
 }
 
@@ -4766,6 +4794,7 @@ async function handlePersonalMsMetricChange(event) {
 
 // 蛟倶ｺｺ蛻･MS逶ｮ讓吝・蜉帙ワ繝ｳ繝峨Λ
 function handlePersonalMsTargetInput(event) {
+  if (state.yieldScope === 'admin') return;
   const input = event.target;
   const { dept, member, date, metric } = input.dataset;
   const value = Number(input.value) || 0;
@@ -4811,6 +4840,7 @@ function handlePersonalMsActualInput(event) {
 }
 
 function handlePersonalMsDistribute(event) {
+  if (state.yieldScope === 'admin') return;
   const button = event.target;
   const { dept, member, metric } = button.dataset;
   const periodId = state.companyMsPeriodId;
@@ -4872,6 +4902,7 @@ function updatePersonalMsProgressRate(dept, memberId, date, metricKey) {
 
 // 蛟倶ｺｺ蛻･MS繝・・繝悶Ν繧偵Ξ繝ｳ繝繝ｪ繝ｳ繧ｰ
 function renderPersonalMsTable(deptKey) {
+  const isAdminScope = state.yieldScope === 'admin';
   const deptConfig = {
     marketing: { headerRowId: 'marketingPersonalMsHeaderRow', bodyId: 'marketingPersonalMsTableBody' },
     cs: { headerRowId: 'csPersonalMsHeaderRow', bodyId: 'csPersonalMsTableBody' },
@@ -4949,7 +4980,7 @@ function renderPersonalMsTable(deptKey) {
     const noticeMonth = resolveMsSettingsMonthByPeriodId(periodId) || '選択月';
 
     const isSingleMetric = metrics.length <= 1;
-    const distributeButton = hasMsPeriod
+    const distributeButton = (!isAdminScope && hasMsPeriod)
       ? `<div class="ms-distribute-wrap"><button type="button" class="ms-distribute-btn" data-ms-distribute data-scope="personalMs" data-dept="${deptKey}" data-member="${memberId}" data-metric="${currentMetricKey}">日割り配分</button></div>`
       : '';
     const metricRowspan = hasMsPeriod ? 3 : 1;
@@ -5050,6 +5081,7 @@ function renderPersonalMsTable(deptKey) {
       if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
       const value = cumulativeTargets[idx];
       const displayValue = Number.isFinite(value) ? value : '';
+      const readonlyAttr = isAdminScope ? 'readonly' : '';
       return `
         <td class="ms-target-cell">
           <input type="number" class="ms-target-input personal-ms-target-input" 
@@ -5058,7 +5090,8 @@ function renderPersonalMsTable(deptKey) {
                  data-date="${date}"
                  data-metric="${currentMetricKey}"
                  value="${displayValue}" 
-                 min="0" />
+                 min="0"
+                 ${readonlyAttr} />
         </td>
       `;
     }).join('');
@@ -5122,17 +5155,21 @@ function renderPersonalMsTable(deptKey) {
     select.dataset.bound = 'true';
   });
 
-  body.querySelectorAll('.personal-ms-target-input').forEach(input => {
-    if (input.dataset.bound) return;
-    input.addEventListener('change', handlePersonalMsTargetInput);
-    input.dataset.bound = 'true';
-  });
+  if (!isAdminScope) {
+    body.querySelectorAll('.personal-ms-target-input').forEach(input => {
+      if (input.dataset.bound) return;
+      input.addEventListener('change', handlePersonalMsTargetInput);
+      input.dataset.bound = 'true';
+    });
+  }
 
-  body.querySelectorAll('[data-ms-distribute][data-scope="personalMs"]').forEach(button => {
-    if (button.dataset.bound) return;
-    button.addEventListener('click', handlePersonalMsDistribute);
-    button.dataset.bound = 'true';
-  });
+  if (!isAdminScope) {
+    body.querySelectorAll('[data-ms-distribute][data-scope="personalMs"]').forEach(button => {
+      if (button.dataset.bound) return;
+      button.addEventListener('click', handlePersonalMsDistribute);
+      button.dataset.bound = 'true';
+    });
+  }
 }
 
 // 蛟倶ｺｺ蛻･MS繝・・繝悶Ν繧偵☆縺ｹ縺ｦ繝ｬ繝ｳ繝繝ｪ繝ｳ繧ｰ
@@ -6259,61 +6296,131 @@ async function initializeDashboardSection() {
     .catch(error => console.error('[yield] failed to load Chart.js', error));
 }
 
-async function reloadDashboardData(scope) {
-  const range = getDashboardRange(scope);
-  const advisorUserId = scope === 'personal' ? await resolveAdvisorUserId() : null;
-  const granularity = getDashboardTrendGranularity(scope);
-  const calcModeScope = scope === 'personal' ? 'personalMonthly' : 'companyMonthly';
-  try {
-    const [trend, job, gender, age, media] = await Promise.all([
-      fetchYieldTrendFromApi({
-        startDate: range.startDate,
-        endDate: range.endDate,
-        scope,
-        advisorUserId,
-        granularity,
-        calcModeScope
-      }),
-      fetchYieldBreakdownFromApi({
-        startDate: range.startDate,
-        endDate: range.endDate,
-        scope,
-        advisorUserId,
-        dimension: 'job',
-        calcModeScope
-      }),
-      fetchYieldBreakdownFromApi({
-        startDate: range.startDate,
-        endDate: range.endDate,
-        scope,
-        advisorUserId,
-        dimension: 'gender',
-        calcModeScope
-      }),
-      fetchYieldBreakdownFromApi({
-        startDate: range.startDate,
-        endDate: range.endDate,
-        scope,
-        advisorUserId,
-        dimension: 'age',
-        calcModeScope
-      }),
-      scope === 'company'
-        ? fetchYieldBreakdownFromApi({
+  async function reloadDashboardData(scope) {
+    const range = getDashboardRange(scope);
+    const advisorUserId = scope === 'personal' ? await resolveAdvisorUserId() : null;
+    const granularity = getDashboardTrendGranularity(scope);
+    const calcModeScope = scope === 'personal' ? 'personalMonthly' : 'companyMonthly';
+    try {
+      const results = await Promise.allSettled([
+        fetchYieldTrendFromApi({
           startDate: range.startDate,
           endDate: range.endDate,
           scope,
-          dimension: 'media',
+          advisorUserId,
+          granularity,
           calcModeScope
-        })
-        : Promise.resolve(null)
-    ]);
+        }),
+        fetchYieldBreakdownFromApi({
+          startDate: range.startDate,
+          endDate: range.endDate,
+          scope,
+          advisorUserId,
+          dimension: 'job',
+          calcModeScope
+        }),
+        fetchYieldBreakdownFromApi({
+          startDate: range.startDate,
+          endDate: range.endDate,
+          scope,
+          advisorUserId,
+          dimension: 'gender',
+          calcModeScope
+        }),
+        fetchYieldBreakdownFromApi({
+          startDate: range.startDate,
+          endDate: range.endDate,
+          scope,
+          advisorUserId,
+          dimension: 'age',
+          calcModeScope
+        }),
+        fetchYieldBreakdownFromApi({
+          startDate: range.startDate,
+          endDate: range.endDate,
+          scope,
+          advisorUserId,
+          dimension: 'other_selection_status',
+          calcModeScope
+        }),
+        fetchYieldBreakdownFromApi({
+          startDate: range.startDate,
+          endDate: range.endDate,
+          scope,
+          advisorUserId,
+          dimension: 'address_pref',
+          calcModeScope
+        }),
+        fetchYieldBreakdownFromApi({
+          startDate: range.startDate,
+          endDate: range.endDate,
+          scope,
+          advisorUserId,
+          dimension: 'has_chronic_disease',
+          calcModeScope
+        }),
+        fetchYieldBreakdownFromApi({
+          startDate: range.startDate,
+          endDate: range.endDate,
+          scope,
+          advisorUserId,
+          dimension: 'personal_concerns',
+          calcModeScope
+        }),
+        scope === 'company'
+          ? fetchYieldBreakdownFromApi({
+            startDate: range.startDate,
+            endDate: range.endDate,
+            scope,
+            dimension: 'media',
+            calcModeScope
+          })
+          : Promise.resolve(null)
+      ]);
 
-    state.dashboard[scope].trendData = trend;
-    state.dashboard[scope].breakdown = {
-      jobCategories: job,
-      gender,
+      const [
+        trendResult,
+        jobResult,
+        genderResult,
+        ageResult,
+        otherSelectionResult,
+        prefectureResult,
+        chronicResult,
+        concernResult,
+        mediaResult
+      ] = results;
+
+      const trend = trendResult.status === 'fulfilled' ? trendResult.value : null;
+      if (trendResult.status === 'rejected') {
+        console.warn('[yield] trend fetch failed', trendResult.reason);
+      }
+
+      const unwrapBreakdown = (result, dimension) => {
+        if (result.status === 'fulfilled') return result.value;
+        if (result.status === 'rejected') {
+          console.warn(`[yield] breakdown fetch failed (${dimension})`, result.reason);
+        }
+        return null;
+      };
+
+      const job = unwrapBreakdown(jobResult, 'job');
+      const gender = unwrapBreakdown(genderResult, 'gender');
+      const age = unwrapBreakdown(ageResult, 'age');
+      const otherSelection = unwrapBreakdown(otherSelectionResult, 'other_selection_status');
+      const prefecture = unwrapBreakdown(prefectureResult, 'address_pref');
+      const chronic = unwrapBreakdown(chronicResult, 'has_chronic_disease');
+      const concern = unwrapBreakdown(concernResult, 'personal_concerns');
+      const media = unwrapBreakdown(mediaResult, 'media');
+
+      state.dashboard[scope].trendData = trend;
+      state.dashboard[scope].breakdown = {
+        jobCategories: job,
+        gender,
       ageGroups: age,
+      otherSelections: otherSelection,
+      prefectures: prefecture,
+      chronicDiseases: chronic,
+      personalConcerns: concern,
       ...(scope === 'company' ? { mediaSources: media } : {})
     };
     renderDashboardCharts(scope);
@@ -6377,6 +6484,10 @@ function renderDashboardCharts(scope) {
   renderCategoryChart({ scope, chartId: `${scope}JobChart`, datasetKey: 'jobCategories', type: 'bar' });
   renderCategoryChart({ scope, chartId: `${scope}GenderChart`, datasetKey: 'gender', type: 'doughnut' });
   renderCategoryChart({ scope, chartId: `${scope}AgeChart`, datasetKey: 'ageGroups', type: 'bar' });
+  renderCategoryChart({ scope, chartId: `${scope}OtherSelectionChart`, datasetKey: 'otherSelections', type: 'doughnut' });
+  renderCategoryChart({ scope, chartId: `${scope}PrefectureChart`, datasetKey: 'prefectures', type: 'doughnut' });
+  renderCategoryChart({ scope, chartId: `${scope}ChronicChart`, datasetKey: 'chronicDiseases', type: 'doughnut' });
+  renderCategoryChart({ scope, chartId: `${scope}ConcernChart`, datasetKey: 'personalConcerns', type: 'doughnut' });
   if (scope === 'company') {
     renderCategoryChart({ scope, chartId: 'companyMediaChart', datasetKey: 'mediaSources', type: 'bar' });
   }
@@ -6414,19 +6525,37 @@ function renderTrendChart(scope) {
   });
 }
 
-function renderCategoryChart({ scope, chartId, datasetKey, type }) {
-  const canvas = document.getElementById(chartId);
-  if (!canvas || !window.Chart) return;
+  function renderCategoryChart({ scope, chartId, datasetKey, type }) {
+    const canvas = document.getElementById(chartId);
+    if (!canvas || !window.Chart) return;
 
-  const breakdown = state.dashboard[scope]?.breakdown;
-  const dataset = breakdown?.[datasetKey];
+    const breakdown = state.dashboard[scope]?.breakdown;
+    const dataset = breakdown?.[datasetKey];
+    const chartWrap = canvas.closest('.dashboard-chart');
+    const existingEmpty = chartWrap?.querySelector('.dashboard-chart-empty');
+    const setEmptyState = (isEmpty) => {
+      if (!chartWrap) return;
+      chartWrap.classList.toggle('is-empty', isEmpty);
+      if (isEmpty) {
+        if (!existingEmpty) {
+          const empty = document.createElement('div');
+          empty.className = 'dashboard-chart-empty';
+          empty.textContent = 'データなし';
+          chartWrap.appendChild(empty);
+        }
+      } else if (existingEmpty) {
+        existingEmpty.remove();
+      }
+    };
 
-  if (!dataset || !Array.isArray(dataset.labels) || !Array.isArray(dataset.data) || !dataset.labels.length) {
+    if (!dataset || !Array.isArray(dataset.labels) || !Array.isArray(dataset.data) || !dataset.labels.length) {
+      destroyChart(scope, chartId);
+      setEmptyState(true);
+      return;
+    }
+    setEmptyState(false);
+
     destroyChart(scope, chartId);
-    return;
-  }
-
-  destroyChart(scope, chartId);
   const colors = getChartColors(dataset.labels.length, type === 'doughnut' ? 0.9 : 0.25);
   const data = {
     labels: dataset.labels,

@@ -2,27 +2,31 @@ import pg from "pg";
 
 // CORS設定: 環境変数から許可オリジンを取得
 const ALLOWED_ORIGINS = new Set([
-  "http://localhost:8000",
-  "http://localhost:8001",
-  "http://localhost:8081",
-  "https://agent-key.pages.dev",
-  "https://develop.agent-key.pages.dev",
+    "http://localhost:8000",
+    "http://localhost:8001",
+    "http://localhost:8081",
+    "https://agent-key.pages.dev",
+    "https://develop.agent-key.pages.dev",
 ]);
 const baseHeaders = {
-  "Content-Type": "application/json",
-  "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
-  "Access-Control-Allow-Headers": "content-type,authorization",
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "content-type,authorization",
 };
 
 function buildHeaders(event) {
-  const origin = event?.headers?.origin || event?.headers?.Origin || "";
-  if (ALLOWED_ORIGINS.has(origin)) {
-    return { ...baseHeaders, "Access-Control-Allow-Origin": origin };
-  }
-  return baseHeaders;
+    const origin = event?.headers?.origin || event?.headers?.Origin || "";
+    if (ALLOWED_ORIGINS.has(origin)) {
+        return { ...baseHeaders, "Access-Control-Allow-Origin": origin };
+    }
+    return baseHeaders;
 }
 
 const { Pool } = pg;
+
+// SDKクライアントをLazy Loadingで宣言（初期化エラー回避）
+let lambdaClientInstance = null;
+let InvokeCommandClass = null;
 
 const pool = new Pool({
     host: (process.env.DB_HOST || "").trim(),
@@ -34,7 +38,6 @@ const pool = new Pool({
     max: 2,
     idleTimeoutMillis: 30000,
 });
-
 
 // ヘルパー関数
 const toIntOrNull = (v) => {
@@ -86,6 +89,73 @@ const toBooleanOrNull = (v) => {
     return null;
 };
 
+const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
+
+async function tryInvokeCsStatusMailer(client, candidateId, newCsStatusRaw) {
+    const newCsStatus = emptyToNull(newCsStatusRaw);
+    console.log(`[CS-MAIL-DEBUG] 1. PUTリクエスト受信. newCsStatus: ${newCsStatus}`);
+    if (!newCsStatus) {
+        console.log(`[CS-MAIL-DEBUG] 2. newCsStatusが空のためスキップ`);
+        return false;
+    }
+
+    const oldRow = await client.query(
+        "SELECT name, email, cs_status FROM candidates WHERE id = $1",
+        [candidateId]
+    );
+    const oldCsStatus = oldRow.rows[0]?.cs_status || "";
+    const candidateName = oldRow.rows[0]?.name || "";
+    const candidateEmail = oldRow.rows[0]?.email || "";
+    console.log(`[CS-MAIL-DEBUG] 2. DBから現在ステータス取得. oldCsStatus: ${oldCsStatus}`);
+
+    if (oldCsStatus === newCsStatus) {
+        console.log(`[CS-MAIL-DEBUG] 3. ステータス変更なしのためスキップ`);
+        return false;
+    }
+
+    console.log(`[CS-MAIL-DEBUG] 3. ステータス変更検知! Invoke準備開始...`);
+    try {
+        if (!lambdaClientInstance || !InvokeCommandClass) {
+            console.log(`[CS-MAIL-DEBUG] 4a. LambdaClient初期化失敗のため非同期importを試行`);
+            const importPromise = import("@aws-sdk/client-lambda");
+            const timeoutImport = new Promise((_, reject) => setTimeout(() => reject(new Error("NETWORK_TIMEOUT_IMPORT_SDK")), 4000));
+            const sdk = await Promise.race([importPromise, timeoutImport]);
+            InvokeCommandClass = sdk.InvokeCommand;
+            lambdaClientInstance = new sdk.LambdaClient({ region: "ap-northeast-1" });
+        } else {
+            console.log(`[CS-MAIL-DEBUG] 4b. LambdaClientのキャッシュ利用開始`);
+        }
+
+        const invokePayload = {
+            candidateId,
+            newStatus: newCsStatus,
+            oldStatus: oldCsStatus,
+            candidateName,
+            candidateEmail
+        };
+        console.log(`[CS-MAIL-DEBUG] 5. InvokePayload:`, JSON.stringify(invokePayload));
+
+        const sendPromise = lambdaClientInstance.send(new InvokeCommandClass({
+            FunctionName: "ats-api-prod-cs-status-mailer",
+            InvocationType: "Event",
+            Payload: JSON.stringify(invokePayload)
+        }));
+        const timeoutSend = new Promise((_, reject) => setTimeout(() => reject(new Error("NETWORK_TIMEOUT_SENDING_API")), 3000));
+        const response = await Promise.race([sendPromise, timeoutSend]);
+        console.log(`[CS-MAIL-DEBUG] 6. InvokeCommand送信完了! Response StatusCode: ${response.$metadata?.httpStatusCode}`);
+
+        if (MAIL_TRIGGER_STATUSES.includes(newCsStatus)) {
+            // 送信元のLambdaで送信日時を記録する
+            console.log(`[CS-MAIL-DEBUG] 6a. DB送信記録更新実行`);
+            await client.query("UPDATE candidates SET cs_status_notify_sent_at = NOW() WHERE id = $1", [candidateId]);
+            return true;
+        }
+    } catch (mailErr) {
+        console.error("[CS-MAIL-DEBUG] X. InvokeCommand送信エラー:", mailErr);
+    }
+    return false;
+}
+
 const calculateAge = (birthDate) => {
     if (!birthDate) return null;
     const date = new Date(birthDate);
@@ -98,32 +168,47 @@ const calculateAge = (birthDate) => {
 };
 
 async function fetchMasters(client) {
-    const [clientsRes, usersRes] = await Promise.all([
+    const [clientsRes, usersRes, csStatusesRes] = await Promise.all([
         client.query("SELECT id, name FROM clients ORDER BY name ASC"),
         client.query("SELECT id, name, role FROM users ORDER BY name ASC"),
+        client.query(`
+            SELECT DISTINCT cs_status
+            FROM candidates
+            WHERE COALESCE(cs_status, '') <> ''
+            ORDER BY cs_status ASC
+        `),
     ]);
-    return { clients: clientsRes.rows || [], users: usersRes.rows || [] };
+    const users = usersRes.rows || [];
+    const csUsers = users.filter((user) => normalizeRole(user?.role) === "caller");
+    const advisorUsers = users.filter((user) => normalizeRole(user?.role) === "advisor");
+    const csStatuses = (csStatusesRes.rows || [])
+        .map((row) => row.cs_status)
+        .filter((v) => String(v || "").trim() !== "");
+    return { clients: clientsRes.rows || [], users, csUsers, advisorUsers, csStatuses };
 }
 
 // 候補者の「未完了の直近タスク」をcandidatesテーブルに同期する関数
 async function syncNextActionDate(client, candidateId) {
-    await client.query(`
+    await client.query(
+        `
     UPDATE candidates
     SET 
       next_action_date = (
         SELECT action_date 
         FROM candidate_tasks 
         WHERE candidate_id = $1 AND is_completed = false 
-        ORDER BY action_date ASC LIMIT 1
+        ORDER BY action_date ASC, created_at ASC, id ASC LIMIT 1
       ),
       next_action_note = (
         SELECT action_note 
         FROM candidate_tasks 
         WHERE candidate_id = $1 AND is_completed = false 
-        ORDER BY action_date ASC LIMIT 1
+        ORDER BY action_date ASC, created_at ASC, id ASC LIMIT 1
       )
     WHERE id = $1
-  `, [candidateId]);
+  `,
+        [candidateId]
+    );
 }
 
 async function fetchCandidateDetail(client, candidateId, includeMaster = false) {
@@ -138,7 +223,14 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
       ca_latest.client_name AS latest_company_name,
       ca_latest.job_title AS latest_job_name,
       ca_latest.stage_current AS latest_stage_current,
-      u_call.name AS caller_name
+      u_call.name AS caller_name,
+      c.hearing_free_memo,
+      c.other_selection_status,
+      c.has_chronic_disease,
+      c.chronic_disease_detail,
+      c.relocation_possible,
+      c.relocation_impossible_reason,
+      c.personal_concerns
     FROM candidates c
     LEFT JOIN users u_ad ON u_ad.id = c.advisor_user_id
     LEFT JOIN users u_pt ON u_pt.id = c.partner_user_id
@@ -227,13 +319,13 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
     ORDER BY action_date DESC, created_at DESC
   `;
     const tasksRes = await client.query(tasksSql, [candidateId]);
-    const tasks = tasksRes.rows.map(row => ({
+    const tasks = tasksRes.rows.map((row) => ({
         id: row.id,
         actionDate: row.action_date,
         actionNote: row.action_note,
         isCompleted: row.is_completed,
         completedAt: row.completed_at,
-        createdAt: row.created_at
+        createdAt: row.created_at,
     }));
 
     // 4. テレアポログの取得
@@ -253,7 +345,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
     ORDER BY t.called_at DESC, t.call_no DESC
   `;
     const teleapoRes = await client.query(teleapoSql, [candidateId]);
-    const teleapoLogs = teleapoRes.rows.map(row => ({
+    const teleapoLogs = teleapoRes.rows.map((row) => ({
         id: row.id,
         callNo: row.call_no,
         calledAt: row.called_at,
@@ -261,7 +353,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         route: row.route,
         memo: row.memo,
         callerUserId: row.caller_user_id,
-        callerName: row.caller_name
+        callerName: row.caller_name,
     }));
 
     // 5. 売上・返金情報の取得
@@ -286,7 +378,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
     ORDER BY COALESCE(ca.updated_at, ca.created_at) DESC
   `;
     const moneyRes = await client.query(moneySql, [candidateId]);
-    const moneyInfo = moneyRes.rows.map(row => ({
+    const moneyInfo = moneyRes.rows.map((row) => ({
         applicationId: row.application_id,
         clientId: row.client_id,
         companyName: row.company_name ?? "",
@@ -298,7 +390,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         refundAmount: row.refund_amount,
         withdrawDate: row.withdraw_date,
         orderReported: row.order_reported,
-        refundReported: row.refund_reported
+        refundReported: row.refund_reported,
     }));
 
     // 整形
@@ -349,6 +441,8 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         advisorName: b.user_advisor_name ?? b.partner_name ?? b.advisor_name ?? "",
         partnerName: b.user_partner_name ?? b.partner_name ?? "",
         csName: b.cs_name ?? "",
+        csStatus: b.cs_status ?? "",
+        cs_status: b.cs_status ?? "",
         callerName: b.caller_name ?? "",
         phase,
         phases,
@@ -371,11 +465,6 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         recommendationText: b.recommendation_text ?? "",
         careerReason: b.career_reason ?? "",
         transferTiming: b.transfer_timing ?? "",
-        jobChangeAxis: b.job_change_axis ?? b.career_motivation ?? "",
-        jobChangeTiming: b.job_change_timing ?? b.transfer_timing ?? "",
-        futureVision: b.future_vision ?? "",
-        desiredInterviewDates: b.desired_interview_dates ?? b.interview_preferred_date ?? "",
-        sharedInterviewDate: b.shared_interview_date ?? "",
         firstInterviewNote: b.first_interview_note ?? "",
         otherSelectionStatus: b.other_selection_status ?? "",
         interviewPreferredDate: b.interview_preferred_date ?? "",
@@ -388,6 +477,12 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         firstContactPlannedAt: b.first_contact_planned_at ?? null,
         attendanceConfirmed: Boolean(b.first_interview_attended),
         scheduleConfirmedAt: b.first_schedule_fixed_at ?? null,
+        hearingFreeMemo: b.hearing_free_memo ?? "",
+        hasChronicDisease: b.has_chronic_disease !== null ? Boolean(b.has_chronic_disease) : null,
+        chronicDiseaseDetail: b.chronic_disease_detail ?? "",
+        relocationPossible: b.relocation_possible !== null ? Boolean(b.relocation_possible) : null,
+        relocationImpossibleReason: b.relocation_impossible_reason ?? "",
+        personalConcerns: b.personal_concerns ?? "",
 
         selectionProgress,
         teleapoLogs,
@@ -428,10 +523,13 @@ export const handler = async (event) => {
         }
 
         if (method === "PUT") {
-            const rawBody = event?.isBase64Encoded ? Buffer.from(event.body || "", "base64").toString("utf8") : (event.body || "");
+            const rawBody = event?.isBase64Encoded
+                ? Buffer.from(event.body || "", "base64").toString("utf8")
+                : (event.body || "");
             const payload = JSON.parse(rawBody || "{}");
             const detailMode = Boolean(payload.detailMode ?? payload.detail_mode);
 
+            let mailInvokedIndicator = false;
             await client.query("BEGIN");
 
             try {
@@ -490,80 +588,195 @@ export const handler = async (event) => {
               other_selection_status = COALESCE($34, other_selection_status),
               first_interview_note = COALESCE($35, first_interview_note),
               interview_preferred_date = COALESCE($36, interview_preferred_date),
-              job_change_axis = CASE WHEN $37 THEN $38 ELSE job_change_axis END,
-              job_change_timing = CASE WHEN $39 THEN $40 ELSE job_change_timing END,
-              future_vision = CASE WHEN $41 THEN $42 ELSE future_vision END,
-              recommendation_text = CASE WHEN $43 THEN $44 ELSE recommendation_text END,
-              desired_interview_dates = CASE WHEN $45 THEN $46 ELSE desired_interview_dates END,
-              shared_interview_date = CASE WHEN $47 THEN $48 ELSE shared_interview_date END
+              cs_status = COALESCE($37, cs_status),
+              hearing_free_memo = COALESCE($38, hearing_free_memo),
+              has_chronic_disease = COALESCE($39, has_chronic_disease),
+              chronic_disease_detail = COALESCE($40, chronic_disease_detail),
+              relocation_possible = COALESCE($41, relocation_possible),
+              relocation_impossible_reason = COALESCE($42, relocation_impossible_reason),
+              personal_concerns = COALESCE($43, personal_concerns)
             WHERE id = $1
           `;
                     const p = [
                         candidateId,
-                        typeof payload.validApplication === 'boolean' ? payload.validApplication : null,
+                        typeof payload.validApplication === "boolean" ? payload.validApplication : null,
                         resolvedAdvisorUserId,
                         resolvedCsUserId,
-                        emptyToNull(payload.scheduleConfirmedAt), emptyToNull(payload.firstContactPlannedAt), emptyToNull(payload.firstInterviewDate),
+                        emptyToNull(payload.scheduleConfirmedAt),
+                        emptyToNull(payload.firstContactPlannedAt),
+                        emptyToNull(payload.firstInterviewDate),
                         toBooleanOrNull(payload.attendanceConfirmed),
-                        emptyToNull(payload.candidateName), emptyToNull(payload.candidateKana), emptyToNull(payload.gender), emptyToNull(payload.birthDate),
-                        emptyToNull(payload.phone), emptyToNull(payload.email), emptyToNull(payload.postalCode), emptyToNull(payload.addressPref),
-                        emptyToNull(payload.addressCity), emptyToNull(payload.addressDetail), emptyToNull(payload.education),
-                        emptyToNull(payload.nationality), emptyToNull(payload.japaneseLevel), emptyToNull(payload.mandatoryInterviewItems),
-                        emptyToNull(payload.desiredLocation), emptyToNull(payload.desiredJobType), emptyToNull(payload.currentIncome), emptyToNull(payload.desiredIncome),
-                        emptyToNull(payload.employmentStatus), emptyToNull(payload.careerReason), emptyToNull(payload.careerMotivation), emptyToNull(payload.transferTiming),
-                        emptyToNull(payload.skills), emptyToNull(payload.personality), emptyToNull(payload.workExperience), emptyToNull(payload.otherSelectionStatus),
-                        emptyToNull(payload.firstInterviewNote), emptyToNull(payload.interviewPreferredDate),
-                        Object.prototype.hasOwnProperty.call(payload, "jobChangeAxis"), emptyToNull(payload.jobChangeAxis),
-                        Object.prototype.hasOwnProperty.call(payload, "jobChangeTiming"), emptyToNull(payload.jobChangeTiming),
-                        Object.prototype.hasOwnProperty.call(payload, "futureVision"), emptyToNull(payload.futureVision),
-                        Object.prototype.hasOwnProperty.call(payload, "recommendationText"), emptyToNull(payload.recommendationText),
-                        Object.prototype.hasOwnProperty.call(payload, "desiredInterviewDates"), emptyToNull(payload.desiredInterviewDates),
-                        Object.prototype.hasOwnProperty.call(payload, "sharedInterviewDate"), emptyToNull(payload.sharedInterviewDate)
+                        emptyToNull(payload.candidateName),
+                        emptyToNull(payload.candidateKana),
+                        emptyToNull(payload.gender),
+                        emptyToNull(payload.birthDate),
+                        emptyToNull(payload.phone),
+                        emptyToNull(payload.email),
+                        emptyToNull(payload.postalCode),
+                        emptyToNull(payload.addressPref),
+                        emptyToNull(payload.addressCity),
+                        emptyToNull(payload.addressDetail),
+                        emptyToNull(payload.education),
+                        emptyToNull(payload.nationality),
+                        emptyToNull(payload.japaneseLevel),
+                        emptyToNull(payload.mandatoryInterviewItems),
+                        emptyToNull(payload.desiredLocation),
+                        emptyToNull(payload.desiredJobType),
+                        emptyToNull(payload.currentIncome),
+                        emptyToNull(payload.desiredIncome),
+                        emptyToNull(payload.employmentStatus),
+                        emptyToNull(payload.careerReason),
+                        emptyToNull(payload.careerMotivation),
+                        emptyToNull(payload.transferTiming),
+                        emptyToNull(payload.skills),
+                        emptyToNull(payload.personality),
+                        emptyToNull(payload.workExperience),
+                        emptyToNull(payload.otherSelectionStatus),
+                        emptyToNull(payload.firstInterviewNote),
+                        emptyToNull(payload.interviewPreferredDate),
+                        emptyToNull(payload.csStatus ?? payload.cs_status),
+                        emptyToNull(payload.hearingFreeMemo ?? payload.hearing?.freeMemo),
+                        toBooleanOrNull(payload.hasChronicDisease),
+                        emptyToNull(payload.chronicDiseaseDetail),
+                        toBooleanOrNull(payload.relocationPossible),
+                        emptyToNull(payload.relocationImpossibleReason),
+                        emptyToNull(payload.personalConcerns)
                     ];
+
+                    // --- CSステータス変更メール送信 ---
+                    if (await tryInvokeCsStatusMailer(client, candidateId, payload.csStatus ?? payload.cs_status)) {
+                        mailInvokedIndicator = true;
+                    }
+
                     await client.query(updateSql, p);
 
                     // 2. タスク（次回アクション）の登録・完了・削除処理
 
-                    // (A) 新しいタスクの追加
+                    // (A) 新しいタスクの追加・更新（同一候補者の未完了は常に1件に保つ）
                     const newActionDate = emptyToNull(payload.nextActionDate);
                     const newActionNote = emptyToNull(payload.nextActionNote);
-                    if (newActionDate && newActionNote) {
-                        await client.query(`
+                    if (newActionDate) {
+                        const existingTaskRes = await client.query(
+                            `
+                SELECT id
+                FROM candidate_tasks
+                WHERE candidate_id = $1 AND is_completed = false
+                ORDER BY action_date ASC, created_at ASC, id ASC
+                LIMIT 1
+             `,
+                            [candidateId]
+                        );
+
+                        if (existingTaskRes.rows.length > 0) {
+                            await client.query(
+                                `
+                UPDATE candidate_tasks
+                SET action_date = $1, action_note = $2, updated_at = NOW()
+                WHERE id = $3
+             `,
+                                [newActionDate, newActionNote, existingTaskRes.rows[0].id]
+                            );
+                        } else if (newActionNote) {
+                            await client.query(
+                                `
                 INSERT INTO candidate_tasks (candidate_id, action_date, action_note, is_completed, created_at, updated_at)
                 VALUES ($1, $2, $3, false, NOW(), NOW())
-             `, [candidateId, newActionDate, newActionNote]);
+             `,
+                                [candidateId, newActionDate, newActionNote]
+                            );
+                        }
                     }
 
                     // (B) タスクの完了処理
                     const completeTaskId = toIntOrNull(payload.completeTaskId);
                     if (completeTaskId) {
-                        await client.query(`
+                        await client.query(
+                            `
                 UPDATE candidate_tasks 
                 SET is_completed = true, completed_at = NOW(), updated_at = NOW()
                 WHERE id = $1 AND candidate_id = $2
-             `, [completeTaskId, candidateId]);
+             `,
+                            [completeTaskId, candidateId]
+                        );
                     }
 
-                    // (C) ★追加: タスクの削除処理
+                    // (C) タスクの削除処理
                     const deleteTaskId = toIntOrNull(payload.deleteTaskId);
                     if (deleteTaskId) {
-                        await client.query(`
+                        await client.query(
+                            `
                             DELETE FROM candidate_tasks
                             WHERE id = $1 AND candidate_id = $2
-                        `, [deleteTaskId, candidateId]);
+                        `,
+                            [deleteTaskId, candidateId]
+                        );
                     }
 
-                    // (D) candidatesテーブルの同期 (未完了の直近タスクを本体に反映)
-                    // 追加・完了・削除のいずれかが行われた可能性があるため、最後に必ず同期する
+                    // (D) 念のため未完了タスクを1件に正規化
+                    const keepTaskRes = await client.query(
+                        `
+                SELECT id
+                FROM candidate_tasks
+                WHERE candidate_id = $1 AND is_completed = false
+                ORDER BY action_date ASC, created_at ASC, id ASC
+                LIMIT 1
+             `,
+                        [candidateId]
+                    );
+                    if (keepTaskRes.rows.length > 0) {
+                        await client.query(
+                            `
+                DELETE FROM candidate_tasks
+                WHERE candidate_id = $1
+                  AND is_completed = false
+                  AND id <> $2
+             `,
+                            [candidateId, keepTaskRes.rows[0].id]
+                        );
+                    }
+
+                    // (E) candidatesテーブルの同期
                     await syncNextActionDate(client, candidateId);
 
-                    // 3. その他の付随処理 (着座ログ、選考進捗など)
+                    // 3. その他の付随処理
                     if (toBooleanOrNull(payload.attendanceConfirmed) === true) {
-                        const teleRes = await client.query(`SELECT id FROM teleapo WHERE candidate_id=$1 AND result LIKE '%設定%' ORDER BY called_at DESC LIMIT 1`, [candidateId]);
+                        const teleRes = await client.query(
+                            `SELECT id FROM teleapo WHERE candidate_id=$1 AND result LIKE '%設定%' ORDER BY called_at DESC LIMIT 1`,
+                            [candidateId]
+                        );
                         if (teleRes.rows.length > 0) await client.query("UPDATE teleapo SET result='着座' WHERE id=$1", [teleRes.rows[0].id]);
                     }
 
-                    const selectionPayload = Array.isArray(payload.selectionProgress) ? payload.selectionProgress : (Array.isArray(payload.selection_progress) ? payload.selection_progress : null);
+                    const deletedSelectionProgressIds = Array.isArray(
+                        payload.deletedSelectionProgressIds ?? payload.deleted_selection_progress_ids
+                    )
+                        ? (payload.deletedSelectionProgressIds ?? payload.deleted_selection_progress_ids)
+                            .map((id) => toIntOrNull(id))
+                            .filter((id) => id !== null && id > 0)
+                        : [];
+                    const deletedSelectionProgressIdSet = new Set(deletedSelectionProgressIds);
+                    if (deletedSelectionProgressIds.length > 0) {
+                        await client.query(
+                            `
+                DELETE FROM placements
+                WHERE candidate_application_id = ANY($1::int[])
+                  AND candidate_application_id IN (SELECT id FROM candidate_applications WHERE candidate_id = $2)
+                        `,
+                            [deletedSelectionProgressIds, candidateId]
+                        );
+                        await client.query(
+                            `
+                DELETE FROM candidate_applications
+                WHERE id = ANY($1::int[]) AND candidate_id = $2
+             `,
+                            [deletedSelectionProgressIds, candidateId]
+                        );
+                    }
+
+                    const selectionPayload = Array.isArray(payload.selectionProgress)
+                        ? payload.selectionProgress
+                        : (Array.isArray(payload.selection_progress) ? payload.selection_progress : null);
+
                     if (selectionPayload) {
                         for (const entry of selectionPayload) {
                             if (!entry.clientId && !entry.client_id && !entry.id) continue;
@@ -596,9 +809,10 @@ export const handler = async (event) => {
                             const s_selectionNote = emptyToNull(entry.selectionNote ?? entry.selection_note ?? entry.note);
                             const s_fee = toIntOrNull(entry.fee ?? entry.feeAmount ?? entry.fee_amount);
 
-                            // Idempotency guard for duplicate submits (double-click / retry).
+                            // Idempotency guard for duplicate submits
                             if (!s_id && s_clientId) {
-                                const duplicateRes = await client.query(`
+                                const duplicateRes = await client.query(
+                                    `
                                     SELECT id
                                     FROM candidate_applications
                                     WHERE candidate_id = $1
@@ -630,107 +844,174 @@ export const handler = async (event) => {
                                       AND fee IS NOT DISTINCT FROM $27
                                     ORDER BY id DESC
                                     LIMIT 1
-                                `, [
-                                    candidateId, s_clientId, s_stage, s_jobTitle, s_route,
-                                    s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
-                                    s_secondInterviewSetAt, s_secondInterviewAt,
-                                    s_finalInterviewSetAt, s_finalInterviewAt,
-                                    s_offerDate, s_offerAcceptDate, s_joinDate,
-                                    s_preJoinWithdrawDate, s_preJoinWithdrawReason,
-                                    s_postJoinQuitDate, s_postJoinQuitReason,
-                                    s_declinedAfterOfferAt, s_declinedAfterOfferReason,
-                                    s_earlyTurnoverAt, s_earlyTurnoverReason,
-                                    s_closeExpectedAt, s_selectionNote, s_fee
-                                ]);
+                                `,
+                                    [
+                                        candidateId,
+                                        s_clientId,
+                                        s_stage,
+                                        s_jobTitle,
+                                        s_route,
+                                        s_proposalDate,
+                                        s_recommendedAt,
+                                        s_firstInterviewSetAt,
+                                        s_firstInterviewAt,
+                                        s_secondInterviewSetAt,
+                                        s_secondInterviewAt,
+                                        s_finalInterviewSetAt,
+                                        s_finalInterviewAt,
+                                        s_offerDate,
+                                        s_offerAcceptDate,
+                                        s_joinDate,
+                                        s_preJoinWithdrawDate,
+                                        s_preJoinWithdrawReason,
+                                        s_postJoinQuitDate,
+                                        s_postJoinQuitReason,
+                                        s_declinedAfterOfferAt,
+                                        s_declinedAfterOfferReason,
+                                        s_earlyTurnoverAt,
+                                        s_earlyTurnoverReason,
+                                        s_closeExpectedAt,
+                                        s_selectionNote,
+                                        s_fee,
+                                    ]
+                                );
                                 if (duplicateRes.rows.length > 0) {
                                     s_id = toIntOrNull(duplicateRes.rows[0].id);
                                 }
                             }
 
                             if (s_id) {
-                                await client.query(`
-                                    UPDATE candidate_applications SET 
-                                        client_id = $2,
-                                        stage_current = $3,
-                                        job_title = $4,
-                                        apply_route = $5,
-                                        proposal_date = COALESCE($6, proposal_date),
-                                        recommended_at = COALESCE($7, recommended_at),
-                                        first_interview_set_at = COALESCE($8, first_interview_set_at),
-                                        first_interview_at = COALESCE($9, first_interview_at),
-                                        second_interview_set_at = COALESCE($10, second_interview_set_at),
-                                        second_interview_at = COALESCE($11, second_interview_at),
-                                        final_interview_set_at = COALESCE($12, final_interview_set_at),
-                                        final_interview_at = COALESCE($13, final_interview_at),
-                                        offer_date = COALESCE($14, offer_date),
-                                        offer_at = COALESCE($14, offer_at),
-                                        offer_accept_date = COALESCE($15, offer_accept_date),
-                                        offer_accepted_at = COALESCE($15, offer_accepted_at),
-                                        join_date = COALESCE($16, join_date),
-                                        joined_at = COALESCE($16, joined_at),
-                                        pre_join_withdraw_date = COALESCE($17, pre_join_withdraw_date),
-                                        pre_join_withdraw_reason = COALESCE($18, pre_join_withdraw_reason),
-                                        post_join_quit_date = COALESCE($19, post_join_quit_date),
-                                        post_join_quit_reason = COALESCE($20, post_join_quit_reason),
-                                        declined_after_offer_at = COALESCE($21, declined_after_offer_at),
-                                        declined_after_offer_reason = COALESCE($22, declined_after_offer_reason),
-                                        early_turnover_at = COALESCE($23, early_turnover_at),
-                                        early_turnover_reason = COALESCE($24, early_turnover_reason),
-                                        close_expected_at = COALESCE($25, close_expected_at),
-                                        closing_forecast_at = COALESCE($25, closing_forecast_at),
-                                        selection_note = COALESCE($26, selection_note),
-                                        fee = COALESCE($27, fee),
-                                        updated_at = NOW() 
-                                    WHERE id = $1 AND candidate_id = $28
-                                `, [
-                                    s_id, s_clientId, s_stage, s_jobTitle, s_route,
-                                    s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
-                                    s_secondInterviewSetAt, s_secondInterviewAt,
-                                    s_finalInterviewSetAt, s_finalInterviewAt,
-                                    s_offerDate, s_offerAcceptDate, s_joinDate,
-                                    s_preJoinWithdrawDate, s_preJoinWithdrawReason,
-                                    s_postJoinQuitDate, s_postJoinQuitReason,
-                                    s_declinedAfterOfferAt, s_declinedAfterOfferReason,
-                                    s_earlyTurnoverAt, s_earlyTurnoverReason,
-                                    s_closeExpectedAt, s_selectionNote, s_fee,
-                                    candidateId
-                                ]);
+                                await client.query(
+                                    `
+	                                    UPDATE candidate_applications SET 
+	                                        client_id = $2,
+	                                        stage_current = $3,
+	                                        job_title = $4,
+	                                        apply_route = $5,
+	                                        proposal_date = COALESCE($6, proposal_date),
+	                                        recommended_at = COALESCE($7, recommended_at),
+	                                        first_interview_set_at = COALESCE($8, first_interview_set_at),
+	                                        first_interview_at = COALESCE($9, first_interview_at),
+	                                        second_interview_set_at = COALESCE($10, second_interview_set_at),
+	                                        second_interview_at = COALESCE($11, second_interview_at),
+	                                        final_interview_set_at = COALESCE($12, final_interview_set_at),
+	                                        final_interview_at = COALESCE($13, final_interview_at),
+	                                        offer_date = COALESCE($14, offer_date),
+	                                        offer_at = COALESCE($15, offer_at),
+	                                        offer_accept_date = COALESCE($16, offer_accept_date),
+	                                        offer_accepted_at = COALESCE($17, offer_accepted_at),
+	                                        join_date = COALESCE($18, join_date),
+	                                        joined_at = COALESCE($19, joined_at),
+	                                        pre_join_withdraw_date = COALESCE($20, pre_join_withdraw_date),
+	                                        pre_join_withdraw_reason = COALESCE($21, pre_join_withdraw_reason),
+	                                        post_join_quit_date = COALESCE($22, post_join_quit_date),
+	                                        post_join_quit_reason = COALESCE($23, post_join_quit_reason),
+	                                        declined_after_offer_at = COALESCE($24, declined_after_offer_at),
+	                                        declined_after_offer_reason = COALESCE($25, declined_after_offer_reason),
+	                                        early_turnover_at = COALESCE($26, early_turnover_at),
+	                                        early_turnover_reason = COALESCE($27, early_turnover_reason),
+	                                        close_expected_at = COALESCE($28, close_expected_at),
+	                                        closing_forecast_at = COALESCE($29, closing_forecast_at),
+	                                        selection_note = COALESCE($30, selection_note),
+	                                        fee = COALESCE($31, fee),
+	                                        updated_at = NOW() 
+	                                    WHERE id = $1 AND candidate_id = $32
+	                                `,
+                                    [
+                                        s_id,
+                                        s_clientId,
+                                        s_stage,
+                                        s_jobTitle,
+                                        s_route,
+                                        s_proposalDate,
+                                        s_recommendedAt,
+                                        s_firstInterviewSetAt,
+                                        s_firstInterviewAt,
+                                        s_secondInterviewSetAt,
+                                        s_secondInterviewAt,
+                                        s_finalInterviewSetAt,
+                                        s_finalInterviewAt,
+                                        s_offerDate,
+                                        s_offerDate,
+                                        s_offerAcceptDate,
+                                        s_offerAcceptDate,
+                                        s_joinDate,
+                                        s_joinDate,
+                                        s_preJoinWithdrawDate,
+                                        s_preJoinWithdrawReason,
+                                        s_postJoinQuitDate,
+                                        s_postJoinQuitReason,
+                                        s_declinedAfterOfferAt,
+                                        s_declinedAfterOfferReason,
+                                        s_earlyTurnoverAt,
+                                        s_earlyTurnoverReason,
+                                        s_closeExpectedAt,
+                                        s_closeExpectedAt,
+                                        s_selectionNote,
+                                        s_fee,
+                                        candidateId,
+                                    ]
+                                );
                             } else if (s_clientId) {
-                                await client.query(`
-                                    INSERT INTO candidate_applications (
-                                        candidate_id, client_id, stage_current, job_title, apply_route,
-                                        proposal_date, recommended_at, first_interview_set_at, first_interview_at,
-                                        second_interview_set_at, second_interview_at,
-                                        final_interview_set_at, final_interview_at,
-                                        offer_date, offer_at, offer_accept_date, offer_accepted_at, join_date, joined_at,
-                                        pre_join_withdraw_date, pre_join_withdraw_reason,
-                                        post_join_quit_date, post_join_quit_reason,
-                                        declined_after_offer_at, declined_after_offer_reason,
-                                        early_turnover_at, early_turnover_reason,
-                                        close_expected_at, closing_forecast_at, selection_note, fee,
-                                        created_at, updated_at
-                                    ) VALUES (
-                                        $1, $2, $3, $4, $5,
-                                        $6, $7, $8, $9, $10,
-                                        $11, $12, $13, $14,
-                                        $14, $15, $15, $16, $16,
-                                        $17, $18, $19, $20,
-                                        $21, $22, $23, $24,
-                                        $25, $25, $26, $27,
-                                        NOW(), NOW()
-                                    )
-                                `, [
-                                    candidateId, s_clientId, s_stage, s_jobTitle, s_route,
-                                    s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
-                                    s_secondInterviewSetAt, s_secondInterviewAt,
-                                    s_finalInterviewSetAt, s_finalInterviewAt,
-                                    s_offerDate, s_offerAcceptDate, s_joinDate,
-                                    s_preJoinWithdrawDate, s_preJoinWithdrawReason,
-                                    s_postJoinQuitDate, s_postJoinQuitReason,
-                                    s_declinedAfterOfferAt, s_declinedAfterOfferReason,
-                                    s_earlyTurnoverAt, s_earlyTurnoverReason,
-                                    s_closeExpectedAt, s_selectionNote, s_fee
-                                ]);
+                                await client.query(
+                                    `
+	                                    INSERT INTO candidate_applications (
+	                                        candidate_id, client_id, stage_current, job_title, apply_route,
+	                                        proposal_date, recommended_at, first_interview_set_at, first_interview_at,
+	                                        second_interview_set_at, second_interview_at,
+	                                        final_interview_set_at, final_interview_at,
+	                                        offer_date, offer_at, offer_accept_date, offer_accepted_at, join_date, joined_at,
+	                                        pre_join_withdraw_date, pre_join_withdraw_reason,
+	                                        post_join_quit_date, post_join_quit_reason,
+	                                        declined_after_offer_at, declined_after_offer_reason,
+	                                        early_turnover_at, early_turnover_reason,
+	                                        close_expected_at, closing_forecast_at, selection_note, fee,
+	                                        created_at, updated_at
+	                                    ) VALUES (
+	                                        $1, $2, $3, $4, $5,
+	                                        $6, $7, $8, $9, $10,
+	                                        $11, $12, $13,
+	                                        $14, $15, $16, $17, $18, $19,
+	                                        $20, $21, $22, $23,
+	                                        $24, $25, $26, $27,
+	                                        $28, $29, $30, $31,
+	                                        NOW(), NOW()
+	                                    )
+	                                `,
+                                    [
+                                        candidateId,
+                                        s_clientId,
+                                        s_stage,
+                                        s_jobTitle,
+                                        s_route,
+                                        s_proposalDate,
+                                        s_recommendedAt,
+                                        s_firstInterviewSetAt,
+                                        s_firstInterviewAt,
+                                        s_secondInterviewSetAt,
+                                        s_secondInterviewAt,
+                                        s_finalInterviewSetAt,
+                                        s_finalInterviewAt,
+                                        s_offerDate,
+                                        s_offerDate,
+                                        s_offerAcceptDate,
+                                        s_offerAcceptDate,
+                                        s_joinDate,
+                                        s_joinDate,
+                                        s_preJoinWithdrawDate,
+                                        s_preJoinWithdrawReason,
+                                        s_postJoinQuitDate,
+                                        s_postJoinQuitReason,
+                                        s_declinedAfterOfferAt,
+                                        s_declinedAfterOfferReason,
+                                        s_earlyTurnoverAt,
+                                        s_earlyTurnoverReason,
+                                        s_closeExpectedAt,
+                                        s_closeExpectedAt,
+                                        s_selectionNote,
+                                        s_fee,
+                                    ]
+                                );
                             }
                         }
                     }
@@ -742,7 +1023,7 @@ export const handler = async (event) => {
                     if (moneyPayload) {
                         for (const entry of moneyPayload) {
                             const applicationId = toIntOrNull(entry.applicationId ?? entry.application_id);
-                            if (!applicationId) continue;
+                            if (!applicationId || deletedSelectionProgressIdSet.has(applicationId)) continue;
 
                             const feeAmount = toIntOrNull(entry.feeAmount ?? entry.fee_amount);
                             const refundAmount = toIntOrNull(entry.refundAmount ?? entry.refund_amount);
@@ -750,21 +1031,21 @@ export const handler = async (event) => {
                             const withdrawDate = emptyToNull(entry.withdrawDate ?? entry.withdraw_date);
                             const orderReported = toBooleanOrNull(entry.orderReported ?? entry.order_reported);
                             const refundReported = toBooleanOrNull(entry.refundReported ?? entry.refund_reported);
-                            const hasPlacementValues = (
+                            const hasPlacementValues =
                                 feeAmount !== null ||
                                 refundAmount !== null ||
                                 orderDate !== null ||
                                 withdrawDate !== null ||
                                 orderReported !== null ||
-                                refundReported !== null
-                            );
+                                refundReported !== null;
 
                             const placementRes = await client.query(
                                 "SELECT id FROM placements WHERE candidate_application_id = $1 LIMIT 1",
                                 [applicationId]
                             );
                             if (placementRes.rows.length > 0) {
-                                await client.query(`
+                                await client.query(
+                                    `
                                     UPDATE placements SET
                                         fee_amount = COALESCE($2, fee_amount),
                                         refund_amount = COALESCE($3, refund_amount),
@@ -774,19 +1055,26 @@ export const handler = async (event) => {
                                         refund_reported = COALESCE($7, refund_reported),
                                         updated_at = NOW()
                                     WHERE candidate_application_id = $1
-                                `, [applicationId, feeAmount, refundAmount, orderDate, withdrawDate, orderReported, refundReported]);
+                                `,
+                                    [applicationId, feeAmount, refundAmount, orderDate, withdrawDate, orderReported, refundReported]
+                                );
                             } else if (hasPlacementValues) {
-                                await client.query(`
+                                await client.query(
+                                    `
                                     INSERT INTO placements (
                                         candidate_application_id, fee_amount, refund_amount, order_date, withdraw_date, order_reported, refund_reported, created_at, updated_at
                                     ) VALUES ($1, $2, $3, $4, $5, COALESCE($6, false), COALESCE($7, false), NOW(), NOW())
-                                `, [applicationId, feeAmount, refundAmount, orderDate, withdrawDate, orderReported, refundReported]);
+                                `,
+                                    [applicationId, feeAmount, refundAmount, orderDate, withdrawDate, orderReported, refundReported]
+                                );
                             }
 
-                            const hasPreJoin = Object.prototype.hasOwnProperty.call(entry, "preJoinWithdrawDate")
-                                || Object.prototype.hasOwnProperty.call(entry, "pre_join_withdraw_date");
-                            const hasPostJoin = Object.prototype.hasOwnProperty.call(entry, "postJoinQuitDate")
-                                || Object.prototype.hasOwnProperty.call(entry, "post_join_quit_date");
+                            const hasPreJoin =
+                                Object.prototype.hasOwnProperty.call(entry, "preJoinWithdrawDate") ||
+                                Object.prototype.hasOwnProperty.call(entry, "pre_join_withdraw_date");
+                            const hasPostJoin =
+                                Object.prototype.hasOwnProperty.call(entry, "postJoinQuitDate") ||
+                                Object.prototype.hasOwnProperty.call(entry, "post_join_quit_date");
                             const refundTypeRaw = entry.refundType ?? entry.refund_type;
                             const hasRefundType = refundTypeRaw !== undefined && refundTypeRaw !== null && `${refundTypeRaw}` !== "";
 
@@ -826,17 +1114,50 @@ export const handler = async (event) => {
                                 updateFields.push("updated_at = NOW()");
                                 updateValues.push(applicationId, candidateId);
 
-                                await client.query(`
+                                await client.query(
+                                    `
                                     UPDATE candidate_applications
                                     SET ${updateFields.join(", ")}
                                     WHERE id = $${idx++} AND candidate_id = $${idx}
-                                `, updateValues);
+                                `,
+                                    updateValues
+                                );
                             }
                         }
                     }
+                } else {
+                    // 一覧インライン保存(detailMode=false)でもCSステータスを更新できるようにする
+                    const hasValidApplication = typeof payload.validApplication === "boolean";
+                    const hasCsStatus =
+                        Object.prototype.hasOwnProperty.call(payload, "csStatus") ||
+                        Object.prototype.hasOwnProperty.call(payload, "cs_status");
 
-                } else if (typeof payload.validApplication === "boolean") {
-                    await client.query("UPDATE candidates SET is_effective_application = $2 WHERE id = $1", [candidateId, payload.validApplication]);
+                    if (hasCsStatus) {
+                        if (await tryInvokeCsStatusMailer(client, candidateId, payload.csStatus ?? payload.cs_status)) {
+                            mailInvokedIndicator = true;
+                        }
+                    }
+
+                    if (hasValidApplication || hasCsStatus) {
+                        const setClauses = ["updated_at = NOW()"];
+                        const values = [candidateId];
+                        let idx = 2;
+
+                        if (hasValidApplication) {
+                            setClauses.push(`is_effective_application = $${idx++}`);
+                            values.push(payload.validApplication);
+                        }
+
+                        if (hasCsStatus) {
+                            setClauses.push(`cs_status = $${idx++}`);
+                            values.push(emptyToNull(payload.csStatus ?? payload.cs_status));
+                        }
+
+                        await client.query(
+                            `UPDATE candidates SET ${setClauses.join(", ")} WHERE id = $1`,
+                            values
+                        );
+                    }
                 }
 
                 await client.query("COMMIT");
@@ -846,6 +1167,9 @@ export const handler = async (event) => {
             }
 
             const updated = await fetchCandidateDetail(client, candidateId);
+            if (mailInvokedIndicator) {
+                updated.cs_mail_sent = true;
+            }
             return { statusCode: 200, headers, body: JSON.stringify(updated) };
         }
 
@@ -853,7 +1177,15 @@ export const handler = async (event) => {
     } catch (err) {
         console.error("LAMBDA ERROR:", err);
         const statusCode = Number.isFinite(err?.statusCode) ? err.statusCode : 500;
-        return { statusCode, headers, body: JSON.stringify({ error: err?.message || String(err) }) };
+        return {
+            statusCode,
+            headers,
+            body: JSON.stringify({
+                error: err?.message || String(err),
+                stack: err?.stack || "No stack trace available",
+                debug: "CS-MAIL-DEBUG-500"
+            })
+        };
     } finally {
         if (client) client.release();
     }

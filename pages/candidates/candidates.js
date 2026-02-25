@@ -207,40 +207,72 @@ function normalizeCsStatusOption(value) {
   return text;
 }
 
+// CSステータス同期用の定数 (teleapo.js と共通)
+const CANDIDATES_CS_STATUS_STORAGE_KEY = 'candidates_custom_cs_statuses';
+const CANDIDATES_CS_STATUS_DELETED_KEY = 'candidates_deleted_default_cs_statuses';
+
+function readCsStatusStorage() {
+  const custom = new Set();
+  const deleted = new Set();
+  try {
+    const rawCustom = JSON.parse(localStorage.getItem(CANDIDATES_CS_STATUS_STORAGE_KEY) || '[]');
+    if (Array.isArray(rawCustom)) {
+      rawCustom.forEach(v => { if (v) custom.add(String(v).trim()); });
+    }
+  } catch (err) { console.warn('CSステータス(custom)読み込み失敗', err); }
+
+  try {
+    const rawDeleted = JSON.parse(localStorage.getItem(CANDIDATES_CS_STATUS_DELETED_KEY) || '[]');
+    if (Array.isArray(rawDeleted)) {
+      rawDeleted.forEach(v => { if (v) deleted.add(String(v).trim()); });
+    }
+  } catch (err) { console.warn('CSステータス(deleted)読み込み失敗', err); }
+
+  return { custom, deleted };
+}
+
 function rememberCsStatusOption(value) {
   const normalized = normalizeCsStatusOption(value);
-  if (normalized && !deletedDefaultCsStatuses.has(normalized)) {
-    customCsStatusOptions.add(normalized);
+  if (!normalized) return "";
+
+  const { custom, deleted } = readCsStatusStorage();
+
+  // 削除済みリストにあれば復元、そうでなければカスタムに追加
+  if (deleted.has(normalized)) {
+    deleted.delete(normalized);
+    localStorage.setItem(CANDIDATES_CS_STATUS_DELETED_KEY, JSON.stringify(Array.from(deleted)));
+  } else if (!PREDEFINED_CS_STATUS_OPTIONS.includes(normalized)) {
+    custom.add(normalized);
+    localStorage.setItem(CANDIDATES_CS_STATUS_STORAGE_KEY, JSON.stringify(Array.from(custom)));
   }
   return normalized;
 }
 
 function buildCsStatusOptions(selectedValue = "") {
   const selected = normalizeCsStatusOption(selectedValue);
+  const { custom, deleted } = readCsStatusStorage();
   const values = new Set();
 
-  const append = (raw) => {
-    const normalized = normalizeCsStatusOption(raw);
-    if (normalized) values.add(normalized);
+  const append = (normalized) => {
+    if (normalized && !deleted.has(normalized)) {
+      values.add(normalized);
+    }
   };
 
-  // 事前定義オプションを常に含める（ただし削除されたものは除く）
-  (PREDEFINED_CS_STATUS_OPTIONS || []).forEach((value) => {
-    if (!deletedDefaultCsStatuses.has(value)) append(value);
-  });
-  (masterCsStatusOptions || []).forEach((value) => {
-    if (!deletedDefaultCsStatuses.has(value)) append(value);
-  });
+  // 1. デフォルトオプション
+  PREDEFINED_CS_STATUS_OPTIONS.forEach(append);
+  // 2. サーバーからの取得値
+  (masterCsStatusOptions || []).forEach(append);
+  // 3. localStorageのカスタム値
+  custom.forEach(append);
+  // 4. 現在の候補者のデータにある値
   (allCandidates || []).forEach((candidate) => {
-    const val = candidate?.csStatus ?? candidate?.cs_status;
-    if (val && !deletedDefaultCsStatuses.has(val)) append(val);
+    append(normalizeCsStatusOption(candidate?.csStatus ?? candidate?.cs_status));
   });
-  customCsStatusOptions.forEach((value) => append(value));
-  if (selected && !deletedDefaultCsStatuses.has(selected)) {
-    append(selected);
-  }
+  // 5. 現在選択中の値
+  if (selected) append(selected);
 
-  const list = Array.from(values.values()).sort((a, b) => a.localeCompare(b, "ja"));
+  const list = Array.from(values).sort((a, b) => a.localeCompare(b, "ja"));
   const options = [{ value: "", label: "未設定" }].concat(
     list.map((value) => ({ value, label: value }))
   );
@@ -2476,6 +2508,16 @@ async function handleInlineCsStatusSave(button) {
   if (!select) return;
 
   const statusValue = normalizeCsStatusOption(select.value);
+  const oldStatus = candidate.csStatus;
+  const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
+
+  if (statusValue !== oldStatus && MAIL_TRIGGER_STATUSES.includes(statusValue)) {
+    if (!window.confirm(`CSステータスを「${statusValue}」に変更すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
+      select.value = oldStatus || "";
+      return;
+    }
+  }
+
   candidate.csStatus = statusValue;
   candidate.cs_status = statusValue;
   rememberCsStatusOption(statusValue);
@@ -2721,23 +2763,39 @@ function handleInlineEdit(event) {
 
   // CSステータスはeditModeに関係なく常に即時保存する
   if (field === "csStatus" || field === "cs_status") {
+    if (event.type !== "change") {
+      return;
+    }
+
     const normalized = normalizeCsStatusOption(control.value);
+    const oldStatus = candidate.csStatus ?? candidate.cs_status ?? "";
+    const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
+
+    if (normalized !== oldStatus && MAIL_TRIGGER_STATUSES.includes(normalized)) {
+      if (!window.confirm(`CSステータスを「${normalized}」に変更すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
+        control.value = oldStatus || "";
+        return;
+      }
+    }
+
+    if (normalized === oldStatus) {
+      return;
+    }
+
     candidate.csStatus = normalized;
     candidate.cs_status = normalized;
     rememberCsStatusOption(normalized);
 
-    if (event.type === "change") {
-      const selectEl = control;
-      selectEl.disabled = true;
-      saveCandidateRecord(candidate)
-        .catch((err) => {
-          console.error("CSステータスの保存に失敗しました。", err);
-          alert("CSステータスの保存に失敗しました。");
-        })
-        .finally(() => {
-          selectEl.disabled = false;
-        });
-    }
+    const selectEl = control;
+    selectEl.disabled = true;
+    saveCandidateRecord(candidate)
+      .catch((err) => {
+        console.error("CSステータスの保存に失敗しました。", err);
+        alert("CSステータスの保存に失敗しました。");
+      })
+      .finally(() => {
+        selectEl.disabled = false;
+      });
     return;
   }
 
@@ -3536,7 +3594,11 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
     throw new Error(`HTTP ${response.status} ${response.statusText} - ${text.slice(0, 200)} `);
   }
 
-  const updated = normalizeCandidate(await response.json());
+  const rawUpdated = await response.json();
+  if (rawUpdated.cs_mail_sent) {
+    window.alert("🎉 自動メールを送信しました！\n（※反映まで少し時間がかかる場合があります）");
+  }
+  const updated = normalizeCandidate(rawUpdated);
 
   // サーバーからのレスポンスにローカルで変更したselectionProgressを上書き
   // （サーバーが空の配列を正しく返さない場合への対策）
@@ -3649,14 +3711,19 @@ function buildCandidateDetailPayload(candidate) {
     jobChangeTiming: candidate.jobChangeTiming,
     futureVision: candidate.futureVision,
     otherSelectionStatus: candidate.otherSelectionStatus,
+    hasChronicDisease: candidate.hasChronicDisease,
+    chronicDiseaseDetail: candidate.chronicDiseaseDetail,
+    relocationPossible: candidate.relocationPossible,
+    relocationImpossibleReason: candidate.relocationImpossibleReason,
+    personalConcerns: candidate.personalConcerns,
     desiredInterviewDates: candidate.desiredInterviewDates,
     mandatoryInterviewItems: candidate.mandatoryInterviewItems,
     sharedInterviewDate: candidate.sharedInterviewDate,
     advisorUserId: candidate.advisorUserId,
     csUserId: candidate.csUserId,
     partnerUserId: candidate.partnerUserId ?? candidate.csUserId ?? null,
-      csStatus: (candidate.csStatus ?? candidate.cs_status) || null,
-      cs_status: (candidate.csStatus ?? candidate.cs_status) || null,
+    csStatus: (candidate.csStatus ?? candidate.cs_status) || null,
+    cs_status: (candidate.csStatus ?? candidate.cs_status) || null,
 
     // その他（後方互換性のため残すものもあるが、Lambdaが使うものだけで良い）
     advisorName: candidate.advisorName,
@@ -4376,6 +4443,7 @@ function handleDetailFieldChange(event) {
   if (!target) return;
   const candidate = getSelectedCandidate();
   if (!candidate) return;
+  const oldCsStatus = candidate.csStatus;
 
   // checkbox群（配列に入れるタイプ）
   const arrayField = target.dataset.arrayField;
@@ -4439,6 +4507,13 @@ function handleDetailFieldChange(event) {
   }
   if (fieldPath === "csStatus" || fieldPath === "cs_status") {
     const normalized = normalizeCsStatusOption(value);
+    const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
+    if (normalized !== oldCsStatus && MAIL_TRIGGER_STATUSES.includes(normalized)) {
+      if (!window.confirm(`「${normalized}」に変更すると、保存時に候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
+        target.value = oldCsStatus || "";
+        return;
+      }
+    }
     candidate.csStatus = normalized;
     candidate.cs_status = normalized;
     rememberCsStatusOption(normalized);
@@ -4627,11 +4702,9 @@ function renderAssigneeSection(candidate) {
     {
       label: "CSステータス",
       value: candidate.csStatus ?? "",
-      input: "creatable-select",
+      input: "select",
       options: buildCsStatusOptions(candidate.csStatus ?? ""),
       path: "csStatus",
-      placeholder: "新しいCSステータスを入力",
-      addLabel: "選択肢に追加",
       span: 3,
     },
   ];
@@ -4672,6 +4745,28 @@ function renderApplicantInfoSection(candidate) {
     renderDetailSubsection("連絡情報", renderDetailGridFields(contactFields, "profile")),
     renderDetailSubsection("応募情報・その他", renderDetailGridFields(applicationFields, "profile")),
   ].join("");
+}
+
+function resolveTeleapoHandoverMemo(candidate) {
+  const logs = Array.isArray(candidate?.teleapoLogs) ? candidate.teleapoLogs : [];
+  if (!logs.length) return "";
+  const memoEntries = logs
+    .map((log, index) => {
+      const memo = String(log?.memo ?? log?.note ?? "").trim();
+      if (!memo) return null;
+      const rawDate = log?.calledAt ?? log?.called_at ?? log?.datetime ?? "";
+      const ts = rawDate ? new Date(rawDate).getTime() : NaN;
+      return { memo, ts: Number.isNaN(ts) ? null : ts, index };
+    })
+    .filter(Boolean);
+  if (!memoEntries.length) return "";
+  memoEntries.sort((a, b) => {
+    if (a.ts !== null && b.ts !== null) return b.ts - a.ts;
+    if (a.ts !== null) return -1;
+    if (b.ts !== null) return 1;
+    return a.index - b.index;
+  });
+  return memoEntries[0].memo;
 }
 
 function renderHearingSection(candidate) {
@@ -4722,7 +4817,6 @@ function renderHearingSection(candidate) {
     { label: "人物像・性格", value: candidate.personality, input: "textarea", path: "personality", span: "full" },
     { label: "実務経験", value: candidate.workExperience, input: "textarea", path: "workExperience", span: "full" },
     { label: "推薦文", value: candidate.firstInterviewNote, input: "textarea", path: "firstInterviewNote", span: "full" },
-    { label: "他社選考状態", value: candidate.otherSelectionStatus, input: "textarea", path: "otherSelectionStatus", span: "full" },
     {
       label: "面談メモ",
       value: candidate.firstInterviewNote || candidate.memo || "",
@@ -4732,8 +4826,62 @@ function renderHearingSection(candidate) {
     },
     { label: "面接希望日", value: candidate.interviewPreferredDate, input: "textarea", path: "interviewPreferredDate", span: "full" },
   ];
+
+  const newHearingFields = [
+    {
+      label: "他社選考状況", value: candidate.otherSelectionStatus, input: "select", options: [
+        { value: "", label: "未選択" },
+        { value: "0", label: "0" },
+        { value: "1", label: "1" },
+        { value: "2", label: "2" },
+        { value: "3", label: "3" },
+        { value: "4", label: "4" },
+        { value: "5", label: "5" },
+        { value: "6以上", label: "6以上" }
+      ], path: "otherSelectionStatus", span: 2
+    },
+    {
+      label: "持病", value: candidate.hasChronicDisease, input: "select", valueType: "boolean", options: [
+        { value: "", label: "未確認" },
+        { value: "true", label: "有り" },
+        { value: "false", label: "無し" }
+      ], path: "hasChronicDisease", span: 2,
+      displayFormatter: (v) => v === true || v === "true" ? "有り" : v === false || v === "false" ? "無し" : "未確認"
+    },
+    { label: "持病の詳細", value: candidate.chronicDiseaseDetail, input: "textarea", path: "chronicDiseaseDetail", span: "full" },
+    {
+      label: "転居", value: candidate.relocationPossible, input: "select", valueType: "boolean", options: [
+        { value: "", label: "未確認" },
+        { value: "true", label: "可" },
+        { value: "false", label: "不可" }
+      ], path: "relocationPossible", span: 2,
+      displayFormatter: (v) => v === true || v === "true" ? "可" : v === false || v === "false" ? "不可" : "未確認"
+    },
+    { label: "転居不可の理由", value: candidate.relocationImpossibleReason, input: "textarea", path: "relocationImpossibleReason", span: "full" },
+    { label: "人物懸念", value: candidate.personalConcerns, input: "textarea", path: "personalConcerns", span: "full" },
+  ];
+
+  const handoverMemo = resolveTeleapoHandoverMemo(candidate);
+  const handoverFields = [
+    {
+      label: "CSステータス",
+      value: candidate.csStatus ?? "",
+      input: "select",
+      options: buildCsStatusOptions(candidate.csStatus ?? ""),
+      path: "csStatus",
+      span: 3,
+    },
+    {
+      label: "架電メモ",
+      value: handoverMemo,
+      span: "full",
+      editable: false,
+    },
+  ];
   return [
     renderDetailSubsection("面談実施確認", renderDetailGridFields(confirmationFields, "hearing"), "detail-subsection--confirm"),
+    renderDetailSubsection("CS引継ぎ項目", renderDetailGridFields(handoverFields, "hearing")),
+    renderDetailSubsection("追加ヒアリング項目", renderDetailGridFields(newHearingFields, "hearing")),
     renderDetailSubsection("ヒアリング自由記述欄", renderDetailGridFields(hearingFreeFields, "hearing")),
     renderDetailSubsectionToggle("ヒアリング項目", renderDetailGridFields(hearingFields, "hearing"), { open: editing }),
   ].join("");

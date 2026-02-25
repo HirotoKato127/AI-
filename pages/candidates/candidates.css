@@ -1197,9 +1197,23 @@ body.has-modal-open {
 }
 
 .detail-subsection--confirm .detail-grid-item dd {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
   font-size: 1rem;
   font-weight: 600;
   color: #0f172a;
+}
+
+.detail-subsection--confirm .detail-grid-item dd > div {
+  flex: 1;
+}
+
+.detail-subsection--confirm .detail-inline-input {
+  min-height: 44px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.95rem;
 }
 
 .detail-subsection-header h5 {
@@ -1623,9 +1637,28 @@ body.has-modal-open {
 .meeting-check {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.8rem;
-  color: #475569;
+  gap: 0.6rem;
+  min-height: 44px;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #3730a3;
+  cursor: pointer;
+  user-select: none;
+}
+
+.meeting-check input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  accent-color: #4f46e5;
+  cursor: pointer;
+}
+
+.meeting-check span {
+  cursor: pointer;
 }
 
 .cs-checkbox-grid {
@@ -2656,3 +2689,5 @@ body.has-modal-open {
   min-width: 150px;
   font-size: 0.82rem;
 }
+
+
