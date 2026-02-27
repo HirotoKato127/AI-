@@ -176,32 +176,66 @@ body {
   line-height: 1.2;
 }
 
-/* サイドバーヘッダー - プレミアムデザイン */
+/* サイドバーヘッダー */
 .sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  padding: 1.25rem 1.25rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(139, 92, 246, 0.06) 100%);
+  gap: 0.25rem;
+  padding: 0.32rem 1rem 0.18rem 1.25rem;
   position: relative;
 }
 
 .sidebar-header::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 1rem;
-  right: 1rem;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.4), rgba(139, 92, 246, 0.4), transparent);
+  display: none;
 }
 
 .sidebar-brand {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.sidebar-title-wrapper-full {
+  width: 100%;
+}
+
+.sidebar-brand-logo {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 0.28rem 0 0.12rem 0;
+}
+
+.sidebar-brand-logo-image {
+  width: 100%;
+  max-width: 192px;
+  height: auto;
+  display: block;
+}
+
+.sidebar-brand-logo-full {
+  display: block;
+}
+
+.sidebar-brand-logo-mini {
+  display: none;
+}
+
+.sidebar-toggle-row {
+  position: absolute;
+  top: 0.62rem;
+  right: 0.5rem;
+  z-index: 30;
+  padding: 0;
+}
+
+.sidebar-toggle-row .sidebar-toggle-btn {
+  width: 1.95rem;
+  height: 1.95rem;
+  border-radius: 0.6rem;
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(148, 163, 184, 0.25);
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.45);
 }
 
 .sidebar-logo {
@@ -307,14 +341,37 @@ body {
 }
 
 #sidebar.sidebar-collapsed .sidebar-title-wrapper {
-  display: none;
+  display: block;
+  width: 100%;
 }
 
 #sidebar.sidebar-collapsed .sidebar-header {
-  padding: 0.75rem;
+  padding: 0.45rem 0.4rem 0.2rem;
+  min-height: 4.2rem;
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
+}
+
+#sidebar.sidebar-collapsed .sidebar-toggle-row {
+  top: 0.52rem;
+  right: -0.7rem;
+  padding: 0;
+}
+
+#sidebar.sidebar-collapsed .sidebar-brand-logo {
+  justify-content: center;
+  padding: 0.2rem 0 0.15rem;
+}
+
+#sidebar.sidebar-collapsed .sidebar-brand-logo-full {
+  display: none;
+}
+
+#sidebar.sidebar-collapsed .sidebar-brand-logo-mini {
+  display: block;
+  width: 1.95rem;
+  height: 1.95rem;
 }
 
 #sidebar.sidebar-collapsed .sidebar-brand-text {
