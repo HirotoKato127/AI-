@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 28 64 64">
+  <defs>
+    <clipPath id="favClip">
+      <path d="M 21.4 87.8
+               L 48.9 32.5
+               Q 50 30.2 51.1 32.5
+               L 78.6 87.8
+               Q 79.8 90 77.5 90
+               L 61.8 90
+               Q 60.7 90 60.1 88.9
+               L 54.8 76.5
+               Q 53.9 74 53 73
+               A 7 7 0 1 0 47 73
+               Q 46.1 74 45.2 76.5
+               L 39.9 88.9
+               Q 39.3 90 38.2 90
+               L 22.5 90
+               Q 20.2 90 21.4 87.8
+               Z" />
+    </clipPath>
+
+    <linearGradient id="favBaseGrad" x1="18%" y1="90%" x2="60%" y2="18%">
+      <stop offset="0%" stop-color="#102552" />
+      <stop offset="50%" stop-color="#163674" />
+      <stop offset="100%" stop-color="#1A438D" />
+    </linearGradient>
+
+    <linearGradient id="favRightFacetGrad" x1="56%" y1="24%" x2="84%" y2="92%">
+      <stop offset="0%" stop-color="#63CAE8" />
+      <stop offset="55%" stop-color="#3EAED9" />
+      <stop offset="100%" stop-color="#257FBC" />
+    </linearGradient>
+
+    <linearGradient id="favBottomFacetGrad" x1="20%" y1="92%" x2="70%" y2="70%">
+      <stop offset="0%" stop-color="#1B8FCB" />
+      <stop offset="100%" stop-color="#1865B2" />
+    </linearGradient>
+
+    <radialGradient id="favVolumeLight" cx="48%" cy="36%" r="58%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16" />
+      <stop offset="55%" stop-color="#BEE7FF" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <path d="M 21.4 87.8
+           L 48.9 32.5
+           Q 50 30.2 51.1 32.5
+           L 78.6 87.8
+           Q 79.8 90 77.5 90
+           L 61.8 90
+           Q 60.7 90 60.1 88.9
+           L 54.8 76.5
+           Q 53.9 74 53 73
+           A 7 7 0 1 0 47 73
+           Q 46.1 74 45.2 76.5
+           L 39.9 88.9
+           Q 39.3 90 38.2 90
+           L 22.5 90
+           Q 20.2 90 21.4 87.8
+           Z"
+        fill="url(#favBaseGrad)" />
+
+  <g clip-path="url(#favClip)">
+    <path d="M 50 30
+             L 80 90
+             L 61 90
+             L 53.6 74.3
+             Q 54.4 74.4 52.9 71.5
+             Z"
+          fill="url(#favRightFacetGrad)" />
+    <path d="M 20 90
+             L 45.7 73.8
+             Q 47 75.1 48.3 74.2
+             L 61 90
+             L 38.2 90
+             Z"
+          fill="url(#favBottomFacetGrad)" />
+    <path d="M 21.4 87.8
+             L 48.9 32.5
+             Q 50 30.2 51.1 32.5
+             L 78.6 87.8
+             Q 79.8 90 77.5 90
+             L 61.8 90
+             Q 60.7 90 60.1 88.9
+             L 54.8 76.5
+             Q 53.9 74 53 73
+             A 7 7 0 1 0 47 73
+             Q 46.1 74 45.2 76.5
+             L 39.9 88.9
+             Q 39.3 90 38.2 90
+             L 22.5 90
+             Q 20.2 90 21.4 87.8
+             Z"
+          fill="url(#favVolumeLight)" />
+  </g>
+</svg>
