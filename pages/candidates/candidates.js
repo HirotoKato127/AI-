@@ -183,6 +183,7 @@ calendarViewDate.setDate(1);
 
 // Deduplicate /clients create requests when multiple saves run quickly.
 const clientCreateInFlight = new Map();
+const pendingDeletedSelectionIds = {}; // Track deleted selectionProgress IDs per candidateId
 
 function normalizeContactPreferredTime(value) {
   const text = String(value ?? "").trim();
@@ -2253,7 +2254,10 @@ function buildTableRow(candidate) {
   })}
       ${renderTextCell(candidate, "csStatus")}
       
-      ${renderTextCell(candidate, "source", { readOnly: true })}
+      ${renderTextCell(candidate, "source", {
+        readOnly: true,
+        format: (_, row) => getCandidateSourceName(row),
+      })}
 
       ${renderCheckboxCell(candidate, "validApplication", "有効応募")}
       ${renderCandidateNameCell(candidate)}
@@ -3405,6 +3409,40 @@ function resolveSelectionStageValue(row = {}) {
   return "";
 }
 
+function resolveSelectionPhaseFromProgress(candidate) {
+  const rows = Array.isArray(candidate?.selectionProgress) ? candidate.selectionProgress : [];
+  if (!rows.length) return null;
+
+  let bestStage = null;
+  let bestIndex = -1;
+  let fallback = null;
+
+  rows.forEach((row) => {
+    if (!row) return;
+    const rawStage =
+      resolveSelectionStageValue(row) ||
+      row.status ||
+      row.selectionStatus ||
+      row.selection_status ||
+      "";
+    const stage = String(rawStage || "").trim();
+    if (!stage) return;
+
+    const idx = PHASE_ORDER.indexOf(stage);
+    if (idx >= 0) {
+      if (idx > bestIndex) {
+        bestIndex = idx;
+        bestStage = stage;
+      }
+      return;
+    }
+
+    if (!fallback) fallback = stage;
+  });
+
+  return bestStage || fallback || null;
+}
+
 function updateSelectionStatusCell(index, status) {
   const root = getCandidateDetailContainer() || document;
   const row = root.querySelector(`[data-selection-row="${index}"]`);
@@ -3423,6 +3461,11 @@ function updateSelectionStatusCell(index, status) {
 // フェーズ表示ロジック
 // -----------------------
 function resolveCurrentPhases(candidate) {
+  const selectionPhase = resolveSelectionPhaseFromProgress(candidate);
+  if (selectionPhase) {
+    return [selectionPhase];
+  }
+
   let phases = Array.isArray(candidate.phaseList) ? candidate.phaseList : (candidate.phase ? [candidate.phase] : []);
   phases = phases.map((phase) => (String(phase).trim() === "新規" ? "未接触" : phase));
 
@@ -3460,7 +3503,7 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
     const inputs = detailContainer.querySelectorAll("[data-detail-field]");
     inputs.forEach((input) => {
       // 選考進捗テーブル内のフィールドは後続の処理で扱うためスキップ(二重処理防止)
-      if (input.closest("tr[data-selection-row]")) return;
+      if (input.closest(".selection-card[data-selection-row]")) return;
 
       const path = input.dataset.detailField;
       if (!path) return;
@@ -3497,8 +3540,8 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
   // 選考進捗の実DOMからの強制同期
   // ---------------------------------------------------------
   const selectionRows = detailContainer
-    ? detailContainer.querySelectorAll("tr[data-selection-row]")
-    : document.querySelectorAll("tr[data-selection-row]");
+    ? detailContainer.querySelectorAll(".selection-card[data-selection-row]")
+    : document.querySelectorAll(".selection-card[data-selection-row]");
   if (selectionRows.length > 0) {
     const newProgress = [];
     selectionRows.forEach((row) => {
@@ -3525,13 +3568,26 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
           "secondInterviewAdjustDate": "secondInterviewSetAt",
           "secondInterviewDate": "secondInterviewAt",
           "finalInterviewAdjustDate": "finalInterviewSetAt",
-          "finalInterviewDate": "finalInterviewAt"
+          "finalInterviewDate": "finalInterviewAt",
+          "offerDate": "offerDate",
+          "offerAcceptedDate": "offerAcceptDate",
+          "joinedDate": "joinDate",
+          "declinedDate": "declinedAfterOfferAt",
+          "earlyTurnoverDate": "earlyTurnoverAt",
+          "closingForecastDate": "closeExpectedAt"
         };
         const mappedKey = keyMap[key] || key;
 
         newData[mappedKey] = input.value;
         if (input.value) hasInput = true;
       });
+
+      const fixedRoute = getCandidateSourceName(candidate);
+      if (fixedRoute) {
+        newData.route = fixedRoute;
+        newData.applyRoute = fixedRoute;
+        newData.apply_route = fixedRoute;
+      }
 
       // スネークケース(フォールバック)
       if (newData.clientId) newData.client_id = newData.clientId;
@@ -3577,6 +3633,10 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
   // ★ Lambdaが必須とするフラグを確実にセット
   if (includeDetail) {
     payload.detailMode = true;
+    const deletedIds = pendingDeletedSelectionIds[currentDetailCandidateId];
+    if (Array.isArray(deletedIds) && deletedIds.length > 0) {
+      payload.deletedSelectionProgressIds = deletedIds;
+    }
   }
 
   if (payload?.masters) delete payload.masters;
@@ -3593,6 +3653,9 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
     const text = await response.text();
     throw new Error(`HTTP ${response.status} ${response.statusText} - ${text.slice(0, 200)} `);
   }
+
+  // Clear deletion cache on success
+  delete pendingDeletedSelectionIds[currentDetailCandidateId];
 
   const rawUpdated = await response.json();
   if (rawUpdated.cs_mail_sent) {
@@ -4080,6 +4143,8 @@ function handleDetailContentClick(event) {
   console.log("[handleDetailContentClick] removeBtn check:", removeBtn, "target:", event.target);
   if (removeBtn) {
     console.log("[handleDetailContentClick] removeBtn found:", removeBtn.dataset);
+    // Prevent duplicate handling by document-level handlers
+    event.stopPropagation();
     handleDetailRemoveRow(
       removeBtn.dataset.removeRow,
       Number(removeBtn.dataset.index)
@@ -4297,7 +4362,23 @@ function handleDetailRemoveRow(type, index) {
       break;
     }
     case "selectionProgress": {
+      if (!confirm("この選考プロセスを削除しますか？")) return;
       const rows = candidate.selectionProgress || [];
+      const removedRow = rows[index];
+      const removedId =
+        removedRow?.id ??
+        removedRow?.ID ??
+        removedRow?.applicationId ??
+        removedRow?.application_id;
+      if (removedId && currentDetailCandidateId) {
+        if (!pendingDeletedSelectionIds[currentDetailCandidateId]) {
+          pendingDeletedSelectionIds[currentDetailCandidateId] = [];
+        }
+        const existing = pendingDeletedSelectionIds[currentDetailCandidateId];
+        if (!existing.includes(removedId)) {
+          existing.push(removedId);
+        }
+      }
       rows.splice(index, 1);
       candidate.selectionProgress = rows;
       break;
@@ -4699,14 +4780,6 @@ function renderAssigneeSection(candidate) {
       displayFormatter: () => candidate.advisorName || "-",
       span: 3,
     },
-    {
-      label: "CSステータス",
-      value: candidate.csStatus ?? "",
-      input: "select",
-      options: buildCsStatusOptions(candidate.csStatus ?? ""),
-      path: "csStatus",
-      span: 3,
-    },
   ];
   return renderDetailGridFields(fields, "assignees");
 }
@@ -4890,6 +4963,7 @@ function renderHearingSection(candidate) {
 function renderSelectionProgressSection(candidate) {
   const rows = candidate.selectionProgress || [];
   const editing = detailEditState.selection;
+  const fixedRoute = getCandidateSourceName(candidate);
   const addButton = editing
     ? `<button type="button" class="repeatable-add-btn" data-add-row="selectionProgress"> 追加</button>`
     : "";
@@ -4906,7 +4980,9 @@ function renderSelectionProgressSection(candidate) {
       `;
     }
 
-    const cardsHtml = rows.map((row) => renderSelectionFlowCard(row)).join("");
+    const cardsHtml = rows
+      .map((row) => renderSelectionFlowCard({ ...row, route: fixedRoute || row.route }))
+      .join("");
     return `
       <div class="selection-flow-container space-y-6">
         ${cardsHtml}
@@ -4926,7 +5002,7 @@ function renderSelectionProgressSection(candidate) {
     const deleteBtn = `<button type="button" class="text-red-600 hover:text-red-800 text-sm font-medium" data-remove-row="selectionProgress" data-index="${index}">削除</button>`;
 
     return `
-      <div class="selection-card bg-white rounded-lg border border-slate-200 shadow-sm p-4 mb-4 relative">
+      <div class="selection-card bg-white rounded-lg border border-slate-200 shadow-sm p-4 mb-4 relative" data-selection-row="${index}">
         <div class="flex justify-between items-start mb-4 border-b border-slate-100 pb-2">
           <h4 class="text-sm font-bold text-slate-700 flex items-center gap-2">
             <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs">申込 ${index + 1}</span>
@@ -4943,8 +5019,8 @@ function renderSelectionProgressSection(candidate) {
               ${renderTableInput(r.companyName, `${pathPrefix}.companyName`, "text", "selection", null, "client-list")}
             </div>
             <div class="form-group">
-              <label class="block text-xs font-medium text-slate-500 mb-1">応募経路</label>
-              ${renderTableInput(r.route, `${pathPrefix}.route`, "text", "selection")}
+              <label class="block text-xs font-medium text-slate-500 mb-1">応募経路（媒体・固定）</label>
+              <div class="detail-value text-sm">${escapeHtml(formatDisplayValue(fixedRoute || "-"))}</div>
             </div>
           </div>
 
@@ -6117,7 +6193,7 @@ async function handleCandidateDetailClick(e) {
     const candidate = allCandidates.find(c => String(c.id) === currentDetailCandidateId);
     if (candidate) {
       if (!candidate.selectionProgress) candidate.selectionProgress = [];
-      candidate.selectionProgress.unshift({}); // Add to top
+      candidate.selectionProgress.push({}); // Add to bottom for stability
       renderCandidateDetail(candidate, { preserveEditState: true });
     }
     return;
@@ -6132,6 +6208,15 @@ async function handleCandidateDetailClick(e) {
 
     if (candidate && field === "selectionProgress" && candidate.selectionProgress) {
       if (confirm("この選考プロセスを削除しますか？")) {
+        const removedRow = candidate.selectionProgress[index];
+        const removedId = removedRow?.id || removedRow?.ID;
+        if (removedId) {
+          if (!pendingDeletedSelectionIds[currentDetailCandidateId]) {
+            pendingDeletedSelectionIds[currentDetailCandidateId] = [];
+          }
+          pendingDeletedSelectionIds[currentDetailCandidateId].push(removedId);
+        }
+
         candidate.selectionProgress.splice(index, 1);
         renderCandidateDetail(candidate, { preserveEditState: true });
       }

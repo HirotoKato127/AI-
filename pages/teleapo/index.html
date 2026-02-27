@@ -885,8 +885,9 @@
         </div>
         <div class="teleapo-form-field">
           <label>候補者名</label>
-          <input id="dialFormCandidateName" list="dialFormCandidateList" type="text" required placeholder="候補者名を入力" />
-          <datalist id="dialFormCandidateList"></datalist>
+          <input id="dialFormCandidateSearch" type="search" placeholder="候補者名で検索" autocomplete="off" />
+          <select id="dialFormCandidateSelect" required></select>
+          <input id="dialFormCandidateName" type="hidden" />
         </div>
         <div class="teleapo-form-field">
           <label>経路</label>
@@ -989,7 +990,9 @@
         </div>
         <div class="teleapo-form-field">
           <label>候補者名</label>
-          <input id="smsFormCandidateName" list="dialFormCandidateList" type="text" required placeholder="候補者名を入力" />
+          <input id="smsFormCandidateSearch" type="search" placeholder="候補者名で検索" autocomplete="off" />
+          <select id="smsFormCandidateSelect" required></select>
+          <input id="smsFormCandidateName" type="hidden" />
         </div>
         <div class="teleapo-form-field">
           <label>経路</label>
@@ -1290,4 +1293,4 @@
   })();
 </script>
 
-<script type="module" src="./teleapo.js?v=20260321"></script>
+<script type="module" src="./teleapo.js?v=20260227_03"></script>

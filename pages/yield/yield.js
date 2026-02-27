@@ -4315,7 +4315,6 @@ async function loadCompanyMsTargets(periodId) {
 
 // MS逶ｮ讓吝・蜉帙ワ繝ｳ繝峨Λ
 function handleMsTargetInput(event) {
-  if (state.yieldScope === 'admin') return;
   const input = event.target;
   const { dept, date, metric } = input.dataset;
   const value = Number(input.value) || 0;
@@ -4355,7 +4354,6 @@ function distributeMsTargets(totalTarget, dates, deptKey, periodId, metricKey = 
 }
 
 function handleCompanyMsDistribute(event) {
-  if (state.yieldScope === 'admin') return;
   const button = event.target;
   const deptKey = button.dataset.dept;
   const metricKey = button.dataset.metric;
@@ -4440,7 +4438,6 @@ function renderCompanyMsTable() {
   const headerRow = document.getElementById('companyMsHeaderRow');
   const body = document.getElementById('companyMsTableBody');
   if (!headerRow || !body) return;
-  const isAdminScope = state.yieldScope === 'admin';
 
   const periodId = state.companyMsPeriodId;
 
@@ -4533,7 +4530,7 @@ function renderCompanyMsTable() {
     ).join('');
 
     // 謖・ｨ吶そ繝ｫ・医そ繝ｬ繧ｯ繝医・繝・け繧ｹ縺ｾ縺溘・繝ｩ繝吶Ν・・
-    const distributeButton = (!isAdminScope && hasMsPeriod)
+    const distributeButton = hasMsPeriod
       ? `<div class="ms-distribute-wrap"><button type="button" class="ms-distribute-btn" data-ms-distribute data-scope="company" data-dept="${dept.key}" data-metric="${metricKey}">日割り配分</button></div>`
       : '';
     const metricRowspan = hasMsPeriod ? 3 : 1;
@@ -4598,7 +4595,6 @@ function renderCompanyMsTable() {
       if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
       const savedMs = cumulativeTargets[idx];
       const displayValue = Number.isFinite(savedMs) ? savedMs : '';
-      const readonlyAttr = isAdminScope ? 'readonly' : '';
       return `
         <td class="ms-target-cell">
           <input type="number" class="ms-target-input company-ms-input"
@@ -4606,8 +4602,7 @@ function renderCompanyMsTable() {
                  data-date="${date}"
                  data-metric="${metricKey || ''}"
                  value="${displayValue}"
-                 min="0"
-                 ${readonlyAttr} />
+                 min="0" />
         </td>
       `;
     }).join('');
@@ -4681,21 +4676,17 @@ function renderCompanyMsTable() {
   });
 
   // MS逶ｮ讓吝・蜉帙・繧､繝吶Φ繝医ヰ繧､繝ｳ繝・
-  if (!isAdminScope) {
-    body.querySelectorAll('.ms-target-input').forEach(input => {
-      if (input.dataset.bound) return;
-      input.addEventListener('change', handleMsTargetInput);
-      input.dataset.bound = 'true';
-    });
-  }
+  body.querySelectorAll('.ms-target-input').forEach(input => {
+    if (input.dataset.bound) return;
+    input.addEventListener('change', handleMsTargetInput);
+    input.dataset.bound = 'true';
+  });
 
-  if (!isAdminScope) {
-    body.querySelectorAll('[data-ms-distribute][data-scope="company"]').forEach(button => {
-      if (button.dataset.bound) return;
-      button.addEventListener('click', handleCompanyMsDistribute);
-      button.dataset.bound = 'true';
-    });
-  }
+  body.querySelectorAll('[data-ms-distribute][data-scope="company"]').forEach(button => {
+    if (button.dataset.bound) return;
+    button.addEventListener('click', handleCompanyMsDistribute);
+    button.dataset.bound = 'true';
+  });
 
 }
 
@@ -4794,7 +4785,6 @@ async function handlePersonalMsMetricChange(event) {
 
 // 蛟倶ｺｺ蛻･MS逶ｮ讓吝・蜉帙ワ繝ｳ繝峨Λ
 function handlePersonalMsTargetInput(event) {
-  if (state.yieldScope === 'admin') return;
   const input = event.target;
   const { dept, member, date, metric } = input.dataset;
   const value = Number(input.value) || 0;
@@ -4840,7 +4830,6 @@ function handlePersonalMsActualInput(event) {
 }
 
 function handlePersonalMsDistribute(event) {
-  if (state.yieldScope === 'admin') return;
   const button = event.target;
   const { dept, member, metric } = button.dataset;
   const periodId = state.companyMsPeriodId;
@@ -4902,7 +4891,6 @@ function updatePersonalMsProgressRate(dept, memberId, date, metricKey) {
 
 // 蛟倶ｺｺ蛻･MS繝・・繝悶Ν繧偵Ξ繝ｳ繝繝ｪ繝ｳ繧ｰ
 function renderPersonalMsTable(deptKey) {
-  const isAdminScope = state.yieldScope === 'admin';
   const deptConfig = {
     marketing: { headerRowId: 'marketingPersonalMsHeaderRow', bodyId: 'marketingPersonalMsTableBody' },
     cs: { headerRowId: 'csPersonalMsHeaderRow', bodyId: 'csPersonalMsTableBody' },
@@ -4980,7 +4968,7 @@ function renderPersonalMsTable(deptKey) {
     const noticeMonth = resolveMsSettingsMonthByPeriodId(periodId) || '選択月';
 
     const isSingleMetric = metrics.length <= 1;
-    const distributeButton = (!isAdminScope && hasMsPeriod)
+    const distributeButton = hasMsPeriod
       ? `<div class="ms-distribute-wrap"><button type="button" class="ms-distribute-btn" data-ms-distribute data-scope="personalMs" data-dept="${deptKey}" data-member="${memberId}" data-metric="${currentMetricKey}">日割り配分</button></div>`
       : '';
     const metricRowspan = hasMsPeriod ? 3 : 1;
@@ -5081,7 +5069,6 @@ function renderPersonalMsTable(deptKey) {
       if (isDisabled) return `<td class="ms-cell-disabled"></td>`;
       const value = cumulativeTargets[idx];
       const displayValue = Number.isFinite(value) ? value : '';
-      const readonlyAttr = isAdminScope ? 'readonly' : '';
       return `
         <td class="ms-target-cell">
           <input type="number" class="ms-target-input personal-ms-target-input" 
@@ -5090,8 +5077,7 @@ function renderPersonalMsTable(deptKey) {
                  data-date="${date}"
                  data-metric="${currentMetricKey}"
                  value="${displayValue}" 
-                 min="0"
-                 ${readonlyAttr} />
+                 min="0" />
         </td>
       `;
     }).join('');
@@ -5155,21 +5141,17 @@ function renderPersonalMsTable(deptKey) {
     select.dataset.bound = 'true';
   });
 
-  if (!isAdminScope) {
-    body.querySelectorAll('.personal-ms-target-input').forEach(input => {
-      if (input.dataset.bound) return;
-      input.addEventListener('change', handlePersonalMsTargetInput);
-      input.dataset.bound = 'true';
-    });
-  }
+  body.querySelectorAll('.personal-ms-target-input').forEach(input => {
+    if (input.dataset.bound) return;
+    input.addEventListener('change', handlePersonalMsTargetInput);
+    input.dataset.bound = 'true';
+  });
 
-  if (!isAdminScope) {
-    body.querySelectorAll('[data-ms-distribute][data-scope="personalMs"]').forEach(button => {
-      if (button.dataset.bound) return;
-      button.addEventListener('click', handlePersonalMsDistribute);
-      button.dataset.bound = 'true';
-    });
-  }
+  body.querySelectorAll('[data-ms-distribute][data-scope="personalMs"]').forEach(button => {
+    if (button.dataset.bound) return;
+    button.addEventListener('click', handlePersonalMsDistribute);
+    button.dataset.bound = 'true';
+  });
 }
 
 // 蛟倶ｺｺ蛻･MS繝・・繝悶Ν繧偵☆縺ｹ縺ｦ繝ｬ繝ｳ繝繝ｪ繝ｳ繧ｰ

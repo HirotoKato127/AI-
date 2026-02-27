@@ -132,6 +132,7 @@ const TELEAPO_PREDEFINED_CS_STATUS_OPTIONS = [
   '見込み(A)',
   '見込み(B)'
 ];
+const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
 const TELEAPO_API_URL = `${PRIMARY_API_BASE}/teleapo/logs`;
 const TELEAPO_HEATMAP_DAYS = ['月', '火', '水', '木', '金'];
 const TELEAPO_HEATMAP_SLOTS = ['09-11', '11-13', '13-15', '15-17', '17-19'];
@@ -1154,34 +1155,67 @@ function normalizeTeleapoCsStatus(value) {
   return String(value ?? '').trim();
 }
 
+let cachedTeleapoCsStatus = { custom: new Set(), deleted: new Set() };
+let teleapoCsStatusLoadPromise = null;
+
+function syncTeleapoCsStatusToLocalStorage() {
+  try {
+    localStorage.setItem(TELEAPO_CS_STATUS_STORAGE_KEY, JSON.stringify(Array.from(cachedTeleapoCsStatus.custom)));
+    localStorage.setItem(TELEAPO_CS_STATUS_DELETED_KEY, JSON.stringify(Array.from(cachedTeleapoCsStatus.deleted)));
+  } catch (err) {
+    console.warn('CSステータスのLocalStorage同期に失敗しました', err);
+  }
+}
+
+async function fetchTeleapoCsStatusOptions() {
+  try {
+    const res = await fetch(`${PRIMARY_API_BASE}/system-options?key=CS_STATUS`, { cache: "no-store" });
+    if (!res.ok) throw new Error('Failed to fetch stats');
+    const data = await res.json();
+    const options = data.item || { custom: [], deleted: [] };
+
+    cachedTeleapoCsStatus.custom = new Set(options.custom || []);
+    cachedTeleapoCsStatus.deleted = new Set(options.deleted || []);
+    syncTeleapoCsStatusToLocalStorage();
+  } catch (err) {
+    console.error('CSステータスのAPI取得に失敗しました', err);
+  }
+}
+
+function ensureTeleapoCsStatusOptionsLoaded() {
+  if (teleapoCsStatusLoadPromise) return teleapoCsStatusLoadPromise;
+  teleapoCsStatusLoadPromise = fetchTeleapoCsStatusOptions()
+    .catch((err) => {
+      console.error('CSステータス取得エラー:', err);
+    });
+  return teleapoCsStatusLoadPromise;
+}
+
+async function saveTeleapoCsStatusOptions() {
+  try {
+    const payload = {
+      key: 'CS_STATUS',
+      options: {
+        custom: Array.from(cachedTeleapoCsStatus.custom),
+        deleted: Array.from(cachedTeleapoCsStatus.deleted)
+      }
+    };
+    const res = await fetch(`${PRIMARY_API_BASE}/system-options`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Failed to save stats');
+    console.log('[DEBUG] CSステータス選択肢の保存に成功:', payload);
+    syncTeleapoCsStatusToLocalStorage();
+  } catch (err) {
+    console.error('CSステータスのAPI登録に失敗しました', err);
+  }
+}
+
 function readTeleapoCsStatusStorage() {
-  const custom = new Set();
-  const deleted = new Set();
-  try {
-    const rawCustom = JSON.parse(localStorage.getItem(TELEAPO_CS_STATUS_STORAGE_KEY) || '[]');
-    if (Array.isArray(rawCustom)) {
-      rawCustom.forEach((value) => {
-        const normalized = normalizeTeleapoCsStatus(value);
-        if (normalized) custom.add(normalized);
-      });
-    }
-  } catch (err) {
-    console.warn('CSステータスのローカルストレージ読み込みに失敗しました', err);
-  }
-
-  try {
-    const rawDeleted = JSON.parse(localStorage.getItem(TELEAPO_CS_STATUS_DELETED_KEY) || '[]');
-    if (Array.isArray(rawDeleted)) {
-      rawDeleted.forEach((value) => {
-        const normalized = normalizeTeleapoCsStatus(value);
-        if (normalized) deleted.add(normalized);
-      });
-    }
-  } catch (err) {
-    console.warn('CSステータス削除一覧の読み込みに失敗しました', err);
-  }
-
-  return { custom, deleted };
+  // 後方互換性+同期版のためにメモリキャッシュを使用する
+  return cachedTeleapoCsStatus;
 }
 
 function buildTeleapoCsStatusOptions({ candidates = teleapoCandidateMaster, selectedValues = [] } = {}) {
@@ -1244,40 +1278,38 @@ function refreshTeleapoCsStatusSelects({ candidates = teleapoCandidateMaster } =
  * CSステータスを削除（非表示リストに追加）
  * @param {string} status 削除するステータス名
  */
-window.deleteTeleapoCsStatus = function (status) {
+window.deleteTeleapoCsStatus = async function (status) {
   const normalized = normalizeTeleapoCsStatus(status);
   if (!normalized) return;
 
-  if (!window.confirm(`「${normalized}」を削除してもよろしいですか？\n※既に設定済みの候補者のデータには影響しません。`)) return;
+  if (!window.confirm(`「${normalized}」を削除してもよろしいですか？
+※既に設定済みの候補者のデータには影響しません。`)) return;
 
   const { custom, deleted } = readTeleapoCsStatusStorage();
 
-  // カスタムステータスならカスタムから削除
   if (custom.has(normalized)) {
     custom.delete(normalized);
-    localStorage.setItem(TELEAPO_CS_STATUS_STORAGE_KEY, JSON.stringify(Array.from(custom)));
   } else {
-    // デフォルトステータスなら非表示リストに追加
     deleted.add(normalized);
-    localStorage.setItem(TELEAPO_CS_STATUS_DELETED_KEY, JSON.stringify(Array.from(deleted)));
   }
 
+  await saveTeleapoCsStatusOptions();
   refreshTeleapoCsStatusSelects();
-  renderTeleapoCsStatusManager(); // 管理画面を再描画
+  renderTeleapoCsStatusManager();
 };
 
 /**
  * CSステータスを復元（非表示リストから削除）
  * @param {string} status 復元するステータス名
  */
-window.restoreTeleapoCsStatus = function (status) {
+window.restoreTeleapoCsStatus = async function (status) {
   const normalized = normalizeTeleapoCsStatus(status);
   if (!normalized) return;
 
   const { deleted } = readTeleapoCsStatusStorage();
   if (deleted.has(normalized)) {
     deleted.delete(normalized);
-    localStorage.setItem(TELEAPO_CS_STATUS_DELETED_KEY, JSON.stringify(Array.from(deleted)));
+    await saveTeleapoCsStatusOptions();
   }
 
   refreshTeleapoCsStatusSelects();
@@ -1288,7 +1320,7 @@ window.restoreTeleapoCsStatus = function (status) {
  * 新規CSステータスを追加
  * @param {string} status 追加するステータス名
  */
-window.addTeleapoCsStatus = function (status) {
+window.addTeleapoCsStatus = async function (status) {
   const normalized = normalizeTeleapoCsStatus(status);
   if (!normalized) return;
 
@@ -1300,16 +1332,13 @@ window.addTeleapoCsStatus = function (status) {
 
   const { custom, deleted } = readTeleapoCsStatusStorage();
 
-  // 非表示リストに入っている場合はそこから削除（復元扱い）
   if (deleted.has(normalized)) {
     deleted.delete(normalized);
-    localStorage.setItem(TELEAPO_CS_STATUS_DELETED_KEY, JSON.stringify(Array.from(deleted)));
   } else {
-    // そうでなければカスタムリストに追加
     custom.add(normalized);
-    localStorage.setItem(TELEAPO_CS_STATUS_STORAGE_KEY, JSON.stringify(Array.from(custom)));
   }
 
+  await saveTeleapoCsStatusOptions();
   refreshTeleapoCsStatusSelects();
   renderTeleapoCsStatusManager();
 };
@@ -1581,6 +1610,43 @@ function normalizeCsStatusOption(value) {
   if (!text) return "";
   if (["-", "ー", "未設定", "未入力", "未登録", "未指定"].includes(text)) return "";
   return text;
+}
+
+function isMailTriggerCsStatus(value) {
+  const normalized = normalizeCsStatusOption(value);
+  if (!normalized) return false;
+  return MAIL_TRIGGER_STATUSES.includes(normalized);
+}
+
+function shouldConfirmCsStatusMailSend(newStatus, oldStatus) {
+  const normalizedNew = normalizeCsStatusOption(newStatus);
+  if (!normalizedNew) return false;
+  if (!MAIL_TRIGGER_STATUSES.includes(normalizedNew)) return false;
+  const normalizedOld = normalizeCsStatusOption(oldStatus);
+  return normalizedNew !== normalizedOld;
+}
+
+function resolveCandidateCsStatus(candidateId) {
+  const idNum = toPositiveInt(candidateId);
+  if (!idNum) return "";
+
+  const cached = candidateDetailCache?.get(idNum);
+  const cachedStatus = normalizeCsStatusOption(cached?.csStatus ?? cached?.cs_status ?? "");
+  if (cachedStatus) return cachedStatus;
+
+  const master = findTeleapoCandidate({ candidateId: idNum });
+  const masterStatus = normalizeCsStatusOption(master?.csStatus ?? master?.cs_status ?? "");
+  if (masterStatus) return masterStatus;
+
+  const logEntry = teleapoLogData?.find((l) => String(l.candidateId) === String(idNum));
+  const logStatus = normalizeCsStatusOption(logEntry?.csStatus ?? logEntry?.cs_status ?? "");
+  if (logStatus) return logStatus;
+
+  const taskEntry = teleapoCsTaskCandidates?.find((c) => String(c.candidateId) === String(idNum));
+  const taskStatus = normalizeCsStatusOption(taskEntry?.csStatus ?? taskEntry?.cs_status ?? "");
+  if (taskStatus) return taskStatus;
+
+  return "";
 }
 
 function formatCandidateDate(value) {
@@ -5119,9 +5185,8 @@ function initLogTableActions() {
     if (!candidateId) return;
 
     const oldStatusObj = teleapoLogData.find(l => String(l.candidateId) === String(candidateId));
-    const oldStatus = oldStatusObj ? (oldStatusObj.csStatus ?? oldStatusObj.cs_status ?? "") : "";
-    const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
-    if (newStatus !== oldStatus && MAIL_TRIGGER_STATUSES.includes(newStatus)) {
+    const oldStatus = normalizeCsStatusOption(oldStatusObj ? (oldStatusObj.csStatus ?? oldStatusObj.cs_status ?? "") : "");
+    if (shouldConfirmCsStatusMailSend(newStatus, oldStatus)) {
       if (!window.confirm(`CSステータスを「${newStatus}」に変更すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
         select.value = oldStatus;
         return;
@@ -5216,9 +5281,8 @@ function initCsTaskTableActions() {
     const idNum = Number(candidateId);
 
     const oldStatusObj = teleapoCsTaskCandidates?.find(c => Number(c.candidateId) === idNum);
-    const oldStatus = oldStatusObj ? (oldStatusObj.csStatus ?? oldStatusObj.cs_status ?? "") : "";
-    const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
-    if (newStatus !== oldStatus && MAIL_TRIGGER_STATUSES.includes(newStatus)) {
+    const oldStatus = normalizeCsStatusOption(oldStatusObj ? (oldStatusObj.csStatus ?? oldStatusObj.cs_status ?? "") : "");
+    if (shouldConfirmCsStatusMailSend(newStatus, oldStatus)) {
       if (!window.confirm(`CSステータスを「${newStatus}」に変更すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
         select.value = oldStatus;
         return;
@@ -5465,14 +5529,60 @@ async function fetchTeleapoApi() {
   return res.json();
 }
 
-// ... fetchTeleapoApi関数などの近くに追加 ...
+// 候補者を各種Mapに登録する共通関数
+function registerCandidateToMaps(c) {
+  const fullName = String(c.candidateName ?? c.candidate_name ?? c.name ?? '').trim();
+  const candidateId = Number(c.candidateId ?? c.candidate_id ?? c.id ?? c.candidateID);
+  if (!fullName || !Number.isFinite(candidateId) || candidateId <= 0) return;
+
+  candidateNameMap.set(fullName, candidateId);
+  candidateIdMap.set(String(candidateId), fullName);
+  registerCandidateAttendance(
+    candidateId,
+    fullName,
+    c.attendanceConfirmed ?? c.first_interview_attended ?? c.attendance_confirmed ?? c.firstInterviewAttended
+  );
+
+  const phone = c.phone ?? c.phone_number ?? c.phoneNumber ?? c.tel ?? c.mobile ?? c.candidate_phone ?? "";
+  const phoneText = String(phone ?? "").trim();
+  const birthday = String(c.birthday ?? c.birth_date ?? c.birthDate ?? c.birthdate ?? "").trim();
+  const contactPreferredTime = normalizeContactPreferredTime(
+    c.contactPreferredTime ?? c.contact_preferred_time ?? c.contactTime ?? c.contact_time
+  );
+  const ageRaw = c.age ?? c.age_years ?? c.ageYears ?? null;
+  const ageValue = Number(ageRaw);
+  const age = Number.isFinite(ageValue) && ageValue > 0 ? ageValue : null;
+
+  const detail = {
+    phone: phoneText,
+    birthday: String(birthday ?? "").trim(),
+    age,
+    contactPreferredTime: normalizeContactPreferredTime(contactPreferredTime),
+    contactPreferredTimeFetched: Boolean(contactPreferredTime),
+    attendanceConfirmed: normalizeAttendanceValue(
+      c.attendanceConfirmed ?? c.first_interview_attended ?? c.attendance_confirmed ?? c.firstInterviewAttended
+    ),
+    firstInterviewDate: c.firstInterviewDate ?? c.first_interview_date ?? c.firstInterviewAt ?? c.first_interview_at ?? null,
+    csStatus: c.csStatus ?? c.cs_status ?? ""
+  };
+
+  if (detail.phone) candidatePhoneCache.set(candidateId, detail.phone);
+  if (detail.phone || detail.birthday || detail.age !== null || detail.contactPreferredTime) {
+    candidateDetailCache.set(candidateId, detail);
+  }
+  registerCandidateContactMaps(candidateId, { ...c, phone: phoneText });
+}
 
 // ★ 候補者一覧を取得して datalist 用の辞書を作る
 async function loadCandidates() {
   renderCsTaskTable([], { loading: true });
   renderMissingInfoTable([], { loading: true });
   try {
-    const res = await fetch(CANDIDATES_API_URL, { headers: { Accept: 'application/json' } });
+    const listUrl = new URL(CANDIDATES_API_URL, window.location.origin);
+    listUrl.searchParams.set('limit', '200');
+    listUrl.searchParams.set('offset', '0');
+    listUrl.searchParams.set('sort', 'desc');
+    const res = await fetch(listUrl.toString(), { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`Candidates API Error: ${res.status}`);
 
     const data = await res.json();
@@ -5485,61 +5595,14 @@ async function loadCandidates() {
     candidateAttendanceByName.clear();
     candidatePhoneToId.clear();
     candidateEmailToId.clear();
-    items.forEach(c => {
-      // 名前を一意のキーにする（同姓同名対策が必要なら "名前(ID)" 等にするが、一旦名前で実装）
-      const fullName = String(c.candidateName ?? c.candidate_name ?? c.name ?? '').trim();
-      const candidateId = Number(c.candidateId ?? c.candidate_id ?? c.id ?? c.candidateID);
-      if (fullName && Number.isFinite(candidateId) && candidateId > 0) {
-        candidateNameMap.set(fullName, candidateId);
-        candidateIdMap.set(String(candidateId), fullName);
-        registerCandidateAttendance(
-          candidateId,
-          fullName,
-          c.attendanceConfirmed ?? c.first_interview_attended ?? c.attendance_confirmed ?? c.firstInterviewAttended
-        );
-        const phone =
-          c.phone ??
-          c.phone_number ??
-          c.phoneNumber ??
-          c.tel ??
-          c.mobile ??
-          c.candidate_phone ??
-          "";
-        const phoneText = String(phone ?? "").trim();
-        const birthday = String(c.birthday ?? c.birth_date ?? c.birthDate ?? c.birthdate ?? "").trim();
-        const contactPreferredTime = normalizeContactPreferredTime(
-          c.contactPreferredTime ??
-          c.contact_preferred_time ??
-          c.contactTime ??
-          c.contact_time
-        );
-        const contactPreferredTimeFetched = Boolean(contactPreferredTime);
-        const ageRaw = c.age ?? c.age_years ?? c.ageYears ?? null;
-        const ageValue = Number(ageRaw);
-        const age = Number.isFinite(ageValue) && ageValue > 0 ? ageValue : null;
-        const detail = {
-          phone: phoneText,
-          birthday: String(birthday ?? "").trim(),
-          age,
-          contactPreferredTime: normalizeContactPreferredTime(contactPreferredTime),
-          contactPreferredTimeFetched,
-          attendanceConfirmed: normalizeAttendanceValue(
-            c.attendanceConfirmed ?? c.first_interview_attended ?? c.attendance_confirmed ?? c.firstInterviewAttended
-          ),
-          firstInterviewDate: c.firstInterviewDate ?? c.first_interview_date ?? c.firstInterviewAt ?? c.first_interview_at ?? null,
-          csStatus: c.csStatus ?? c.cs_status ?? ""
-        };
-        if (detail.phone) candidatePhoneCache.set(candidateId, detail.phone);
-        if (detail.phone || detail.birthday || detail.age !== null || detail.contactPreferredTime) {
-          candidateDetailCache.set(candidateId, detail);
-        }
-        registerCandidateContactMaps(candidateId, { ...c, phone: phoneText });
-      }
-    });
+
+    items.forEach(registerCandidateToMaps);
+
     candidateNameList = Array.from(candidateNameMap.keys()).sort((a, b) => b.length - a.length);
 
     console.log(`候補者ロード完了: ${candidateNameMap.size}件`);
     teleapoCandidateMaster = items;
+    await ensureTeleapoCsStatusOptionsLoaded();
     refreshCandidateDatalist(); // datalist更新
     refreshDialFormAdvisorSelect(teleapoCandidateMaster);
     refreshTeleapoCsStatusSelects({ candidates: teleapoCandidateMaster });
@@ -5674,6 +5737,9 @@ export function mount() {
   initCandidateQuickView(); // 既存の初期化関数を使用
   initRateModeToggle();
   initCsStatusManager(); // CSステータス管理の初期化
+  void ensureTeleapoCsStatusOptionsLoaded().then(() => {
+    refreshTeleapoCsStatusSelects({ candidates: teleapoCandidateMaster });
+  });
 
   // initLogForm(); // ← ★削除またはコメントアウト（モック用フォームはもう不要）
 
@@ -5849,15 +5915,68 @@ function refreshDialFormMineCandidates() {
   ].join("");
 }
 
+function filterCandidateNamesByQuery(names, query) {
+  const key = normalizeNameKey(query);
+  if (!key) return names;
+  return names.filter((name) => normalizeNameKey(name).includes(key));
+}
+
+function updateCandidateSelectOptions({ selectEl, names, query, selectedValue }) {
+  if (!selectEl) return false;
+  const selected = String(selectedValue || "").trim();
+  const selectedKey = selected ? normalizeNameKey(selected) : "";
+  const queryKey = normalizeNameKey(query);
+  const effectiveQuery = selectedKey && queryKey && selectedKey === queryKey ? "" : query;
+  const filtered = filterCandidateNamesByQuery(names, effectiveQuery);
+  const withSelected = selected && !filtered.includes(selected) && names.includes(selected)
+    ? [selected, ...filtered]
+    : filtered;
+  const optionsHtml = [
+    '<option value="">選択してください</option>',
+    ...withSelected.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+  ].join("");
+  selectEl.innerHTML = optionsHtml;
+  const matched = !!selected && withSelected.includes(selected);
+  selectEl.value = matched ? selected : "";
+  selectEl.disabled = withSelected.length === 0;
+  return matched;
+}
+
 // 既存の refreshCandidateDatalist をこれで上書き
 function refreshCandidateDatalist() {
-  const listEl = document.getElementById("dialFormCandidateList");
-  if (!listEl) return;
-
   // 自分担当候補者を先頭、その後に他候補者を表示
   const names = buildDialFormCandidateNamesByPriority();
 
-  listEl.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join("");
+  const dialSearch = document.getElementById("dialFormCandidateSearch");
+  const dialSelect = document.getElementById("dialFormCandidateSelect");
+  const dialNameInput = document.getElementById("dialFormCandidateName");
+  const dialIdInput = document.getElementById("dialFormCandidateId");
+  const dialSelected = dialNameInput?.value || "";
+  updateCandidateSelectOptions({
+    selectEl: dialSelect,
+    names,
+    query: dialSearch?.value || "",
+    selectedValue: dialSelected
+  });
+  if (dialNameInput && !dialNameInput.value) {
+    if (dialIdInput) dialIdInput.value = "";
+  }
+
+  const smsSearch = document.getElementById("smsFormCandidateSearch");
+  const smsSelect = document.getElementById("smsFormCandidateSelect");
+  const smsNameInput = document.getElementById("smsFormCandidateName");
+  const smsIdInput = document.getElementById("smsFormCandidateId");
+  const smsSelected = smsNameInput?.value || "";
+  updateCandidateSelectOptions({
+    selectEl: smsSelect,
+    names,
+    query: smsSearch?.value || "",
+    selectedValue: smsSelected
+  });
+  if (smsNameInput && !smsNameInput.value) {
+    if (smsIdInput) smsIdInput.value = "";
+  }
+
   refreshDialFormMineCandidates();
 }
 
@@ -5911,17 +6030,94 @@ function updateCallNoAndRoute(candidateName) {
   });
 }
 
+function clearDialFormCandidateSelection({ refresh = false, keepSearch = false } = {}) {
+  const nameInput = document.getElementById("dialFormCandidateName");
+  const searchInput = document.getElementById("dialFormCandidateSearch");
+  const select = document.getElementById("dialFormCandidateSelect");
+  const idInput = document.getElementById("dialFormCandidateId");
+  if (nameInput) nameInput.value = "";
+  if (searchInput && !keepSearch) searchInput.value = "";
+  if (select) select.value = "";
+  if (idInput) idInput.value = "";
+  if (refresh) refreshCandidateDatalist();
+}
+
+function clearSmsFormCandidateSelection({ refresh = false, keepSearch = false } = {}) {
+  const nameInput = document.getElementById("smsFormCandidateName");
+  const searchInput = document.getElementById("smsFormCandidateSearch");
+  const select = document.getElementById("smsFormCandidateSelect");
+  const idInput = document.getElementById("smsFormCandidateId");
+  if (nameInput) nameInput.value = "";
+  if (searchInput && !keepSearch) searchInput.value = "";
+  if (select) select.value = "";
+  if (idInput) idInput.value = "";
+  if (refresh) refreshCandidateDatalist();
+}
+
+function setDialFormCandidateSelection(candidateName, { candidateId = null, updateSearch = true } = {}) {
+  const name = String(candidateName || "").trim();
+  const nameInput = document.getElementById("dialFormCandidateName");
+  const searchInput = document.getElementById("dialFormCandidateSearch");
+  const select = document.getElementById("dialFormCandidateSelect");
+  const idInput = document.getElementById("dialFormCandidateId");
+  if (nameInput) nameInput.value = name;
+  if (updateSearch && searchInput) searchInput.value = name;
+  if (select) select.value = name || "";
+
+  const resolvedId = toPositiveInt(candidateId) || (name ? findCandidateIdByName(name) : null);
+  if (idInput) idInput.value = resolvedId ? String(resolvedId) : "";
+
+  refreshCandidateDatalist();
+  updateCallNoAndRoute(name);
+  syncDialFormAdvisorSelection({
+    candidateId: resolvedId ?? idInput?.value,
+    candidateName: name
+  });
+
+  if (resolvedId && candidateDetailCache && candidateDetailCache.has(resolvedId)) {
+    const detail = candidateDetailCache.get(resolvedId);
+    const csStatusSelect = document.getElementById("dialFormCsStatus");
+    if (csStatusSelect) {
+      csStatusSelect.value = detail.csStatus || "";
+    }
+  }
+}
+
+function setSmsFormCandidateSelection(candidateName, { candidateId = null, updateSearch = true } = {}) {
+  const name = String(candidateName || "").trim();
+  const nameInput = document.getElementById("smsFormCandidateName");
+  const searchInput = document.getElementById("smsFormCandidateSearch");
+  const select = document.getElementById("smsFormCandidateSelect");
+  const idInput = document.getElementById("smsFormCandidateId");
+  if (nameInput) nameInput.value = name;
+  if (updateSearch && searchInput) searchInput.value = name;
+  if (select) select.value = name || "";
+
+  const resolvedId = toPositiveInt(candidateId) || (name ? findCandidateIdByName(name) : null);
+  if (idInput) idInput.value = resolvedId ? String(resolvedId) : "";
+
+  refreshCandidateDatalist();
+  syncSmsFormAdvisorSelection({
+    candidateId: resolvedId ?? idInput?.value,
+    candidateName: name
+  });
+
+  if (resolvedId && candidateDetailCache && candidateDetailCache.has(resolvedId)) {
+    const detail = candidateDetailCache.get(resolvedId);
+    const csStatusSelect = document.getElementById("smsFormCsStatus");
+    if (csStatusSelect) {
+      csStatusSelect.value = detail.csStatus || "";
+    }
+  }
+}
+
 function prefillDialFormFromCandidate(candidateId, candidateName) {
   const form = document.getElementById("teleapoFormSection");
-  const nameInput = document.getElementById("dialFormCandidateName");
   const idInput = document.getElementById("dialFormCandidateId");
   const calledAtInput = document.getElementById("dialFormCalledAt");
   const routeInput = document.getElementById("dialFormRoute");
 
   const resolvedName = candidateName || candidateIdMap.get(String(candidateId)) || "";
-  if (nameInput && resolvedName) {
-    nameInput.value = resolvedName;
-  }
   if (idInput && candidateId) {
     idInput.value = String(candidateId);
   }
@@ -5930,12 +6126,11 @@ function prefillDialFormFromCandidate(candidateId, candidateName) {
   }
 
   if (resolvedName) {
-    updateCallNoAndRoute(resolvedName);
+    setDialFormCandidateSelection(resolvedName, { candidateId });
   }
   if (routeInput) {
     routeInput.value = "電話";
   }
-  syncDialFormAdvisorSelection({ candidateId, candidateName: resolvedName });
   updateInterviewFieldVisibility(document.getElementById("dialFormResult")?.value);
 
   if (form) {
@@ -5946,7 +6141,7 @@ function prefillDialFormFromCandidate(candidateId, candidateName) {
   if (resultSelect) {
     resultSelect.focus();
   } else {
-    nameInput?.focus();
+    document.getElementById("dialFormCandidateSelect")?.focus();
   }
 }
 
@@ -6034,6 +6229,7 @@ function resetDialFormDefaults(clearMessage = true) {
   if (memo) memo.value = "";
   const msg = document.getElementById("dialFormMessage");
   if (msg && clearMessage) msg.textContent = "";
+  clearDialFormCandidateSelection();
 }
 
 function resetSmsFormDefaults(clearMessage = true) {
@@ -6054,42 +6250,82 @@ function resetSmsFormDefaults(clearMessage = true) {
   if (memo) memo.value = "";
   const msg = document.getElementById("smsFormMessage");
   if (msg && clearMessage) msg.textContent = "";
+  clearSmsFormCandidateSelection();
 }
 
 // 既存の bindDialForm をこれで上書き
+// サーバーサイド検索を実行して結果をMapに合流させる
+async function loadCandidatesByName(query) {
+  const q = String(query || "").trim();
+  if (!q || q.length < 1) return;
+
+  try {
+    const listUrl = new URL(CANDIDATES_API_URL, window.location.origin);
+    listUrl.searchParams.set('name', q);
+    listUrl.searchParams.set('limit', '50');
+    const res = await fetch(listUrl.toString(), { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`Candidates Search API Error: ${res.status}`);
+
+    const data = await res.json();
+    const rawItems = Array.isArray(data.items) ? data.items : [];
+    const items = rawItems.map(item => normalizeCandidateDetail(item) || item);
+
+    // 見つかった候補者をMapに追加（既存のものは上書きされるが問題なし）
+    items.forEach(registerCandidateToMaps);
+
+    // リストを再生成して表示を更新
+    candidateNameList = Array.from(candidateNameMap.keys()).sort((a, b) => b.length - a.length);
+    refreshCandidateDatalist();
+  } catch (e) {
+    console.error("Candidate search failed:", e);
+  }
+}
+
+let dialSearchTimer = null;
+let smsSearchTimer = null;
+
 function bindDialForm() {
-  const candidateInput = document.getElementById("dialFormCandidateName");
+  const candidateSearch = document.getElementById("dialFormCandidateSearch");
+  const candidateSelect = document.getElementById("dialFormCandidateSelect");
   const resultSelect = document.getElementById("dialFormResult");
   const advisorSelect = document.getElementById("dialFormAdvisorUserId");
 
-  // 名前入力時の自動補完ロジック
-  if (candidateInput) {
-    ["change", "blur", "input"].forEach(ev =>
-      candidateInput.addEventListener(ev, () => {
-        const val = candidateInput.value.trim();
-        updateCallNoAndRoute(val);
+  if (candidateSearch) {
+    candidateSearch.addEventListener("input", () => {
+      const currentName = document.getElementById("dialFormCandidateName")?.value || "";
+      const queryValue = candidateSearch.value || "";
+      const queryKey = normalizeNameKey(queryValue);
 
-        // ★ API由来のマップからIDを即座にセット
-        const foundId = findCandidateIdByName(val);
-        const hiddenId = document.getElementById("dialFormCandidateId");
-        if (hiddenId && foundId) {
-          hiddenId.value = foundId;
-        }
-        syncDialFormAdvisorSelection({
-          candidateId: foundId ?? hiddenId?.value,
-          candidateName: val
-        });
+      if (queryKey && (!currentName || !normalizeNameKey(currentName).includes(queryKey))) {
+        clearDialFormCandidateSelection({ keepSearch: true });
+      }
 
-        // CSステータスの自動セット
-        if (foundId && candidateDetailCache && candidateDetailCache.has(foundId)) {
-          const detail = candidateDetailCache.get(foundId);
-          const csStatusSelect = document.getElementById("dialFormCsStatus");
-          if (csStatusSelect) {
-            csStatusSelect.value = detail.csStatus || "";
-          }
-        }
-      })
-    );
+      // ローカルでの絞り込みを即時反映
+      refreshCandidateDatalist();
+
+      // サーバーサイド検索（デバウンス付）
+      clearTimeout(dialSearchTimer);
+      if (queryValue.length >= 1) {
+        dialSearchTimer = setTimeout(() => {
+          void loadCandidatesByName(queryValue);
+        }, 500);
+      }
+    });
+    candidateSearch.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const firstOption = candidateSelect?.querySelector('option[value]:not([value=""])');
+      if (firstOption) {
+        candidateSelect.value = firstOption.value;
+        setDialFormCandidateSelection(firstOption.value);
+      }
+    });
+  }
+
+  if (candidateSelect) {
+    candidateSelect.addEventListener("change", () => {
+      setDialFormCandidateSelection(candidateSelect.value);
+    });
   }
 
   if (resultSelect) {
@@ -6123,19 +6359,8 @@ function bindDialForm() {
       const selectedName = String(button.getAttribute("data-candidate-name") || "").trim();
       const selectedId = toPositiveInt(button.getAttribute("data-candidate-id"));
       if (!selectedName) return;
-      if (candidateInput) {
-        candidateInput.value = selectedName;
-      }
-      const hiddenId = document.getElementById("dialFormCandidateId");
-      if (hiddenId && selectedId) {
-        hiddenId.value = String(selectedId);
-      }
-      updateCallNoAndRoute(selectedName);
-      syncDialFormAdvisorSelection({
-        candidateId: selectedId ?? hiddenId?.value,
-        candidateName: selectedName
-      });
-      candidateInput?.focus();
+      setDialFormCandidateSelection(selectedName, { candidateId: selectedId });
+      candidateSelect?.focus();
     });
   }
 
@@ -6199,11 +6424,13 @@ function bindDialForm() {
 
     // ---- 既存のステータスチェック ----
     const csStatus = document.getElementById("dialFormCsStatus")?.value;
-    if (candidateIdValue && csStatus) {
-      const oldLogInfo = teleapoLogData?.find(l => String(l.candidateId) === String(candidateIdValue)) || csTaskData?.find(c => String(c.candidateId) === String(candidateIdValue));
-      const oldStatus = oldLogInfo ? (oldLogInfo.csStatus ?? oldLogInfo.cs_status ?? "") : "";
-      const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
-      if (csStatus !== oldStatus && MAIL_TRIGGER_STATUSES.includes(csStatus)) {
+    if (csStatus) {
+      if (isMailTriggerCsStatus(csStatus) && !candidateIdValue) {
+        if (msg) msg.textContent = "メール送信対象のCSステータスは候補者を一覧から選択してください";
+        return;
+      }
+      const oldStatus = candidateIdValue ? resolveCandidateCsStatus(candidateIdValue) : "";
+      if (shouldConfirmCsStatusMailSend(csStatus, oldStatus)) {
         if (!window.confirm(`CSステータスを「${csStatus}」に変更して保存すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
           return;
         }
@@ -6337,10 +6564,7 @@ function bindDialForm() {
 
       // フォーム初期化
       resetDialFormDefaults(false);
-      const cInput = document.getElementById("dialFormCandidateName");
-      if (cInput) cInput.value = "";
-      const hInput = document.getElementById("dialFormCandidateId");
-      if (hInput) hInput.value = "";
+      refreshCandidateDatalist();
 
       // データを再読み込みして表を更新
       await loadTeleapoData();
@@ -6356,34 +6580,47 @@ function bindDialForm() {
 }
 
 function bindSmsForm() {
-  const candidateInput = document.getElementById("smsFormCandidateName");
+  const candidateSearch = document.getElementById("smsFormCandidateSearch");
+  const candidateSelect = document.getElementById("smsFormCandidateSelect");
   const resultSelect = document.getElementById("smsFormResult");
   const advisorSelect = document.getElementById("smsFormAdvisorUserId");
 
-  if (candidateInput) {
-    ["change", "blur", "input"].forEach((ev) =>
-      candidateInput.addEventListener(ev, () => {
-        const val = candidateInput.value.trim();
-        const foundId = findCandidateIdByName(val);
-        const hiddenId = document.getElementById("smsFormCandidateId");
-        if (hiddenId) {
-          hiddenId.value = foundId ? String(foundId) : "";
-        }
-        syncSmsFormAdvisorSelection({
-          candidateId: foundId ?? hiddenId?.value,
-          candidateName: val
-        });
+  if (candidateSearch) {
+    candidateSearch.addEventListener("input", () => {
+      const currentName = document.getElementById("smsFormCandidateName")?.value || "";
+      const queryValue = candidateSearch.value || "";
+      const queryKey = normalizeNameKey(queryValue);
 
-        // CSステータスの自動セット
-        if (foundId && candidateDetailCache && candidateDetailCache.has(foundId)) {
-          const detail = candidateDetailCache.get(foundId);
-          const csStatusSelect = document.getElementById("smsFormCsStatus");
-          if (csStatusSelect) {
-            csStatusSelect.value = detail.csStatus || "";
-          }
-        }
-      })
-    );
+      if (queryKey && (!currentName || !normalizeNameKey(currentName).includes(queryKey))) {
+        clearSmsFormCandidateSelection({ keepSearch: true });
+      }
+
+      // ローカルでの絞り込みを即時反映
+      refreshCandidateDatalist();
+
+      // サーバーサイド検索（デバウンス付）
+      clearTimeout(smsSearchTimer);
+      if (queryValue.length >= 1) {
+        smsSearchTimer = setTimeout(() => {
+          void loadCandidatesByName(queryValue);
+        }, 500);
+      }
+    });
+    candidateSearch.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const firstOption = candidateSelect?.querySelector('option[value]:not([value=""])');
+      if (firstOption) {
+        candidateSelect.value = firstOption.value;
+        setSmsFormCandidateSelection(firstOption.value);
+      }
+    });
+  }
+
+  if (candidateSelect) {
+    candidateSelect.addEventListener("change", () => {
+      setSmsFormCandidateSelection(candidateSelect.value);
+    });
   }
 
   if (resultSelect) {
@@ -6464,11 +6701,13 @@ function bindSmsForm() {
 
     // ---- 既存のステータスチェック ----
     const csStatus = document.getElementById("smsFormCsStatus")?.value;
-    if (candidateIdValue && csStatus) {
-      const oldLogInfo = teleapoLogData?.find(l => String(l.candidateId) === String(candidateIdValue)) || csTaskData?.find(c => String(c.candidateId) === String(candidateIdValue));
-      const oldStatus = oldLogInfo ? (oldLogInfo.csStatus ?? oldLogInfo.cs_status ?? "") : "";
-      const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
-      if (csStatus !== oldStatus && MAIL_TRIGGER_STATUSES.includes(csStatus)) {
+    if (csStatus) {
+      if (isMailTriggerCsStatus(csStatus) && !candidateIdValue) {
+        if (msg) msg.textContent = "メール送信対象のCSステータスは候補者を一覧から選択してください";
+        return;
+      }
+      const oldStatus = candidateIdValue ? resolveCandidateCsStatus(candidateIdValue) : "";
+      if (shouldConfirmCsStatusMailSend(csStatus, oldStatus)) {
         if (!window.confirm(`CSステータスを「${csStatus}」に変更して保存すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
           return;
         }
@@ -6603,10 +6842,7 @@ function bindSmsForm() {
       }
 
       resetSmsFormDefaults(false);
-      const cInput = document.getElementById("smsFormCandidateName");
-      if (cInput) cInput.value = "";
-      const hInput = document.getElementById("smsFormCandidateId");
-      if (hInput) hInput.value = "";
+      refreshCandidateDatalist();
 
       await loadTeleapoData();
     } catch (err) {
@@ -6794,6 +7030,19 @@ async function updateCandidateCsStatus(candidateId, csStatus) {
   if (candidateDetailCache) {
     candidateDetailCache.set(idNum, normalizedUpdated);
   }
+
+  const masterEntry = findTeleapoCandidate({ candidateId: idNum });
+  if (masterEntry) {
+    masterEntry.csStatus = status;
+    masterEntry.cs_status = status;
+  }
+  teleapoLogData.forEach(log => {
+    if (String(log.candidateId) === String(idNum)) {
+      log.csStatus = status;
+      log.cs_status = status;
+    }
+  });
+
   return normalizedUpdated;
 }
 
