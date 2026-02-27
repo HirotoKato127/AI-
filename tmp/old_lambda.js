@@ -1,7 +1,6 @@
 ﻿import pg from "pg";
 
-// CORS設定: 環境変数から許可オリジンを取得
-const ALLOWED_ORIGINS = new Set([
+// CORS險ｭ螳・ 迺ｰ蠅・､画焚縺九ｉ險ｱ蜿ｯ繧ｪ繝ｪ繧ｸ繝ｳ繧貞叙蠕・const ALLOWED_ORIGINS = new Set([
     "http://localhost:8000",
     "http://localhost:8001",
     "http://localhost:8081",
@@ -24,8 +23,7 @@ function buildHeaders(event) {
 
 const { Pool } = pg;
 
-// SDKクライアントをLazy Loadingで宣言（初期化エラー回避）
-let lambdaClientInstance = null;
+// SDK繧ｯ繝ｩ繧､繧｢繝ｳ繝医ｒLazy Loading縺ｧ螳｣險・亥・譛溷喧繧ｨ繝ｩ繝ｼ蝗樣∩・・let lambdaClientInstance = null;
 let InvokeCommandClass = null;
 
 const pool = new Pool({
@@ -39,7 +37,7 @@ const pool = new Pool({
     idleTimeoutMillis: 30000,
 });
 
-// ヘルパー関数
+// 繝倥Ν繝代・髢｢謨ｰ
 const toIntOrNull = (v) => {
     if (v === undefined || v === null || v === "") return null;
     const n = Number(v);
@@ -66,13 +64,13 @@ async function assertUserRole(client, userId, expectedRole, label) {
     if (userId === null || userId === undefined) return;
     const res = await client.query("SELECT id, name, role FROM users WHERE id = $1", [userId]);
     if (!res.rows || res.rows.length === 0) {
-        throw httpError(400, `${label}のユーザーが存在しません (user_id=${userId})`);
+        throw httpError(400, `${label}縺ｮ繝ｦ繝ｼ繧ｶ繝ｼ縺悟ｭ伜惠縺励∪縺帙ｓ (user_id=${userId})`);
     }
     const actualRole = normalizeRole(res.rows[0].role);
     if (actualRole !== normalizeRole(expectedRole)) {
         throw httpError(
             400,
-            `${label}には role=${expectedRole} のユーザーのみ指定できます (user_id=${userId}, role=${actualRole || "-"})`
+            `${label}縺ｫ縺ｯ role=${expectedRole} 縺ｮ繝ｦ繝ｼ繧ｶ繝ｼ縺ｮ縺ｿ謖・ｮ壹〒縺阪∪縺・(user_id=${userId}, role=${actualRole || "-"})`
         );
     }
 }
@@ -89,13 +87,13 @@ const toBooleanOrNull = (v) => {
     return null;
 };
 
-const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
+const MAIL_TRIGGER_STATUSES = ["34豁ｳ莉･荳九Γ繝ｼ繝ｫ(tech)", "35豁ｳ莉･荳翫Γ繝ｼ繝ｫ", "螟門嵜邀阪Γ繝ｼ繝ｫ"];
 
 async function tryInvokeCsStatusMailer(client, candidateId, newCsStatusRaw) {
     const newCsStatus = emptyToNull(newCsStatusRaw);
-    console.log(`[CS-MAIL-DEBUG] 1. PUTリクエスト受信. newCsStatus: ${newCsStatus}`);
+    console.log(`[CS-MAIL-DEBUG] 1. PUT繝ｪ繧ｯ繧ｨ繧ｹ繝亥女菫｡. newCsStatus: ${newCsStatus}`);
     if (!newCsStatus) {
-        console.log(`[CS-MAIL-DEBUG] 2. newCsStatusが空のためスキップ`);
+        console.log(`[CS-MAIL-DEBUG] 2. newCsStatus縺檎ｩｺ縺ｮ縺溘ａ繧ｹ繧ｭ繝・・`);
         return false;
     }
 
@@ -106,24 +104,24 @@ async function tryInvokeCsStatusMailer(client, candidateId, newCsStatusRaw) {
     const oldCsStatus = oldRow.rows[0]?.cs_status || "";
     const candidateName = oldRow.rows[0]?.name || "";
     const candidateEmail = oldRow.rows[0]?.email || "";
-    console.log(`[CS-MAIL-DEBUG] 2. DBから現在ステータス取得. oldCsStatus: ${oldCsStatus}`);
+    console.log(`[CS-MAIL-DEBUG] 2. DB縺九ｉ迴ｾ蝨ｨ繧ｹ繝・・繧ｿ繧ｹ蜿門ｾ・ oldCsStatus: ${oldCsStatus}`);
 
     if (oldCsStatus === newCsStatus) {
-        console.log(`[CS-MAIL-DEBUG] 3. ステータス変更なしのためスキップ`);
+        console.log(`[CS-MAIL-DEBUG] 3. 繧ｹ繝・・繧ｿ繧ｹ螟画峩縺ｪ縺励・縺溘ａ繧ｹ繧ｭ繝・・`);
         return false;
     }
 
-    console.log(`[CS-MAIL-DEBUG] 3. ステータス変更検知! Invoke準備開始...`);
+    console.log(`[CS-MAIL-DEBUG] 3. 繧ｹ繝・・繧ｿ繧ｹ螟画峩讀懃衍! Invoke貅門ｙ髢句ｧ・..`);
     try {
         if (!lambdaClientInstance || !InvokeCommandClass) {
-            console.log(`[CS-MAIL-DEBUG] 4a. LambdaClient初期化失敗のため非同期importを試行`);
+            console.log(`[CS-MAIL-DEBUG] 4a. LambdaClient蛻晄悄蛹門､ｱ謨励・縺溘ａ髱槫酔譛殃mport繧定ｩｦ陦形);
             const importPromise = import("@aws-sdk/client-lambda");
             const timeoutImport = new Promise((_, reject) => setTimeout(() => reject(new Error("NETWORK_TIMEOUT_IMPORT_SDK")), 4000));
             const sdk = await Promise.race([importPromise, timeoutImport]);
             InvokeCommandClass = sdk.InvokeCommand;
             lambdaClientInstance = new sdk.LambdaClient({ region: "ap-northeast-1" });
         } else {
-            console.log(`[CS-MAIL-DEBUG] 4b. LambdaClientのキャッシュ利用開始`);
+            console.log(`[CS-MAIL-DEBUG] 4b. LambdaClient縺ｮ繧ｭ繝｣繝・す繝･蛻ｩ逕ｨ髢句ｧ義);
         }
 
         const invokePayload = {
@@ -142,15 +140,16 @@ async function tryInvokeCsStatusMailer(client, candidateId, newCsStatusRaw) {
         }));
         const timeoutSend = new Promise((_, reject) => setTimeout(() => reject(new Error("NETWORK_TIMEOUT_SENDING_API")), 3000));
         const response = await Promise.race([sendPromise, timeoutSend]);
-        console.log(`[CS-MAIL-DEBUG] 6. InvokeCommand送信完了! Response StatusCode: ${response.$metadata?.httpStatusCode}`);
+        console.log(`[CS-MAIL-DEBUG] 6. InvokeCommand騾∽ｿ｡螳御ｺ・ Response StatusCode: ${response.$metadata?.httpStatusCode}`);
 
         if (MAIL_TRIGGER_STATUSES.includes(newCsStatus)) {
-            console.log(`[CS-MAIL-DEBUG] 6a. DB送信記録更新実行`);
+            // 騾∽ｿ｡蜈・・Lambda縺ｧ騾∽ｿ｡譌･譎ゅｒ險倬鹸縺吶ｋ
+            console.log(`[CS-MAIL-DEBUG] 6a. DB騾∽ｿ｡險倬鹸譖ｴ譁ｰ螳溯｡形);
             await client.query("UPDATE candidates SET cs_status_notify_sent_at = NOW() WHERE id = $1", [candidateId]);
             return true;
         }
     } catch (mailErr) {
-        console.error("[CS-MAIL-DEBUG] X. InvokeCommand送信エラー:", mailErr);
+        console.error("[CS-MAIL-DEBUG] X. InvokeCommand騾∽ｿ｡繧ｨ繝ｩ繝ｼ:", mailErr);
     }
     return false;
 }
@@ -186,6 +185,7 @@ async function fetchMasters(client) {
     return { clients: clientsRes.rows || [], users, csUsers, advisorUsers, csStatuses };
 }
 
+// 蛟呵｣懆・・縲梧悴螳御ｺ・・逶ｴ霑代ち繧ｹ繧ｯ縲阪ｒcandidates繝・・繝悶Ν縺ｫ蜷梧悄縺吶ｋ髢｢謨ｰ
 async function syncNextActionDate(client, candidateId) {
     await client.query(
         `
@@ -210,7 +210,7 @@ async function syncNextActionDate(client, candidateId) {
 }
 
 async function fetchCandidateDetail(client, candidateId, includeMaster = false) {
-    const baseSql = `
+    // 1. 蝓ｺ譛ｬ諠・ｱ蜿門ｾ・    const baseSql = `
     SELECT
       c.*,
       u_ad.name AS user_advisor_name,
@@ -240,11 +240,11 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
     ) ca_latest ON TRUE
     LEFT JOIN LATERAL (
       SELECT caller_user_id, called_at, result, call_no FROM teleapo t
-      WHERE t.candidate_id = c.id ORDER BY (t.result='通電') DESC, t.called_at DESC LIMIT 1
+      WHERE t.candidate_id = c.id ORDER BY (t.result='騾夐崕') DESC, t.called_at DESC LIMIT 1
     ) t_last ON TRUE
     LEFT JOIN users u_call ON u_call.id = t_last.caller_user_id
     LEFT JOIN LATERAL (
-        SELECT MAX(call_no) as max_call_no, BOOL_OR(result = '通電') as has_connected, BOOL_OR(result = 'SMS送信') as has_sms, MAX(CASE WHEN result = '通電' THEN called_at END) as last_connected_at
+        SELECT MAX(call_no) as max_call_no, BOOL_OR(result = '騾夐崕') as has_connected, BOOL_OR(result = 'SMS騾∽ｿ｡') as has_sms, MAX(CASE WHEN result = '騾夐崕' THEN called_at END) as last_connected_at
         FROM teleapo WHERE candidate_id = c.id
     ) t_stat ON TRUE
     LEFT JOIN LATERAL (
@@ -257,7 +257,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
     if (!baseRes.rows?.length) return null;
     const b = baseRes.rows[0];
 
-    const selectionSql = `
+    // 2. 驕ｸ閠・ｲ謐励Μ繧ｹ繝亥叙蠕・    const selectionSql = `
     SELECT COALESCE(json_agg(json_build_object(
             'id', ca.id,
             'clientId', ca.client_id,
@@ -306,7 +306,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
     const selectionRes = await client.query(selectionSql, [candidateId]);
     const selectionProgress = selectionRes.rows[0]?.selection_progress || [];
 
-    const tasksSql = `
+    // 3. 繧ｿ繧ｹ繧ｯ螻･豁ｴ(candidate_tasks)縺ｮ蜿門ｾ・    const tasksSql = `
     SELECT 
       id, action_date, action_note, is_completed, completed_at, created_at
     FROM candidate_tasks
@@ -323,7 +323,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         createdAt: row.created_at,
     }));
 
-    const teleapoSql = `
+    // 4. 繝・Ξ繧｢繝昴Ο繧ｰ縺ｮ蜿門ｾ・    const teleapoSql = `
     SELECT
       t.id,
       t.call_no,
@@ -350,7 +350,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         callerName: row.caller_name,
     }));
 
-    const moneySql = `
+    // 5. 螢ｲ荳翫・霑秘≡諠・ｱ縺ｮ蜿門ｾ・    const moneySql = `
     SELECT
       ca.id AS application_id,
       ca.client_id,
@@ -386,15 +386,16 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         refundReported: row.refund_reported,
     }));
 
+    // 謨ｴ蠖｢
     const address = [b.address_pref, b.address_city, b.address_detail].filter(Boolean).join("");
-    let phase = "未接触";
+    let phase = "譛ｪ謗･隗ｦ";
     const phases = b.stage_list || [];
     if (phases.length > 0) phase = phases.join(" / ");
     else if (b.latest_stage_current) phase = b.latest_stage_current;
     else {
-        if (b.has_connected) phase = "通電";
-        else if (b.has_sms) phase = "SMS送信";
-        else if ((b.max_call_no || 0) > 0) phase = "架電中";
+        if (b.has_connected) phase = "騾夐崕";
+        else if (b.has_sms) phase = "SMS騾∽ｿ｡";
+        else if ((b.max_call_no || 0) > 0) phase = "譫ｶ髮ｻ荳ｭ";
     }
 
     const computedAge = calculateAge(b.birth_date);
@@ -415,15 +416,18 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         education: b.final_education ?? "",
         nationality: b.nationality ?? "",
         japaneseLevel: b.japanese_level ?? "",
-        nextActionDate: b.next_action_date ?? null,
+
+        // DB荳翫・繧ｭ繝｣繝・す繝･蛟､・育峩霑代・譛ｪ螳御ｺ・ち繧ｹ繧ｯ・・        nextActionDate: b.next_action_date ?? null,
         nextActionNote: b.next_action_note ?? "",
-        tasks: tasks,
+
+        // 繧ｿ繧ｹ繧ｯ螻･豁ｴ繝ｪ繧ｹ繝・        tasks: tasks,
+
         companyName: b.latest_company_name ?? b.company_name ?? b.apply_company_name ?? "",
         jobName: b.latest_job_name ?? b.job_name ?? b.apply_job_name ?? "",
         validApplication: Boolean(b.is_effective_application),
         advisorUserId: b.advisor_user_id ?? null,
         partnerUserId: b.partner_user_id ?? null,
-        csUserId: b.partner_user_id ?? null,
+        // UI蛛ｴ縺慶sUserId繧呈悄蠕・☆繧九こ繝ｼ繧ｹ縺後≠繧九◆繧∵・遉ｺ・・B荳翫・ partner_user_id 繧辰S縺ｨ縺励※蛻ｩ逕ｨ・・        csUserId: b.partner_user_id ?? null,
         advisorName: b.user_advisor_name ?? b.partner_name ?? b.advisor_name ?? "",
         partnerName: b.user_partner_name ?? b.partner_name ?? "",
         csName: b.cs_name ?? "",
@@ -434,6 +438,8 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         phases,
         registeredAt: b.registered_at ?? b.registered_date ?? b.created_at,
         registeredDate: b.registered_date ?? null,
+
+        // 縺昴・莉冶ｩｳ邏ｰ
         source: b.latest_apply_route ?? b.apply_route_text ?? b.source ?? "",
         contactPreferredTime: b.contact_preferred_time ?? "",
         applyCompanyName: b.apply_company_name ?? b.company_name ?? b.latest_company_name ?? "",
@@ -467,6 +473,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false) 
         relocationPossible: b.relocation_possible !== null ? Boolean(b.relocation_possible) : null,
         relocationImpossibleReason: b.relocation_impossible_reason ?? "",
         personalConcerns: b.personal_concerns ?? "",
+
         selectionProgress,
         teleapoLogs,
         moneyInfo,
@@ -518,17 +525,20 @@ export const handler = async (event) => {
             try {
                 if (detailMode) {
                     const resolvedAdvisorUserId = resolveUserId(payload.advisorUserId, payload.advisor_user_id);
-                    const resolvedCsUserId = resolveUserId(
+                    // DB荳翫・ partner_user_id 繧辰S縺ｨ縺励※蛻ｩ逕ｨ・・egacy naming・峨・                    const resolvedCsUserId = resolveUserId(
                         payload.partnerUserId,
                         payload.partner_user_id,
                         payload.csUserId,
                         payload.cs_user_id
                     );
 
-                    await assertUserRole(client, resolvedCsUserId, "caller", "担当CS");
-                    await assertUserRole(client, resolvedAdvisorUserId, "advisor", "担当アドバイザー");
+                    // Enforce role constraints:
+                    // - 諡・ｽ鼎S: users.role = caller
+                    // - 諡・ｽ薙い繝峨ヰ繧､繧ｶ繝ｼ: users.role = advisor
+                    await assertUserRole(client, resolvedCsUserId, "caller", "諡・ｽ鼎S");
+                    await assertUserRole(client, resolvedAdvisorUserId, "advisor", "諡・ｽ薙い繝峨ヰ繧､繧ｶ繝ｼ");
 
-                    // 1. 候補者本体の更新
+                    // 1. 蛟呵｣懆・悽菴薙・譖ｴ譁ｰ (譌｢蟄倥Ο繧ｸ繝・け)
                     const updateSql = `
             UPDATE candidates SET
               updated_at = NOW(),
@@ -573,10 +583,7 @@ export const handler = async (event) => {
               chronic_disease_detail = COALESCE($40, chronic_disease_detail),
               relocation_possible = COALESCE($41, relocation_possible),
               relocation_impossible_reason = COALESCE($42, relocation_impossible_reason),
-              personal_concerns = COALESCE($43, personal_concerns),
-              contact_preferred_time = COALESCE($44, contact_preferred_time),
-              apply_job_name = COALESCE($45, apply_job_name),
-              application_note = COALESCE($46, application_note)
+              personal_concerns = COALESCE($43, personal_concerns)
             WHERE id = $1
           `;
                     const p = [
@@ -622,35 +629,18 @@ export const handler = async (event) => {
                         emptyToNull(payload.chronicDiseaseDetail),
                         toBooleanOrNull(payload.relocationPossible),
                         emptyToNull(payload.relocationImpossibleReason),
-                        emptyToNull(payload.personalConcerns),
-                        emptyToNull(
-                            payload.contactPreferredTime ??
-                            payload.contact_preferred_time ??
-                            payload.contactTime ??
-                            payload.contact_time
-                        ),
-                        emptyToNull(
-                            payload.applyJobName ??
-                            payload.apply_job_name ??
-                            payload.jobName ??
-                            payload.job_name
-                        ),
-                        emptyToNull(
-                            payload.applicationNote ??
-                            payload.application_note ??
-                            payload.remarks
-                        )
+                        emptyToNull(payload.personalConcerns)
                     ];
 
-                    // --- CSステータス変更メール送信 ---
+                    // --- CS繧ｹ繝・・繧ｿ繧ｹ螟画峩繝｡繝ｼ繝ｫ騾∽ｿ｡ ---
                     if (await tryInvokeCsStatusMailer(client, candidateId, payload.csStatus ?? payload.cs_status)) {
                         mailInvokedIndicator = true;
                     }
 
                     await client.query(updateSql, p);
 
-                    // 2. タスク（次回アクション）の登録・完了・削除処理
-                    const newActionDate = emptyToNull(payload.nextActionDate);
+                    // 2. 繧ｿ繧ｹ繧ｯ・域ｬ｡蝗槭い繧ｯ繧ｷ繝ｧ繝ｳ・峨・逋ｻ骭ｲ繝ｻ螳御ｺ・・蜑企勁蜃ｦ逅・
+                    // (A) 譁ｰ縺励＞繧ｿ繧ｹ繧ｯ縺ｮ霑ｽ蜉繝ｻ譖ｴ譁ｰ・亥酔荳蛟呵｣懆・・譛ｪ螳御ｺ・・蟶ｸ縺ｫ1莉ｶ縺ｫ菫昴▽・・                    const newActionDate = emptyToNull(payload.nextActionDate);
                     const newActionNote = emptyToNull(payload.nextActionNote);
                     if (newActionDate) {
                         const existingTaskRes = await client.query(
@@ -684,8 +674,7 @@ export const handler = async (event) => {
                         }
                     }
 
-                    // (B) タスクの完了処理
-                    const completeTaskId = toIntOrNull(payload.completeTaskId);
+                    // (B) 繧ｿ繧ｹ繧ｯ縺ｮ螳御ｺ・・逅・                    const completeTaskId = toIntOrNull(payload.completeTaskId);
                     if (completeTaskId) {
                         await client.query(
                             `
@@ -697,8 +686,7 @@ export const handler = async (event) => {
                         );
                     }
 
-                    // (C) タスクの削除処理
-                    const deleteTaskId = toIntOrNull(payload.deleteTaskId);
+                    // (C) 繧ｿ繧ｹ繧ｯ縺ｮ蜑企勁蜃ｦ逅・                    const deleteTaskId = toIntOrNull(payload.deleteTaskId);
                     if (deleteTaskId) {
                         await client.query(
                             `
@@ -709,7 +697,7 @@ export const handler = async (event) => {
                         );
                     }
 
-                    // (D) 念のため未完了タスクを1件に正規化
+                    // (D) 蠢ｵ縺ｮ縺溘ａ譛ｪ螳御ｺ・ち繧ｹ繧ｯ繧・莉ｶ縺ｫ豁｣隕丞喧
                     const keepTaskRes = await client.query(
                         `
                 SELECT id
@@ -732,16 +720,15 @@ export const handler = async (event) => {
                         );
                     }
 
-                    // (E) candidatesテーブルの同期
+                    // (E) candidates繝・・繝悶Ν縺ｮ蜷梧悄
                     await syncNextActionDate(client, candidateId);
 
-                    // 3. その他の付随処理
-                    if (toBooleanOrNull(payload.attendanceConfirmed) === true) {
+                    // 3. 縺昴・莉悶・莉倬囂蜃ｦ逅・                    if (toBooleanOrNull(payload.attendanceConfirmed) === true) {
                         const teleRes = await client.query(
-                            `SELECT id FROM teleapo WHERE candidate_id=$1 AND result LIKE '%設定%' ORDER BY called_at DESC LIMIT 1`,
+                            `SELECT id FROM teleapo WHERE candidate_id=$1 AND result LIKE '%險ｭ螳・' ORDER BY called_at DESC LIMIT 1`,
                             [candidateId]
                         );
-                        if (teleRes.rows.length > 0) await client.query("UPDATE teleapo SET result='着座' WHERE id=$1", [teleRes.rows[0].id]);
+                        if (teleRes.rows.length > 0) await client.query("UPDATE teleapo SET result='逹蠎ｧ' WHERE id=$1", [teleRes.rows[0].id]);
                     }
 
                     const deletedSelectionProgressIds = Array.isArray(
@@ -843,16 +830,33 @@ export const handler = async (event) => {
                                     LIMIT 1
                                 `,
                                     [
-                                        candidateId, s_clientId, s_stage, s_jobTitle, s_route,
-                                        s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
-                                        s_secondInterviewSetAt, s_secondInterviewAt,
-                                        s_finalInterviewSetAt, s_finalInterviewAt,
-                                        s_offerDate, s_offerAcceptDate, s_joinDate,
-                                        s_preJoinWithdrawDate, s_preJoinWithdrawReason,
-                                        s_postJoinQuitDate, s_postJoinQuitReason,
-                                        s_declinedAfterOfferAt, s_declinedAfterOfferReason,
-                                        s_earlyTurnoverAt, s_earlyTurnoverReason,
-                                        s_closeExpectedAt, s_selectionNote, s_fee,
+                                        candidateId,
+                                        s_clientId,
+                                        s_stage,
+                                        s_jobTitle,
+                                        s_route,
+                                        s_proposalDate,
+                                        s_recommendedAt,
+                                        s_firstInterviewSetAt,
+                                        s_firstInterviewAt,
+                                        s_secondInterviewSetAt,
+                                        s_secondInterviewAt,
+                                        s_finalInterviewSetAt,
+                                        s_finalInterviewAt,
+                                        s_offerDate,
+                                        s_offerAcceptDate,
+                                        s_joinDate,
+                                        s_preJoinWithdrawDate,
+                                        s_preJoinWithdrawReason,
+                                        s_postJoinQuitDate,
+                                        s_postJoinQuitReason,
+                                        s_declinedAfterOfferAt,
+                                        s_declinedAfterOfferReason,
+                                        s_earlyTurnoverAt,
+                                        s_earlyTurnoverReason,
+                                        s_closeExpectedAt,
+                                        s_selectionNote,
+                                        s_fee,
                                     ]
                                 );
                                 if (duplicateRes.rows.length > 0) {
@@ -863,104 +867,140 @@ export const handler = async (event) => {
                             if (s_id) {
                                 await client.query(
                                     `
-                                    UPDATE candidate_applications SET 
-                                        client_id = COALESCE($2, client_id),
-                                        stage_current = $3,
-                                        job_title = $4,
-                                        apply_route = $5,
-                                        proposal_date = COALESCE($6, proposal_date),
-                                        recommended_at = COALESCE($7, recommended_at),
-                                        first_interview_set_at = COALESCE($8, first_interview_set_at),
-                                        first_interview_at = COALESCE($9, first_interview_at),
-                                        second_interview_set_at = COALESCE($10, second_interview_set_at),
-                                        second_interview_at = COALESCE($11, second_interview_at),
-                                        final_interview_set_at = COALESCE($12, final_interview_set_at),
-                                        final_interview_at = COALESCE($13, final_interview_at),
-                                        offer_date = COALESCE($14, offer_date),
-                                        offer_at = COALESCE($15, offer_at),
-                                        offer_accept_date = COALESCE($16, offer_accept_date),
-                                        offer_accepted_at = COALESCE($17, offer_accepted_at),
-                                        join_date = COALESCE($18, join_date),
-                                        joined_at = COALESCE($19, joined_at),
-                                        pre_join_withdraw_date = COALESCE($20, pre_join_withdraw_date),
-                                        pre_join_withdraw_reason = COALESCE($21, pre_join_withdraw_reason),
-                                        post_join_quit_date = COALESCE($22, post_join_quit_date),
-                                        post_join_quit_reason = COALESCE($23, post_join_quit_reason),
-                                        declined_after_offer_at = COALESCE($24, declined_after_offer_at),
-                                        declined_after_offer_reason = COALESCE($25, declined_after_offer_reason),
-                                        early_turnover_at = COALESCE($26, early_turnover_at),
-                                        early_turnover_reason = COALESCE($27, early_turnover_reason),
-                                        close_expected_at = COALESCE($28, close_expected_at),
-                                        closing_forecast_at = COALESCE($29, closing_forecast_at),
-                                        selection_note = COALESCE($30, selection_note),
-                                        fee = COALESCE($31, fee),
-                                        updated_at = NOW() 
-                                    WHERE id = $1 AND candidate_id = $32
-                                `,
+	                                    UPDATE candidate_applications SET 
+	                                        client_id = $2,
+	                                        stage_current = $3,
+	                                        job_title = $4,
+	                                        apply_route = $5,
+	                                        proposal_date = COALESCE($6, proposal_date),
+	                                        recommended_at = COALESCE($7, recommended_at),
+	                                        first_interview_set_at = COALESCE($8, first_interview_set_at),
+	                                        first_interview_at = COALESCE($9, first_interview_at),
+	                                        second_interview_set_at = COALESCE($10, second_interview_set_at),
+	                                        second_interview_at = COALESCE($11, second_interview_at),
+	                                        final_interview_set_at = COALESCE($12, final_interview_set_at),
+	                                        final_interview_at = COALESCE($13, final_interview_at),
+	                                        offer_date = COALESCE($14, offer_date),
+	                                        offer_at = COALESCE($15, offer_at),
+	                                        offer_accept_date = COALESCE($16, offer_accept_date),
+	                                        offer_accepted_at = COALESCE($17, offer_accepted_at),
+	                                        join_date = COALESCE($18, join_date),
+	                                        joined_at = COALESCE($19, joined_at),
+	                                        pre_join_withdraw_date = COALESCE($20, pre_join_withdraw_date),
+	                                        pre_join_withdraw_reason = COALESCE($21, pre_join_withdraw_reason),
+	                                        post_join_quit_date = COALESCE($22, post_join_quit_date),
+	                                        post_join_quit_reason = COALESCE($23, post_join_quit_reason),
+	                                        declined_after_offer_at = COALESCE($24, declined_after_offer_at),
+	                                        declined_after_offer_reason = COALESCE($25, declined_after_offer_reason),
+	                                        early_turnover_at = COALESCE($26, early_turnover_at),
+	                                        early_turnover_reason = COALESCE($27, early_turnover_reason),
+	                                        close_expected_at = COALESCE($28, close_expected_at),
+	                                        closing_forecast_at = COALESCE($29, closing_forecast_at),
+	                                        selection_note = COALESCE($30, selection_note),
+	                                        fee = COALESCE($31, fee),
+	                                        updated_at = NOW() 
+	                                    WHERE id = $1 AND candidate_id = $32
+	                                `,
                                     [
-                                        s_id, s_clientId, s_stage, s_jobTitle, s_route,
-                                        s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
-                                        s_secondInterviewSetAt, s_secondInterviewAt,
-                                        s_finalInterviewSetAt, s_finalInterviewAt,
-                                        s_offerDate, s_offerDate,
-                                        s_offerAcceptDate, s_offerAcceptDate,
-                                        s_joinDate, s_joinDate,
-                                        s_preJoinWithdrawDate, s_preJoinWithdrawReason,
-                                        s_postJoinQuitDate, s_postJoinQuitReason,
-                                        s_declinedAfterOfferAt, s_declinedAfterOfferReason,
-                                        s_earlyTurnoverAt, s_earlyTurnoverReason,
-                                        s_closeExpectedAt, s_closeExpectedAt,
-                                        s_selectionNote, s_fee,
+                                        s_id,
+                                        s_clientId,
+                                        s_stage,
+                                        s_jobTitle,
+                                        s_route,
+                                        s_proposalDate,
+                                        s_recommendedAt,
+                                        s_firstInterviewSetAt,
+                                        s_firstInterviewAt,
+                                        s_secondInterviewSetAt,
+                                        s_secondInterviewAt,
+                                        s_finalInterviewSetAt,
+                                        s_finalInterviewAt,
+                                        s_offerDate,
+                                        s_offerDate,
+                                        s_offerAcceptDate,
+                                        s_offerAcceptDate,
+                                        s_joinDate,
+                                        s_joinDate,
+                                        s_preJoinWithdrawDate,
+                                        s_preJoinWithdrawReason,
+                                        s_postJoinQuitDate,
+                                        s_postJoinQuitReason,
+                                        s_declinedAfterOfferAt,
+                                        s_declinedAfterOfferReason,
+                                        s_earlyTurnoverAt,
+                                        s_earlyTurnoverReason,
+                                        s_closeExpectedAt,
+                                        s_closeExpectedAt,
+                                        s_selectionNote,
+                                        s_fee,
                                         candidateId,
                                     ]
                                 );
                             } else if (s_clientId) {
                                 await client.query(
                                     `
-                                    INSERT INTO candidate_applications (
-                                        candidate_id, client_id, stage_current, job_title, apply_route,
-                                        proposal_date, recommended_at, first_interview_set_at, first_interview_at,
-                                        second_interview_set_at, second_interview_at,
-                                        final_interview_set_at, final_interview_at,
-                                        offer_date, offer_at, offer_accept_date, offer_accepted_at, join_date, joined_at,
-                                        pre_join_withdraw_date, pre_join_withdraw_reason,
-                                        post_join_quit_date, post_join_quit_reason,
-                                        declined_after_offer_at, declined_after_offer_reason,
-                                        early_turnover_at, early_turnover_reason,
-                                        close_expected_at, closing_forecast_at, selection_note, fee,
-                                        created_at, updated_at
-                                    ) VALUES (
-                                        $1, $2, $3, $4, $5,
-                                        $6, $7, $8, $9, $10,
-                                        $11, $12, $13,
-                                        $14, $15, $16, $17, $18, $19,
-                                        $20, $21, $22, $23,
-                                        $24, $25, $26, $27,
-                                        $28, $29, $30, $31,
-                                        NOW(), NOW()
-                                    )
-                                `,
+	                                    INSERT INTO candidate_applications (
+	                                        candidate_id, client_id, stage_current, job_title, apply_route,
+	                                        proposal_date, recommended_at, first_interview_set_at, first_interview_at,
+	                                        second_interview_set_at, second_interview_at,
+	                                        final_interview_set_at, final_interview_at,
+	                                        offer_date, offer_at, offer_accept_date, offer_accepted_at, join_date, joined_at,
+	                                        pre_join_withdraw_date, pre_join_withdraw_reason,
+	                                        post_join_quit_date, post_join_quit_reason,
+	                                        declined_after_offer_at, declined_after_offer_reason,
+	                                        early_turnover_at, early_turnover_reason,
+	                                        close_expected_at, closing_forecast_at, selection_note, fee,
+	                                        created_at, updated_at
+	                                    ) VALUES (
+	                                        $1, $2, $3, $4, $5,
+	                                        $6, $7, $8, $9, $10,
+	                                        $11, $12, $13,
+	                                        $14, $15, $16, $17, $18, $19,
+	                                        $20, $21, $22, $23,
+	                                        $24, $25, $26, $27,
+	                                        $28, $29, $30, $31,
+	                                        NOW(), NOW()
+	                                    )
+	                                `,
                                     [
-                                        candidateId, s_clientId, s_stage, s_jobTitle, s_route,
-                                        s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
-                                        s_secondInterviewSetAt, s_secondInterviewAt,
-                                        s_finalInterviewSetAt, s_finalInterviewAt,
-                                        s_offerDate, s_offerDate,
-                                        s_offerAcceptDate, s_offerAcceptDate,
-                                        s_joinDate, s_joinDate,
-                                        s_preJoinWithdrawDate, s_preJoinWithdrawReason,
-                                        s_postJoinQuitDate, s_postJoinQuitReason,
-                                        s_declinedAfterOfferAt, s_declinedAfterOfferReason,
-                                        s_earlyTurnoverAt, s_earlyTurnoverReason,
-                                        s_closeExpectedAt, s_closeExpectedAt,
-                                        s_selectionNote, s_fee,
+                                        candidateId,
+                                        s_clientId,
+                                        s_stage,
+                                        s_jobTitle,
+                                        s_route,
+                                        s_proposalDate,
+                                        s_recommendedAt,
+                                        s_firstInterviewSetAt,
+                                        s_firstInterviewAt,
+                                        s_secondInterviewSetAt,
+                                        s_secondInterviewAt,
+                                        s_finalInterviewSetAt,
+                                        s_finalInterviewAt,
+                                        s_offerDate,
+                                        s_offerDate,
+                                        s_offerAcceptDate,
+                                        s_offerAcceptDate,
+                                        s_joinDate,
+                                        s_joinDate,
+                                        s_preJoinWithdrawDate,
+                                        s_preJoinWithdrawReason,
+                                        s_postJoinQuitDate,
+                                        s_postJoinQuitReason,
+                                        s_declinedAfterOfferAt,
+                                        s_declinedAfterOfferReason,
+                                        s_earlyTurnoverAt,
+                                        s_earlyTurnoverReason,
+                                        s_closeExpectedAt,
+                                        s_closeExpectedAt,
+                                        s_selectionNote,
+                                        s_fee,
                                     ]
                                 );
                             }
                         }
                     }
 
-                    // 4. 売上・返金情報の更新
+                    // 4. 螢ｲ荳翫・霑秘≡諠・ｱ縺ｮ譖ｴ譁ｰ
                     const moneyPayload = Array.isArray(payload.moneyInfo)
                         ? payload.moneyInfo
                         : (Array.isArray(payload.money_info) ? payload.money_info : null);
@@ -1034,10 +1074,10 @@ export const handler = async (event) => {
                                 const retirementDate = emptyToNull(
                                     entry.retirementDate ?? entry.retirement_date ?? entry.retireDate ?? entry.retire_date
                                 );
-                                if (refundType.includes("内定")) {
+                                if (refundType.includes("蜀・ｮ・)) {
                                     preJoinWithdrawDate = retirementDate;
                                     postJoinQuitDate = null;
-                                } else if (refundType.includes("入社")) {
+                                } else if (refundType.includes("蜈･遉ｾ")) {
                                     postJoinQuitDate = retirementDate;
                                     preJoinWithdrawDate = null;
                                 }
@@ -1070,7 +1110,7 @@ export const handler = async (event) => {
                         }
                     }
                 } else {
-                    // 一覧インライン保存(detailMode=false)でもCSステータスを更新できるようにする
+                    // 荳隕ｧ繧､繝ｳ繝ｩ繧､繝ｳ菫晏ｭ・detailMode=false)縺ｧ繧・S繧ｹ繝・・繧ｿ繧ｹ繧呈峩譁ｰ縺ｧ縺阪ｋ繧医≧縺ｫ縺吶ｋ
                     const hasValidApplication = typeof payload.validApplication === "boolean";
                     const hasCsStatus =
                         Object.prototype.hasOwnProperty.call(payload, "csStatus") ||
