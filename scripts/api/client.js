@@ -174,7 +174,9 @@ export class ApiClient {
    */
   async handleResponse(response, validateResponse = false) {
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const httpError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+      httpError.status = response.status;
+      throw httpError;
     }
 
     const data = await response.json();
@@ -196,11 +198,23 @@ export class ApiClient {
    * @returns {ApiResponse}
    */
   createErrorResponse(error) {
+    const message = this.getErrorMessage(error);
+    const status = this.getErrorStatus(error);
+
+    // ネットワークエラーの場合、ユーザーにトースト通知を表示
+    if (this.isOfflineError(error)) {
+      showToast('ネットワークに接続できません。インターネット接続を確認してください。', 'error');
+    } else if (this.isTimeoutError(error)) {
+      showToast('サーバーからの応答がありません。しばらくしてから再試行してください。', 'warning');
+    } else if (status >= 500) {
+      showToast('サーバーエラーが発生しました。しばらくしてから再試行してください。', 'error');
+    }
+
     return {
       success: false,
       data: null,
-      error: error.message,
-      status: error.status || 500
+      error: message,
+      status: status || 500
     };
   }
 
@@ -210,10 +224,67 @@ export class ApiClient {
    * @returns {boolean}
    */
   shouldRetry(error) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      // オフライン中は待っても成功しないため即時失敗にする
+      return false;
+    }
+
+    const status = this.getErrorStatus(error);
+
     // ネットワークエラーやサーバーエラーの場合はリトライ
-    return error.message.includes('timeout') ||
-      error.message.includes('network') ||
-      (error.status >= 500 && error.status < 600);
+    return this.isTimeoutError(error) ||
+      this.isOfflineError(error) ||
+      (status >= 500 && status < 600);
+  }
+
+  /**
+   * エラーメッセージを安全に取得
+   * @param {unknown} error
+   * @returns {string}
+   */
+  getErrorMessage(error) {
+    if (error instanceof Error) return error.message || 'Unknown error';
+    if (typeof error === 'string') return error;
+    return 'Unknown error';
+  }
+
+  /**
+   * HTTPステータスを安全に取得
+   * @param {unknown} error
+   * @returns {number}
+   */
+  getErrorStatus(error) {
+    const maybeStatus = error && typeof error === 'object' ? error.status : undefined;
+    return typeof maybeStatus === 'number' ? maybeStatus : 0;
+  }
+
+  /**
+   * タイムアウトエラー判定
+   * @param {unknown} error
+   * @returns {boolean}
+   */
+  isTimeoutError(error) {
+    return /timeout/i.test(this.getErrorMessage(error));
+  }
+
+  /**
+   * オフライン/ネットワーク断エラー判定（ブラウザ差分を吸収）
+   * @param {unknown} error
+   * @returns {boolean}
+   */
+  isOfflineError(error) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return true;
+    }
+
+    const message = this.getErrorMessage(error).toLowerCase();
+    return error instanceof TypeError && (
+      message.includes('fetch') ||
+      message.includes('network') ||
+      message.includes('failed to fetch') ||
+      message.includes('networkerror') ||
+      message.includes('load failed')
+    );
   }
 
   /**
@@ -241,3 +312,71 @@ export const defaultApiClient = new ApiClient('', {
   retryAttempts: 3,
   retryDelay: 1000
 });
+
+// ───────────────────────────────────────────
+// グローバルトースト通知
+// ───────────────────────────────────────────
+
+const TOAST_COLORS = {
+  error: { bg: '#fee2e2', border: '#fca5a5', text: '#991b1b', icon: '⚠️' },
+  warning: { bg: '#fef3c7', border: '#fcd34d', text: '#92400e', icon: '⏳' },
+  info: { bg: '#dbeafe', border: '#93c5fd', text: '#1e40af', icon: 'ℹ️' },
+};
+
+let toastContainer = null;
+
+function ensureToastContainer() {
+  if (toastContainer && document.body.contains(toastContainer)) return toastContainer;
+  toastContainer = document.createElement('div');
+  toastContainer.id = 'global-toast-container';
+  Object.assign(toastContainer.style, {
+    position: 'fixed', bottom: '1.5rem', right: '1.5rem',
+    zIndex: '9999', display: 'flex', flexDirection: 'column',
+    gap: '0.5rem', pointerEvents: 'none',
+  });
+  document.body.appendChild(toastContainer);
+  return toastContainer;
+}
+
+/**
+ * 画面右下にトースト通知を表示する
+ * @param {string} message - 表示するメッセージ
+ * @param {'error'|'warning'|'info'} type - 通知タイプ
+ * @param {number} duration - 表示時間（ミリ秒）
+ */
+export function showToast(message, type = 'info', duration = 5000) {
+  if (typeof document === 'undefined' || !document.body) {
+    return;
+  }
+
+  const container = ensureToastContainer();
+  const colors = TOAST_COLORS[type] || TOAST_COLORS.info;
+
+  const toast = document.createElement('div');
+  Object.assign(toast.style, {
+    background: colors.bg, border: `1px solid ${colors.border}`,
+    color: colors.text, padding: '0.75rem 1.25rem',
+    borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: '500',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)', pointerEvents: 'auto',
+    display: 'flex', alignItems: 'center', gap: '0.5rem',
+    opacity: '0', transform: 'translateX(1rem)',
+    transition: 'opacity 0.3s ease, transform 0.3s ease',
+    maxWidth: '360px', lineHeight: '1.4',
+  });
+  toast.textContent = `${colors.icon} ${message}`;
+
+  container.appendChild(toast);
+
+  // アニメーションで表示
+  requestAnimationFrame(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(0)';
+  });
+
+  // 一定時間後に消す
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(1rem)';
+    toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+  }, duration);
+}

@@ -23,6 +23,7 @@ const DEFAULT_RATE_CALC_MODE = 'base';
 const RATE_CALC_MODE_STORAGE_KEY = 'yieldRateCalcMode.v1';
 const YIELD_UI_VERSION = '20260225_18';
 const MODE_SCOPE_KEYS = ['personalMonthly', 'personalPeriod', 'companyMonthly', 'companyPeriod', 'companyTerm', 'employee'];
+const KPI_BREAKDOWN_SUPPORTED_DIMENSIONS = new Set(['job', 'gender', 'age', 'media']);
 
 if (typeof window !== 'undefined') {
   window.__yieldVersion = YIELD_UI_VERSION;
@@ -575,6 +576,14 @@ async function fetchYieldBreakdownFromApi({ startDate, endDate, scope, advisorUs
     labels: items.map(item => item.label),
     data: items.map(item => num(item.count))
   };
+}
+
+async function fetchYieldBreakdownSafely(params) {
+  const dimension = String(params?.dimension || '').toLowerCase();
+  if (!KPI_BREAKDOWN_SUPPORTED_DIMENSIONS.has(dimension)) {
+    return { labels: [], data: [] };
+  }
+  return fetchYieldBreakdownFromApi(params);
 }
 
 // CS蜷代￠: teleapo API縺九ｉ譌･蛻･実績繧貞叙蠕・
@@ -6293,7 +6302,7 @@ async function initializeDashboardSection() {
           granularity,
           calcModeScope
         }),
-        fetchYieldBreakdownFromApi({
+        fetchYieldBreakdownSafely({
           startDate: range.startDate,
           endDate: range.endDate,
           scope,
@@ -6301,7 +6310,7 @@ async function initializeDashboardSection() {
           dimension: 'job',
           calcModeScope
         }),
-        fetchYieldBreakdownFromApi({
+        fetchYieldBreakdownSafely({
           startDate: range.startDate,
           endDate: range.endDate,
           scope,
@@ -6309,7 +6318,7 @@ async function initializeDashboardSection() {
           dimension: 'gender',
           calcModeScope
         }),
-        fetchYieldBreakdownFromApi({
+        fetchYieldBreakdownSafely({
           startDate: range.startDate,
           endDate: range.endDate,
           scope,
@@ -6317,7 +6326,7 @@ async function initializeDashboardSection() {
           dimension: 'age',
           calcModeScope
         }),
-        fetchYieldBreakdownFromApi({
+        fetchYieldBreakdownSafely({
           startDate: range.startDate,
           endDate: range.endDate,
           scope,
@@ -6325,7 +6334,7 @@ async function initializeDashboardSection() {
           dimension: 'other_selection_status',
           calcModeScope
         }),
-        fetchYieldBreakdownFromApi({
+        fetchYieldBreakdownSafely({
           startDate: range.startDate,
           endDate: range.endDate,
           scope,
@@ -6333,7 +6342,7 @@ async function initializeDashboardSection() {
           dimension: 'address_pref',
           calcModeScope
         }),
-        fetchYieldBreakdownFromApi({
+        fetchYieldBreakdownSafely({
           startDate: range.startDate,
           endDate: range.endDate,
           scope,
@@ -6341,7 +6350,7 @@ async function initializeDashboardSection() {
           dimension: 'has_chronic_disease',
           calcModeScope
         }),
-        fetchYieldBreakdownFromApi({
+        fetchYieldBreakdownSafely({
           startDate: range.startDate,
           endDate: range.endDate,
           scope,
@@ -6350,7 +6359,7 @@ async function initializeDashboardSection() {
           calcModeScope
         }),
         scope === 'company'
-          ? fetchYieldBreakdownFromApi({
+          ? fetchYieldBreakdownSafely({
             startDate: range.startDate,
             endDate: range.endDate,
             scope,
@@ -7027,5 +7036,4 @@ function renderAdvisorMsTable() {
     });
   });
 }
-
 
