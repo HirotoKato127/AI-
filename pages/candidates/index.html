@@ -32,16 +32,20 @@
         </select>
       </label>
 
-      <label class="filter-field">
+      <label class="filter-field searchable-dropdown-container">
         <span>求職者名</span>
-        <input id="candidatesFilterName" type="search" class="filter-input" placeholder="例：山中太郎" />
+        <input id="candidatesFilterName" type="search" class="filter-input" placeholder="例：山中太郎" autocomplete="off" />
+        <div id="candidatesFilterNameDropdown" class="searchable-dropdown-list hidden"></div>
       </label>
 
-      <label class=" filter-field">
+      <label class="filter-field searchable-dropdown-container">
         <span>応募企業名</span>
-        <select id="candidatesFilterCompany" class="filter-input">
+        <input id="candidatesFilterCompanySearch" type="text" class="filter-input" placeholder="すべて"
+          autocomplete="off" />
+        <select id="candidatesFilterCompany" class="hidden">
           <option value="">すべて</option>
         </select>
+        <div id="candidatesFilterCompanyDropdown" class="searchable-dropdown-list hidden"></div>
       </label>
 
       <label class="filter-field">
@@ -74,11 +78,14 @@
         </select>
       </label>
 
-      <label class="filter-field">
+      <label class="filter-field searchable-dropdown-container">
         <span>CSステータス</span>
-        <select id="candidatesFilterCsStatus" class="filter-input">
+        <input id="candidatesFilterCsStatusSearch" type="text" class="filter-input" placeholder="すべて"
+          autocomplete="off" />
+        <select id="candidatesFilterCsStatus" class="hidden">
           <option value="">すべて</option>
         </select>
+        <div id="candidatesFilterCsStatusDropdown" class="searchable-dropdown-list hidden"></div>
       </label>
     </div>
 

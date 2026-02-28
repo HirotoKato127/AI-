@@ -22,13 +22,10 @@ const DEFAULT_ADVISOR_USER_ID = 30;
 const DEFAULT_CALC_MODE = 'cohort';
 const DEFAULT_RATE_CALC_MODE = 'base';
 const RATE_CALC_MODE_STORAGE_KEY = 'yieldRateCalcMode.v1';
-const YIELD_UI_VERSION = '20260228_02';
+const YIELD_UI_VERSION = '20260228_08';
 const MODE_SCOPE_KEYS = ['personalMonthly', 'personalPeriod', 'companyMonthly', 'companyPeriod', 'companyTerm', 'employee'];
-<<<<<<< Updated upstream
 const KPI_BREAKDOWN_SUPPORTED_DIMENSIONS = new Set(['job', 'gender', 'age', 'media']);
-=======
 const CANDIDATE_REVENUE_LIMIT = 200;
->>>>>>> Stashed changes
 
 if (typeof window !== 'undefined') {
   window.__yieldVersion = YIELD_UI_VERSION;
@@ -260,6 +257,10 @@ function buildMsCalcModeParams() {
     countBasis: 'event',
     timeBasis: 'event'
   };
+}
+
+function resolveRevenueTiming(calcModeScope = 'default') {
+  return getCalcMode(calcModeScope) === 'cohort' ? 'application' : 'occurrence';
 }
 
 function normalizeRateCalcMode(value) {
@@ -583,19 +584,21 @@ async function fetchYieldBreakdownFromApi({ startDate, endDate, scope, advisorUs
   };
 }
 
-<<<<<<< Updated upstream
 async function fetchYieldBreakdownSafely(params) {
   const dimension = String(params?.dimension || '').toLowerCase();
   if (!KPI_BREAKDOWN_SUPPORTED_DIMENSIONS.has(dimension)) {
     return { labels: [], data: [] };
   }
   return fetchYieldBreakdownFromApi(params);
-=======
+}
+
 async function fetchCandidateRevenueFromApi({ startDate, endDate, scope, advisorUserId, calcModeScope = 'companyMonthly' }) {
   const params = {
     from: startDate,
     to: endDate,
     scope,
+    detail: 'candidates',
+    revenueTiming: resolveRevenueTiming(calcModeScope),
     ...buildCalcModeParams(calcModeScope)
   };
   if (Number.isFinite(advisorUserId) && advisorUserId > 0) {
@@ -607,7 +610,6 @@ async function fetchCandidateRevenueFromApi({ startDate, endDate, scope, advisor
     meta: json?.meta || null,
     items: items.map(normalizeCandidateRevenueItem)
   };
->>>>>>> Stashed changes
 }
 
 // CS蜷代￠: teleapo API縺九ｉ譌･蛻･実績繧貞叙蠕・
@@ -1634,6 +1636,7 @@ function ensureRevenueDrilldownModal() {
               <thead>
                 <tr>
                   <th scope="col">候補者</th>
+                  <th scope="col" class="yield-revenue-col-apply">応募日</th>
                   <th scope="col">担当</th>
                   <th scope="col" class="yield-revenue-col-amount">計上収支</th>
                   <th scope="col" class="yield-revenue-col-date">計上日</th>
@@ -3495,6 +3498,7 @@ function normalizeCandidateRevenueItem(item) {
     : feeAmount - refundAmount;
   const orderDate = item?.orderDate ?? item?.order_date ?? null;
   const withdrawDate = item?.withdrawDate ?? item?.withdraw_date ?? null;
+  const applicationDate = item?.applicationDate ?? item?.application_date ?? item?.applyDate ?? item?.apply_date ?? null;
   const orderConfirmed = Boolean(item?.orderConfirmed ?? item?.orderReported ?? item?.order_reported);
   const revenueConverted = Boolean(item?.revenueConverted ?? orderDate);
   return {
@@ -3506,6 +3510,7 @@ function normalizeCandidateRevenueItem(item) {
     netRevenue,
     orderDate,
     withdrawDate,
+    applicationDate,
     orderConfirmed,
     revenueConverted
   };
@@ -3528,11 +3533,15 @@ function buildCandidateRevenueSummary(items) {
   });
 }
 
+function hasRevenueMovement(item) {
+  return num(item?.feeAmount) !== 0 || num(item?.refundAmount) !== 0 || num(item?.netRevenue) !== 0;
+}
+
 function filterRevenueDrilldownItems(items, tabKey) {
   if (tabKey === 'confirmed') {
     return items.filter(item => item.orderConfirmed);
   }
-  return items.filter(item => item.revenueConverted);
+  return items.filter(item => hasRevenueMovement(item));
 }
 
 function updateRevenueDrilldownTabStyles(tabKey) {
@@ -3630,27 +3639,28 @@ function renderRevenueDrilldownModal() {
   }
 
   const items = (state.revenueDrilldown.items || []).map(normalizeCandidateRevenueItem);
+  const calcModeScope = state.revenueDrilldown?.calcModeScope || 'default';
   const filtered = filterRevenueDrilldownItems(items, tab);
   const limited = filtered.slice(0, CANDIDATE_REVENUE_LIMIT);
 
   if (!body) return;
 
   if (loading) {
-    body.innerHTML = `<tr><td colspan="4" class="yield-revenue-empty">読み込み中...</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="yield-revenue-empty">読み込み中...</td></tr>`;
     if (summaryEl) summaryEl.textContent = '読み込み中';
     if (noteEl) noteEl.textContent = '';
     return;
   }
 
   if (error) {
-    body.innerHTML = `<tr><td colspan="4" class="yield-revenue-empty">${escapeHtml(error)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="yield-revenue-empty">${escapeHtml(error)}</td></tr>`;
     if (summaryEl) summaryEl.textContent = '';
     if (noteEl) noteEl.textContent = '';
     return;
   }
 
   if (!limited.length) {
-    body.innerHTML = `<tr><td colspan="4" class="yield-revenue-empty">対象データがありません。</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="yield-revenue-empty">対象データがありません。</td></tr>`;
     if (summaryEl) summaryEl.textContent = '0件';
     if (noteEl) noteEl.textContent = '';
     return;
@@ -3658,11 +3668,14 @@ function renderRevenueDrilldownModal() {
 
   const rows = limited.map(item => {
     const orderDateLabel = item.orderDate ? formatCandidateDate(item.orderDate) : '-';
+    const applicationDateLabel = item.applicationDate ? formatCandidateDate(item.applicationDate) : '-';
+    const amountClass = num(item.netRevenue) < 0 ? 'is-negative' : 'is-positive';
     return `
       <tr>
         <td>${escapeHtml(item.candidateName)}</td>
+        <td class="yield-revenue-col-apply">${applicationDateLabel}</td>
         <td>${escapeHtml(item.advisorName)}</td>
-        <td class="yield-revenue-col-amount">${formatYenOrDash(item.netRevenue)}</td>
+        <td class="yield-revenue-col-amount yield-revenue-amount ${amountClass}">${formatYenOrDash(item.netRevenue)}</td>
         <td class="yield-revenue-col-date">${orderDateLabel}</td>
       </tr>
     `;
@@ -3671,15 +3684,48 @@ function renderRevenueDrilldownModal() {
   body.innerHTML = rows;
   const summary = buildCandidateRevenueSummary(filtered);
   if (summaryEl) {
-    const summaryText = tab === 'confirmed'
-      ? `受注確定 ${summary.total}件 / 収支合計 ${formatYen(summary.netTotal)}`
-      : `売上計上 ${summary.total}件 / 計上収支合計 ${formatYen(summary.netTotal)}`;
-    summaryEl.textContent = summaryText;
+    const totals = filtered.reduce((acc, item) => {
+      acc.fee += num(item?.feeAmount);
+      acc.refund += num(item?.refundAmount);
+      return acc;
+    }, { fee: 0, refund: 0 });
+
+    const totalCountText = tab === 'confirmed' ? '受注確定件数' : '売上計上件数';
+    const totalRevenueText = tab === 'confirmed' ? '収支合計' : '計上収支合計';
+
+    summaryEl.innerHTML = `
+      <div class="yield-revenue-summary-card">
+        <div class="yield-revenue-summary-label">${totalCountText}</div>
+        <div class="yield-revenue-summary-value">${summary.total}件</div>
+      </div>
+      <div class="yield-revenue-summary-card">
+        <div class="yield-revenue-summary-label">${totalRevenueText}</div>
+        <div class="yield-revenue-summary-value is-total">${formatYen(summary.netTotal)}</div>
+      </div>
+      ${tab !== 'confirmed' ? `
+        <div class="yield-revenue-summary-card">
+          <div class="yield-revenue-summary-label">内訳 (受注)</div>
+          <div class="yield-revenue-summary-value">${formatYen(totals.fee)}</div>
+        </div>
+        <div class="yield-revenue-summary-card">
+          <div class="yield-revenue-summary-label">内訳 (返金)</div>
+          <div class="yield-revenue-summary-value is-negative">${formatYen(totals.refund)}</div>
+        </div>
+      ` : ''}
+    `;
   }
   if (noteEl) {
-    noteEl.textContent = filtered.length > CANDIDATE_REVENUE_LIMIT
-      ? `上位${CANDIDATE_REVENUE_LIMIT}件のみ表示中`
-      : '';
+    const notes = [];
+    if (filtered.length > CANDIDATE_REVENUE_LIMIT) {
+      notes.push(`上位${CANDIDATE_REVENUE_LIMIT}件のみ表示中`);
+    }
+    if (tab !== 'confirmed' && getCalcMode(calcModeScope) === 'cohort') {
+      notes.push('応募月計上のため、計上日が未入力でも売上に含まれます。');
+    }
+    if (tab !== 'confirmed') {
+      notes.push('返金のみの候補者も売上計上に含まれます。');
+    }
+    noteEl.textContent = notes.join(' / ');
   }
 }
 
@@ -6704,125 +6750,125 @@ async function initializeDashboardSection() {
     .catch(error => console.error('[yield] failed to load Chart.js', error));
 }
 
-  async function reloadDashboardData(scope) {
-    const range = getDashboardRange(scope);
-    const advisorUserId = scope === 'personal' ? await resolveAdvisorUserId() : null;
-    const granularity = getDashboardTrendGranularity(scope);
-    const calcModeScope = scope === 'personal' ? 'personalMonthly' : 'companyMonthly';
-    try {
-      const results = await Promise.allSettled([
-        fetchYieldTrendFromApi({
+async function reloadDashboardData(scope) {
+  const range = getDashboardRange(scope);
+  const advisorUserId = scope === 'personal' ? await resolveAdvisorUserId() : null;
+  const granularity = getDashboardTrendGranularity(scope);
+  const calcModeScope = scope === 'personal' ? 'personalMonthly' : 'companyMonthly';
+  try {
+    const results = await Promise.allSettled([
+      fetchYieldTrendFromApi({
+        startDate: range.startDate,
+        endDate: range.endDate,
+        scope,
+        advisorUserId,
+        granularity,
+        calcModeScope
+      }),
+      fetchYieldBreakdownSafely({
+        startDate: range.startDate,
+        endDate: range.endDate,
+        scope,
+        advisorUserId,
+        dimension: 'job',
+        calcModeScope
+      }),
+      fetchYieldBreakdownSafely({
+        startDate: range.startDate,
+        endDate: range.endDate,
+        scope,
+        advisorUserId,
+        dimension: 'gender',
+        calcModeScope
+      }),
+      fetchYieldBreakdownSafely({
+        startDate: range.startDate,
+        endDate: range.endDate,
+        scope,
+        advisorUserId,
+        dimension: 'age',
+        calcModeScope
+      }),
+      fetchYieldBreakdownSafely({
+        startDate: range.startDate,
+        endDate: range.endDate,
+        scope,
+        advisorUserId,
+        dimension: 'other_selection_status',
+        calcModeScope
+      }),
+      fetchYieldBreakdownSafely({
+        startDate: range.startDate,
+        endDate: range.endDate,
+        scope,
+        advisorUserId,
+        dimension: 'address_pref',
+        calcModeScope
+      }),
+      fetchYieldBreakdownSafely({
+        startDate: range.startDate,
+        endDate: range.endDate,
+        scope,
+        advisorUserId,
+        dimension: 'has_chronic_disease',
+        calcModeScope
+      }),
+      fetchYieldBreakdownSafely({
+        startDate: range.startDate,
+        endDate: range.endDate,
+        scope,
+        advisorUserId,
+        dimension: 'personal_concerns',
+        calcModeScope
+      }),
+      scope === 'company'
+        ? fetchYieldBreakdownSafely({
           startDate: range.startDate,
           endDate: range.endDate,
           scope,
-          advisorUserId,
-          granularity,
+          dimension: 'media',
           calcModeScope
-        }),
-        fetchYieldBreakdownSafely({
-          startDate: range.startDate,
-          endDate: range.endDate,
-          scope,
-          advisorUserId,
-          dimension: 'job',
-          calcModeScope
-        }),
-        fetchYieldBreakdownSafely({
-          startDate: range.startDate,
-          endDate: range.endDate,
-          scope,
-          advisorUserId,
-          dimension: 'gender',
-          calcModeScope
-        }),
-        fetchYieldBreakdownSafely({
-          startDate: range.startDate,
-          endDate: range.endDate,
-          scope,
-          advisorUserId,
-          dimension: 'age',
-          calcModeScope
-        }),
-        fetchYieldBreakdownSafely({
-          startDate: range.startDate,
-          endDate: range.endDate,
-          scope,
-          advisorUserId,
-          dimension: 'other_selection_status',
-          calcModeScope
-        }),
-        fetchYieldBreakdownSafely({
-          startDate: range.startDate,
-          endDate: range.endDate,
-          scope,
-          advisorUserId,
-          dimension: 'address_pref',
-          calcModeScope
-        }),
-        fetchYieldBreakdownSafely({
-          startDate: range.startDate,
-          endDate: range.endDate,
-          scope,
-          advisorUserId,
-          dimension: 'has_chronic_disease',
-          calcModeScope
-        }),
-        fetchYieldBreakdownSafely({
-          startDate: range.startDate,
-          endDate: range.endDate,
-          scope,
-          advisorUserId,
-          dimension: 'personal_concerns',
-          calcModeScope
-        }),
-        scope === 'company'
-          ? fetchYieldBreakdownSafely({
-            startDate: range.startDate,
-            endDate: range.endDate,
-            scope,
-            dimension: 'media',
-            calcModeScope
-          })
-          : Promise.resolve(null)
-      ]);
+        })
+        : Promise.resolve(null)
+    ]);
 
-      const [
-        trendResult,
-        jobResult,
-        genderResult,
-        ageResult,
-        otherSelectionResult,
-        prefectureResult,
-        chronicResult,
-        concernResult,
-        mediaResult
-      ] = results;
+    const [
+      trendResult,
+      jobResult,
+      genderResult,
+      ageResult,
+      otherSelectionResult,
+      prefectureResult,
+      chronicResult,
+      concernResult,
+      mediaResult
+    ] = results;
 
-      const trend = trendResult.status === 'fulfilled' ? trendResult.value : null;
-      if (trendResult.status === 'rejected') {
-        console.warn('[yield] trend fetch failed', trendResult.reason);
+    const trend = trendResult.status === 'fulfilled' ? trendResult.value : null;
+    if (trendResult.status === 'rejected') {
+      console.warn('[yield] trend fetch failed', trendResult.reason);
+    }
+
+    const unwrapBreakdown = (result, dimension) => {
+      if (result.status === 'fulfilled') return result.value;
+      if (result.status === 'rejected') {
+        console.warn(`[yield] breakdown fetch failed (${dimension})`, result.reason);
       }
+      return null;
+    };
 
-      const unwrapBreakdown = (result, dimension) => {
-        if (result.status === 'fulfilled') return result.value;
-        if (result.status === 'rejected') {
-          console.warn(`[yield] breakdown fetch failed (${dimension})`, result.reason);
-        }
-        return null;
-      };
-
-      const job = unwrapBreakdown(jobResult, 'job');
-      const gender = unwrapBreakdown(genderResult, 'gender');
-      const age = unwrapBreakdown(ageResult, 'age');
-      const otherSelection = unwrapBreakdown(otherSelectionResult, 'other_selection_status');
-      const prefecture = unwrapBreakdown(prefectureResult, 'address_pref');
-      const chronic = unwrapBreakdown(chronicResult, 'has_chronic_disease');
-      const concern = unwrapBreakdown(concernResult, 'personal_concerns');
-      const media = unwrapBreakdown(mediaResult, 'media');
-      state.dashboard[scope].trendData = trend;
-      state.dashboard[scope].breakdown = {
-        jobCategories: job,
-        gender,
+    const job = unwrapBreakdown(jobResult, 'job');
+    const gender = unwrapBreakdown(genderResult, 'gender');
+    const age = unwrapBreakdown(ageResult, 'age');
+    const otherSelection = unwrapBreakdown(otherSelectionResult, 'other_selection_status');
+    const prefecture = unwrapBreakdown(prefectureResult, 'address_pref');
+    const chronic = unwrapBreakdown(chronicResult, 'has_chronic_disease');
+    const concern = unwrapBreakdown(concernResult, 'personal_concerns');
+    const media = unwrapBreakdown(mediaResult, 'media');
+    state.dashboard[scope].trendData = trend;
+    state.dashboard[scope].breakdown = {
+      jobCategories: job,
+      gender,
       ageGroups: age,
       otherSelections: otherSelection,
       prefectures: prefecture,
@@ -6932,37 +6978,37 @@ function renderTrendChart(scope) {
   });
 }
 
-  function renderCategoryChart({ scope, chartId, datasetKey, type }) {
-    const canvas = document.getElementById(chartId);
-    if (!canvas || !window.Chart) return;
+function renderCategoryChart({ scope, chartId, datasetKey, type }) {
+  const canvas = document.getElementById(chartId);
+  if (!canvas || !window.Chart) return;
 
-    const breakdown = state.dashboard[scope]?.breakdown;
-    const dataset = breakdown?.[datasetKey];
-    const chartWrap = canvas.closest('.dashboard-chart');
-    const existingEmpty = chartWrap?.querySelector('.dashboard-chart-empty');
-    const setEmptyState = (isEmpty) => {
-      if (!chartWrap) return;
-      chartWrap.classList.toggle('is-empty', isEmpty);
-      if (isEmpty) {
-        if (!existingEmpty) {
-          const empty = document.createElement('div');
-          empty.className = 'dashboard-chart-empty';
-          empty.textContent = 'データなし';
-          chartWrap.appendChild(empty);
-        }
-      } else if (existingEmpty) {
-        existingEmpty.remove();
+  const breakdown = state.dashboard[scope]?.breakdown;
+  const dataset = breakdown?.[datasetKey];
+  const chartWrap = canvas.closest('.dashboard-chart');
+  const existingEmpty = chartWrap?.querySelector('.dashboard-chart-empty');
+  const setEmptyState = (isEmpty) => {
+    if (!chartWrap) return;
+    chartWrap.classList.toggle('is-empty', isEmpty);
+    if (isEmpty) {
+      if (!existingEmpty) {
+        const empty = document.createElement('div');
+        empty.className = 'dashboard-chart-empty';
+        empty.textContent = 'データなし';
+        chartWrap.appendChild(empty);
       }
-    };
-
-    if (!dataset || !Array.isArray(dataset.labels) || !Array.isArray(dataset.data) || !dataset.labels.length) {
-      destroyChart(scope, chartId);
-      setEmptyState(true);
-      return;
+    } else if (existingEmpty) {
+      existingEmpty.remove();
     }
-    setEmptyState(false);
+  };
 
+  if (!dataset || !Array.isArray(dataset.labels) || !Array.isArray(dataset.data) || !dataset.labels.length) {
     destroyChart(scope, chartId);
+    setEmptyState(true);
+    return;
+  }
+  setEmptyState(false);
+
+  destroyChart(scope, chartId);
   const colors = getChartColors(dataset.labels.length, type === 'doughnut' ? 0.9 : 0.25);
   const data = {
     labels: dataset.labels,

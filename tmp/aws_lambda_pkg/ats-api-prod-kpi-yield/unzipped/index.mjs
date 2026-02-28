@@ -33,7 +33,29 @@ function buildHeaders(event) {
 }
 
 function getPath(event) {
-  return event?.rawPath || event?.path || "";
+  const routeKey = event?.requestContext?.routeKey || "";
+  const routePath = routeKey.includes(" ") ? routeKey.split(" ")[1] : routeKey;
+  const proxy = event?.pathParameters?.proxy || event?.pathParameters?.["proxy+"] || "";
+  const proxyPath = proxy ? `/${String(proxy).replace(/^\/+/, "")}` : "";
+  const basePath =
+    event?.rawPath ||
+    event?.requestContext?.http?.path ||
+    event?.requestContext?.path ||
+    event?.path ||
+    "";
+
+  if (basePath && proxyPath && !basePath.includes(proxyPath)) {
+    return `${basePath.replace(/\/+$/, "")}${proxyPath}`;
+  }
+
+  return (
+    basePath ||
+    proxyPath ||
+    event?.resource ||
+    event?.requestContext?.resourcePath ||
+    routePath ||
+    ""
+  );
 }
 
 function parseDate(raw) {
@@ -629,6 +651,7 @@ function buildCandidateRevenueSql(advisorFilter, revenueTiming = "occurrence") {
     SELECT c.id AS candidate_id,
            c.name AS candidate_name,
            c.advisor_user_id AS advisor_user_id,
+           MIN(c.created_at)::date AS application_date,
            COALESCE(SUM(p.fee_amount), 0)::int AS fee_amount,
            COALESCE(SUM(p.refund_amount), 0)::int AS refund_amount,
            MAX(p.order_date) AS order_date,
@@ -1473,7 +1496,7 @@ async function fetchCohortStageRows(client, { advisorUserId }) {
   const res = await client.query(
     `SELECT c.id AS candidate_id,
             c.advisor_user_id AS advisor_user_id,
-            c.first_contact_at::date AS new_interviews,
+            c.created_at::date AS new_interviews,
             MIN(ca.recommended_at)::date AS proposals,
             MIN(ca.recommended_at)::date AS recommendations,
             MIN(ca.first_interview_set_at)::date AS interviews_scheduled,
@@ -1483,9 +1506,9 @@ async function fetchCohortStageRows(client, { advisorUserId }) {
             MIN(ca.join_date)::date AS hires
      FROM candidates c
      LEFT JOIN candidate_applications ca ON ca.candidate_id = c.id
-     WHERE c.first_contact_at IS NOT NULL
+     WHERE c.created_at IS NOT NULL
      ${advisorFilter}
-     GROUP BY c.id, c.advisor_user_id, c.first_contact_at`,
+     GROUP BY c.id, c.advisor_user_id, c.created_at`,
     params
   );
   return (res.rows || []).map((row) => ({
@@ -1522,6 +1545,7 @@ export const handler = async (event) => {
   const rateCalcMode = normalizeRateCalcMode(qs.rateCalcMode);
   const dimension = normalizeDimension(qs.dimension);
   const revenueTiming = normalizeRevenueTiming(qs.revenueTiming ?? qs.timeBasis ?? qs.countBasis);
+  const detail = String(qs.detail || qs.view || "").toLowerCase();
   const plannedRaw = String(qs.planned || "").toLowerCase();
   const isPlanned = plannedRaw === "1" || plannedRaw === "true" || plannedRaw === "planned";
 
@@ -1568,7 +1592,7 @@ export const handler = async (event) => {
     const trendGranularity = normalizeTrendGranularity(qs.granularity);
     const isTrendPath = path.includes("/yield/trend");
     const isBreakdownPath = path.includes("/yield/breakdown");
-    const isCandidatesPath = path.includes("/yield/candidates");
+    const isCandidatesPath = path.includes("/yield/candidates") || detail === "candidates";
 
     if (isTrendPath) {
       let series = [];
@@ -1679,6 +1703,7 @@ export const handler = async (event) => {
         const netRevenue = feeAmount - refundAmount;
         const orderDate = toDateString(row.order_date);
         const withdrawDate = toDateString(row.withdraw_date);
+        const applicationDate = toDateString(row.application_date);
         const orderReported = row.order_reported === true;
         const refundReported = row.refund_reported === true;
         return {
@@ -1686,6 +1711,7 @@ export const handler = async (event) => {
           candidateName: row.candidate_name || "",
           advisorUserId: display.advisorUserId,
           advisorName: display.name,
+          applicationDate,
           feeAmount,
           refundAmount,
           netRevenue,

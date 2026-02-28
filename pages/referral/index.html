@@ -162,16 +162,18 @@
 <!-- モダンフィルターバー -->
 
 <div class="referral-filter-bar">
-  <div class="referral-filter-group">
+  <div class="referral-filter-group searchable-dropdown-container">
     <span class="referral-filter-label">企業名検索</span>
-    <input type="text" id="referralCompanyFilter" class="referral-filter-input" placeholder="企業名..." />
+    <input type="text" id="referralCompanyFilter" class="referral-filter-input" placeholder="企業名..."
+      autocomplete="off" />
+    <div id="referralCompanyFilterDropdown" class="searchable-dropdown-list hidden"></div>
   </div>
   <div class="referral-filter-group">
     <span class="referral-filter-label">期間</span>
     <div style="display:flex; gap:8px; align-items:center;">
-      <input type="date" id="referralDateStart" class="referral-filter-input" value="2024-01-01" />
+      <input type="date" id="referralDateStart" class="referral-filter-input" />
       <span style="color: #cbd5e1;">-</span>
-      <input type="date" id="referralDateEnd" class="referral-filter-input" value="2025-12-31" />
+      <input type="date" id="referralDateEnd" class="referral-filter-input" />
     </div>
   </div>
   <div class="referral-filter-group">

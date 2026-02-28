@@ -3768,6 +3768,9 @@ export async function mount(appElement) {
 
     initReferralCandidateModal();
 
+    // デフォルト期間を直近1年に設定
+    setDefaultDateRange();
+
     await loadReferralData();
 
     await loadCandidateSummaries();
@@ -3776,6 +3779,7 @@ export async function mount(appElement) {
 
     initializeSort();
     attachFilters();
+    initializeSearchableDropdowns();
     attachPagination();
 
     attachRowClickHandlers();
@@ -3820,13 +3824,10 @@ function attachFilters() {
   const resetBtn = document.getElementById("referralFilterReset");
   if (resetBtn) {
     resetBtn.addEventListener("click", () => {
-      const start = document.getElementById("referralDateStart");
-      const end = document.getElementById("referralDateEnd");
       const job = document.getElementById("referralJobFilter");
       const company = document.getElementById("referralCompanyFilter");
 
-      if (start) start.value = "";
-      if (end) end.value = "";
+      setDefaultDateRange();
       if (job) job.value = "";
       if (company) company.value = "";
 
@@ -3912,4 +3913,115 @@ function buildHorizontalSteps(flowCandidates) {
 function buildRecommendedCandidatesList(company) {
   // プレースホルダー実装（実際のAIマッチングロジックに置き換え予定）
   return `<div class="col-span-3 text-center text-sm text-slate-400 py-6">マッチング候補者なし</div>`;
+}
+
+// 期間フィルター初期値設定ヘルパー
+function setDefaultDateRange() {
+  const end = new Date();
+  const start = new Date();
+  start.setFullYear(end.getFullYear() - 1);
+
+  const formatDate = (date) => date.toISOString().split('T')[0];
+
+  const startInput = document.getElementById('referralDateStart');
+  const endInput = document.getElementById('referralDateEnd');
+  if (startInput) startInput.value = formatDate(start);
+  if (endInput) endInput.value = formatDate(end);
+}
+
+/**
+ * 検索機能付きプルダウンの初期化
+ */
+function initializeSearchableDropdowns() {
+  setupSearchableDropdown(
+    "referralCompanyFilter",
+    "referralCompanyFilterDropdown",
+    null,
+    () => {
+      // 現在ロードされているデータからユニークな企業名を抽出してサジェスト
+      const companies = Array.from(new Set(allData.map(d => d.companyName || d.clientName).filter(Boolean)));
+      return companies.sort((a, b) => a.localeCompare(b, "ja"));
+    }
+  );
+}
+
+/**
+ * 検索機能付きプルダウンのコアロジック
+ */
+function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
+  const input = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  const hiddenSelect = hiddenId ? document.getElementById(hiddenId) : null;
+
+  if (!input || !dropdown) return;
+
+  const showDropdown = () => {
+    const options = getOptionsFn();
+    const query = input.value.trim().toLowerCase();
+
+    // フィルタリング
+    const filtered = options.filter(opt => {
+      const label = typeof opt === "string" ? opt : opt.label;
+      return label.toLowerCase().includes(query);
+    });
+
+    if (filtered.length === 0) {
+      if (!query) {
+        dropdown.classList.add("hidden");
+        return;
+      }
+      dropdown.innerHTML = `<div class="searchable-dropdown-empty">一致する候補がありません</div>`;
+    } else {
+      dropdown.innerHTML = filtered.map(opt => {
+        const value = typeof opt === "string" ? opt : opt.value;
+        const label = typeof opt === "string" ? opt : opt.label;
+        const isActive = hiddenSelect && String(hiddenSelect.value) === String(value) ? "is-active" : "";
+        return `<div class="searchable-dropdown-item ${isActive}" data-value="${String(value)}">${escapeHtml(label)}</div>`;
+      }).join("");
+    }
+
+    dropdown.classList.remove("hidden");
+  };
+
+  const hideDropdown = () => {
+    setTimeout(() => {
+      dropdown.classList.add("hidden");
+    }, 200);
+  };
+
+  input.addEventListener("focus", showDropdown);
+  input.addEventListener("input", showDropdown);
+  input.addEventListener("blur", hideDropdown);
+
+  dropdown.addEventListener("click", (e) => {
+    const item = e.target.closest(".searchable-dropdown-item");
+    if (!item) return;
+
+    const value = item.dataset.value;
+    const label = item.textContent;
+
+    input.value = label;
+    if (hiddenSelect) {
+      hiddenSelect.value = value;
+      hiddenSelect.dispatchEvent(new Event("change"));
+    } else {
+      input.dispatchEvent(new Event("input"));
+      // referral.js では input に独自にフィルタ適用させる必要があるかも
+      input.dispatchEvent(new Event("change"));
+    }
+    dropdown.classList.add("hidden");
+  });
+}
+
+function escapeHtml(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/[&<>"']/g, function (m) {
+    return {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    }[m];
+  });
 }

@@ -5,7 +5,7 @@
 
 import { getSession, hasRole, onAuthChange } from './auth.js';
 import { authRepo } from './api/repositories/auth.js?v=20260120_2';
-import { MODULE_VERSIONS } from './module-versions.js?v=20260227_18';
+import { MODULE_VERSIONS } from './module-versions.js?v=20260228_01';
 
 const POST_LOGIN_REDIRECT_KEY = 'dashboard.postLoginRedirect';
 
@@ -13,15 +13,15 @@ const routes = {
   login: () => import("../pages/login/login.js"),
   mypage: () => import("../pages/mypage/mypage.js?v=20260225_01"),
   members: () => import("../pages/members/members.js"),
-  yield: () => import("../pages/yield/yield.js?v=20260228_02"),
-  "yield-personal": () => import("../pages/yield-personal/yield-personal.js?v=20260228_02"),
-  "yield-company": () => import("../pages/yield-company/yield-company.js?v=20260228_02"),
-  "yield-admin": () => import("../pages/yield-admin/yield-admin.js?v=20260228_02"),
+  yield: () => import("../pages/yield/yield.js?v=20260228_08"),
+  "yield-personal": () => import("../pages/yield-personal/yield-personal.js?v=20260228_06"),
+  "yield-company": () => import("../pages/yield-company/yield-company.js?v=20260228_06"),
+  "yield-admin": () => import("../pages/yield-admin/yield-admin.js?v=20260228_06"),
   candidates: () => import(`../pages/candidates/candidates.js?v=${MODULE_VERSIONS.candidates}`),
   "candidate-detail": () => import(`../pages/candidate-detail/candidate-detail.js?v=${MODULE_VERSIONS.candidateDetail}`),
   "ad-performance": () => import("../pages/ad-performance/ad-performance.js?v=20260322_18"),
   teleapo: () => import("../pages/teleapo/teleapo.js?v=20260227_03"),
-  referral: () => import("../pages/referral/referral.js?v=20260322_61"),
+  referral: () => import("../pages/referral/referral.js?v=20260228_1635"),
   settings: () => import("../pages/settings/settings.js?v=20260322_01"),
   "ms-period-settings": () => import("../pages/ms-period-settings/ms-period-settings.js"),
   "goal-settings": () => import("../pages/goal-settings/goal-settings.js?v=20260225_01"),
@@ -54,8 +54,8 @@ const pageCSS = {
   "yield-company": "pages/yield/yield.css?v=20260228_02",
   "yield-admin": "pages/yield/yield.css?v=20260228_02",
   mypage: "pages/mypage/mypage.css?v=20260213_01",
-  candidates: "pages/candidates/candidates.css?v=20260225_01",
-  "candidate-detail": "pages/candidate-detail/candidate-detail.css?v=20260225_01",
+  candidates: "pages/candidates/candidates.css?v=20260228_1645",
+  "candidate-detail": "pages/candidate-detail/candidate-detail.css?v=20260228_1630",
   "ad-performance": "pages/ad-performance/ad-performance.css?v=20260133",
   teleapo: "pages/teleapo/teleapo.css?v=20260224_03",
   referral: "pages/referral/referral.css?v=20260322_49",

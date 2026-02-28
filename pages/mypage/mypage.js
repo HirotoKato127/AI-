@@ -1,7 +1,7 @@
 import { getSession } from '../../scripts/auth.js';
 import { authRepo } from '../../scripts/api/repositories/auth.js';
 import { goalSettingsService } from '../../scripts/services/goalSettings.js';
-import { mount as mountYield } from '../yield/yield.js?v=20260228_02';
+import { mount as mountYield } from '../yield/yield.js?v=20260228_08';
 import { mount as mountGoalSettings } from '../goal-settings/goal-settings.js';
 
 const MYPAGE_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';

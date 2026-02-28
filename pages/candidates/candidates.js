@@ -1203,6 +1203,7 @@ export function mount() {
   }
 
   initializeCandidatesFilters();
+  initializeSearchableDropdowns();
   initializeSortControl();
   initializeTableInteraction();
   initializePaginationControls();
@@ -1294,6 +1295,121 @@ function initializeCandidatesFilters() {
   refreshAllCsStatusSelects();
 }
 
+/**
+ * 検索機能付きプルダウン（求職者名、応募企業名）の初期化
+ */
+function initializeSearchableDropdowns() {
+  // 1. 求職者名 (既にInputなのでDropdown機能を追加)
+  setupSearchableDropdown(
+    "candidatesFilterName",
+    "candidatesFilterNameDropdown",
+    null,
+    () => {
+      // 現在ロードされている候補者から名前を抽出してサジェスト
+      const names = Array.from(new Set(allCandidates.map(c => c.candidateName).filter(Boolean)));
+      return names.sort((a, b) => a.localeCompare(b, "ja"));
+    }
+  );
+
+  // 2. 応募企業名 (Hidden Select と連動する Input)
+  setupSearchableDropdown(
+    "candidatesFilterCompanySearch",
+    "candidatesFilterCompanyDropdown",
+    "candidatesFilterCompany",
+    () => {
+      // masterから取得された企業リスト
+      const select = document.getElementById("candidatesFilterCompany");
+      if (!select) return [];
+      return Array.from(select.options)
+        .map(opt => ({ value: opt.value, label: opt.textContent }))
+        .filter(opt => opt.value !== "" && opt.value !== "すべて"); // 「すべて」は除外
+    }
+  );
+
+  // 3. CSステータス (Hidden Select と連動する Input)
+  setupSearchableDropdown(
+    "candidatesFilterCsStatusSearch",
+    "candidatesFilterCsStatusDropdown",
+    "candidatesFilterCsStatus",
+    () => {
+      const select = document.getElementById("candidatesFilterCsStatus");
+      if (!select) return [];
+      return Array.from(select.options)
+        .map(opt => ({ value: opt.value, label: opt.textContent }))
+        .filter(opt => opt.value !== "" && opt.value !== "すべて");
+    }
+  );
+}
+
+/**
+ * 検索機能付きプルダウンのコアロジック
+ */
+function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
+  const input = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  const hiddenSelect = hiddenId ? document.getElementById(hiddenId) : null;
+
+  if (!input || !dropdown) return;
+
+  const showDropdown = () => {
+    const options = getOptionsFn();
+    const query = input.value.trim().toLowerCase();
+
+    // フィルタリング
+    const filtered = options.filter(opt => {
+      const label = typeof opt === "string" ? opt : opt.label;
+      return label.toLowerCase().includes(query);
+    });
+
+    if (filtered.length === 0) {
+      if (!query) {
+        dropdown.classList.add("hidden");
+        return;
+      }
+      dropdown.innerHTML = `<div class="searchable-dropdown-empty">一致する候補がありません</div>`;
+    } else {
+      dropdown.innerHTML = filtered.map(opt => {
+        const value = typeof opt === "string" ? opt : opt.value;
+        const label = typeof opt === "string" ? opt : opt.label;
+        const isActive = hiddenSelect && String(hiddenSelect.value) === String(value) ? "is-active" : "";
+        return `<div class="searchable-dropdown-item ${isActive}" data-value="${escapeHtmlAttr(String(value))}">${escapeHtml(label)}</div>`;
+      }).join("");
+    }
+
+    dropdown.classList.remove("hidden");
+  };
+
+  const hideDropdown = () => {
+    // クリックイベントが先に発火するように少し遅延させる
+    setTimeout(() => {
+      dropdown.classList.add("hidden");
+    }, 200);
+  };
+
+  input.addEventListener("focus", showDropdown);
+  input.addEventListener("input", showDropdown);
+  input.addEventListener("blur", hideDropdown);
+
+  dropdown.addEventListener("click", (e) => {
+    const item = e.target.closest(".searchable-dropdown-item");
+    if (!item) return;
+
+    const value = item.dataset.value;
+    const label = item.textContent;
+
+    input.value = label;
+    if (hiddenSelect) {
+      hiddenSelect.value = value;
+      // 既存の change イベントを手動で発火
+      hiddenSelect.dispatchEvent(new Event("change"));
+    } else {
+      // hiddenSelectがない場合はinput自体のイベントを発火
+      input.dispatchEvent(new Event("input"));
+    }
+    dropdown.classList.add("hidden");
+  });
+}
+
 async function loadFilterMasters() {
   // Best-effort: on AWS, `/candidates?view=masters` returns facet lists.
   // On local server implementations this might 404; ignore in that case.
@@ -1315,7 +1431,7 @@ async function loadFilterMasters() {
     const facetsCsUsers = Array.isArray(json.csUsers) ? json.csUsers : [];
 
     let masterDataUsers = Array.isArray(json.users) ? json.users : null;
-    
+
     if (!masterDataUsers) {
       try {
         const listRes = await fetch(candidatesApi(`${CANDIDATES_LIST_PATH}?limit=1`));
@@ -1327,7 +1443,7 @@ async function loadFilterMasters() {
             if (detailRes.ok) {
               const detailJson = await detailRes.json();
               if (detailJson && detailJson.masters && Array.isArray(detailJson.masters.users)) {
-                 masterDataUsers = detailJson.masters.users;
+                masterDataUsers = detailJson.masters.users;
               }
             }
           }
@@ -2174,6 +2290,24 @@ function setFilterSelectOptions(selectId, values, { blankLabel = "すべて" } =
     element.value = currentValue;
   } else {
     element.value = "";
+  }
+
+  // 応募企業名の場合、Searchボックスの表示も同期
+  if (selectId === "candidatesFilterCompany") {
+    const searchInput = document.getElementById("candidatesFilterCompanySearch");
+    if (searchInput) {
+      const selectedOpt = Array.from(element.options).find(o => o.value === element.value);
+      searchInput.value = (selectedOpt && selectedOpt.value) ? selectedOpt.textContent : "";
+    }
+  }
+
+  // CSステータスの場合、Searchボックスの表示も同期
+  if (selectId === "candidatesFilterCsStatus") {
+    const searchInput = document.getElementById("candidatesFilterCsStatusSearch");
+    if (searchInput) {
+      const selectedOpt = Array.from(element.options).find(o => o.value === element.value);
+      searchInput.value = (selectedOpt && selectedOpt.value) ? selectedOpt.textContent : "";
+    }
   }
 }
 
@@ -3189,6 +3323,13 @@ function handleFilterReset() {
     const element = document.getElementById(id);
     if (element) element.value = "";
   });
+
+  // 追加: 検索用入力欄もクリア
+  const companySearch = document.getElementById("candidatesFilterCompanySearch");
+  if (companySearch) companySearch.value = "";
+
+  const csStatusSearch = document.getElementById("candidatesFilterCsStatusSearch");
+  if (csStatusSearch) csStatusSearch.value = "";
 
   const sortSelect = document.getElementById("candidatesSortOrder");
   if (sortSelect) sortSelect.value = "desc";
@@ -5742,10 +5883,10 @@ function renderMoneySection(candidate) {
 
     return `
       <tr>
-        <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
-        <td>${feeCell}</td>
-        <td>${netCell}</td>
-        <td>${orderDateCell}</td>
+        <td class="font-medium text-slate-900">${escapeHtml(formatDisplayValue(row.companyName))}</td>
+        <td class="text-right">${feeCell}</td>
+        <td class="text-right">${netCell}</td>
+        <td class="text-center text-slate-500">${orderDateCell}</td>
         <td class="text-center">${recognizedCell}</td>
         <td class="text-center">${reportCell}</td>
       </tr>
@@ -5766,7 +5907,7 @@ function renderMoneySection(candidate) {
 
     const amountCell = canEdit
       ? renderTableInput(formatMoneyInputToMan(refundAmount), `selectionProgress.${idx}.refundAmount`, "number", "money", "number")
-      : `<span class="detail-value">${escapeHtml(formatMoneyToMan(refundAmount))}</span>`;
+      : `<span class="detail-value text-red-600 font-semibold">${escapeHtml(formatMoneyToMan(refundAmount))}</span>`;
 
     const reportCell = canEdit
       ? renderTableSelect(buildBooleanOptions(refundReported), `selectionProgress.${idx}.refundReported`, "money", "boolean")
@@ -5774,15 +5915,15 @@ function renderMoneySection(candidate) {
 
     const withdrawDateCell = canEdit
       ? renderTableInput(withdrawDate, `selectionProgress.${idx}.withdrawDate`, "date", "money")
-      : `<span class="detail-value">${escapeHtml(formatDateJP(withdrawDate))}</span>`;
+      : `<span class="detail-value text-slate-500">${escapeHtml(formatDateJP(withdrawDate))}</span>`;
 
     return `
       <tr>
-        <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
-        <td>${amountCell}</td>
-        <td>${withdrawDateCell}</td>
-        <td><span class="detail-value">${escapeHtml(formatDateJP(retirementDate))}</span></td>
-        <td><span class="detail-value">${escapeHtml(stage)}</span></td>
+        <td class="font-medium text-slate-900">${escapeHtml(formatDisplayValue(row.companyName))}</td>
+        <td class="text-right">${amountCell}</td>
+        <td class="text-center text-slate-500">${withdrawDateCell}</td>
+        <td class="text-center text-slate-500">${escapeHtml(formatDateJP(retirementDate))}</td>
+        <td class="text-center"><span class="status-pill status-pill--warning">${escapeHtml(stage)}</span></td>
         <td class="text-center">${reportCell}</td>
       </tr>
     `;
@@ -5823,14 +5964,27 @@ function renderMoneySection(candidate) {
     };
   })();
 
-  const summaryFields = [
-    { label: "受注合計 (万円)", value: summaryTotals.totalFee, displayFormatter: formatMoneyToMan, span: 2, editable: false },
-    { label: "返金合計 (万円)", value: summaryTotals.totalRefund, displayFormatter: formatMoneyToMan, span: 2, editable: false },
-    { label: "収支 (万円)", value: summaryTotals.netTotal, displayFormatter: formatMoneyToMan, span: 2, editable: false },
-    { label: "計上済み収支 (万円)", value: summaryTotals.recognizedNet, displayFormatter: formatMoneyToMan, span: 2, editable: false },
-  ];
+  const summaryHtml = `
+    <div class="money-summary-grid">
+      <div class="money-summary-card">
+        <div class="money-summary-label">受注合計 (万円)</div>
+        <div class="money-summary-value">${formatMoneyToMan(summaryTotals.totalFee)}</div>
+      </div>
+      <div class="money-summary-card">
+        <div class="money-summary-label">返金合計 (万円)</div>
+        <div class="money-summary-value is-negative">${formatMoneyToMan(summaryTotals.totalRefund)}</div>
+      </div>
+      <div class="money-summary-card">
+        <div class="money-summary-label">収支 (万円)</div>
+        <div class="money-summary-value is-net">${formatMoneyToMan(summaryTotals.netTotal)}</div>
+      </div>
+      <div class="money-summary-card">
+        <div class="money-summary-label">計上済み収支 (万円)</div>
+        <div class="money-summary-value">${formatMoneyToMan(summaryTotals.recognizedNet)}</div>
+      </div>
+    </div>
+  `;
 
-  const summaryHtml = renderDetailGridFields(summaryFields, "money");
   const hasMoneyRows = orderRows.length > 0 || refundRows.length > 0;
   const orderConfirmed = hasMoneyRows
     ? orderRows.some((row) => Boolean(resolveMoneyValue(row, ["orderReported", "order_reported"])))
@@ -5845,34 +5999,36 @@ function renderMoneySection(candidate) {
   const statusHtml = `
     <div class="money-status-row">
       <div class="money-status-item">
-        <span class="money-status-label">受注確定</span>
-        ${renderBooleanPill(orderConfirmed, { trueLabel: "確定", falseLabel: "未確定" })}
+        <span class="money-status-label">受注確定状況</span>
+        ${renderBooleanPill(orderConfirmed, { trueLabel: "確定済", falseLabel: "未確定" })}
       </div>
       <div class="money-status-item">
-        <span class="money-status-label">売上計上</span>
+        <span class="money-status-label">売上計上状況</span>
         ${renderBooleanPill(revenueConverted, { trueLabel: "計上済", falseLabel: "未計上" })}
       </div>
     </div>
   `;
 
   const orderTable = `
-    <div class="detail-table-wrapper mb-4">
-      <h5 class="font-bold mb-2 text-slate-700">候補者別収支サマリー</h5>
+    <div class="money-summary-section">
+      <div class="money-summary-header">
+        <h5 class="money-summary-title">候補者別収支サマリー</h5>
+      </div>
       ${summaryHtml}
-      ${advisorWarningHtml}
       ${statusHtml}
+      ${advisorWarningHtml}
     </div>
-    <div class="detail-table-wrapper mb-6">
-      <h5 class="font-bold mb-2 text-slate-700">入社承諾後（売上）</h5>
+    <div class="detail-table-wrapper mb-8">
+      <h5 class="font-bold mb-3 text-slate-700">入社承諾案件 (売上)</h5>
       <table class="detail-table">
         <thead>
           <tr>
-            <th class="w-1/5">企業名</th>
-            <th class="w-1/5">受注金額（税抜）</th>
-            <th class="w-1/5">収支 (万円)</th>
-            <th class="w-1/5">受注日</th>
-            <th class="w-1/5 text-center">売上計上</th>
-            <th class="w-1/5 text-center">受注報告</th>
+            <th class="w-1/4">紹介先企業</th>
+            <th class="w-1/6">受注額 (税抜)</th>
+            <th class="w-1/6">収支金額</th>
+            <th class="w-1/6">計上予定日</th>
+            <th class="w-1/6 text-center">計上</th>
+            <th class="w-1/6 text-center">報告</th>
           </tr>
         </thead>
         <tbody>${orderBody}</tbody>
@@ -5882,16 +6038,16 @@ function renderMoneySection(candidate) {
 
   const refundTable = `
     <div class="detail-table-wrapper">
-      <h5 class="font-bold mb-2 text-slate-700">返金・減額</h5>
+      <h5 class="font-bold mb-3 text-slate-700">返金・減額対象</h5>
       <table class="detail-table">
         <thead>
           <tr>
-            <th class="w-1/6">企業名</th>
-            <th class="w-1/6">返金・減額 (万円)</th>
-            <th class="w-1/6">返金日</th>
-            <th class="w-1/6">退職/辞退日</th>
-            <th class="w-1/6">区分</th>
-            <th class="w-1/6 text-center">返金報告</th>
+            <th class="w-1/4">紹介先企業</th>
+            <th class="w-1/6">返金額 (万円)</th>
+            <th class="w-1/6">返金処理日</th>
+            <th class="w-1/6">離職/辞退日</th>
+            <th class="w-1/6">ステータス</th>
+            <th class="w-1/6 text-center">報告</th>
           </tr>
         </thead>
         <tbody>${refundBody}</tbody>

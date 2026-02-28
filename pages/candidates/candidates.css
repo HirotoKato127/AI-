@@ -77,7 +77,7 @@
   border-color: #bbb;
 }
 
-/* 旧スタイル維持E��互換性�E�E*/
+/* 隴鯉ｽｧ郢ｧ・ｹ郢ｧ・ｿ郢ｧ・､郢晢ｽｫ驍ｯ・ｭ隰悶・・ｼ莠包ｽｺ蜻磯共隲､・ｧ繝ｻ繝ｻ*/
 /* SmartHR Style - Filter Card - Simplified (Transparent) */
 .candidates-filter-card {
   background: transparent;
@@ -1102,12 +1102,12 @@ body.has-modal-open {
   padding: 0.75rem;
 }
 
-.detail-subsection--toggle > summary {
+.detail-subsection--toggle>summary {
   list-style: none;
   cursor: pointer;
 }
 
-.detail-subsection--toggle > summary::-webkit-details-marker {
+.detail-subsection--toggle>summary::-webkit-details-marker {
   display: none;
 }
 
@@ -1134,13 +1134,13 @@ body.has-modal-open {
   transition: transform 0.2s ease;
 }
 
-.detail-subsection--toggle[open] > .detail-subsection-toggle {
+.detail-subsection--toggle[open]>.detail-subsection-toggle {
   border-color: #c7d2fe;
   background: #eef2ff;
   box-shadow: 0 8px 16px rgba(99, 102, 241, 0.08);
 }
 
-.detail-subsection--toggle[open] > .detail-subsection-toggle::after {
+.detail-subsection--toggle[open]>.detail-subsection-toggle::after {
   transform: rotate(-135deg);
 }
 
@@ -1172,6 +1172,7 @@ body.has-modal-open {
 .detail-subsection--toggle .detail-subsection-body {
   padding-top: 0.9rem;
 }
+
 .detail-subsection--confirm {
   background: #eef2ff;
   border-color: #c7d2fe;
@@ -1206,7 +1207,7 @@ body.has-modal-open {
   color: #0f172a;
 }
 
-.detail-subsection--confirm .detail-grid-item dd > div {
+.detail-subsection--confirm .detail-grid-item dd>div {
   flex: 1;
 }
 
@@ -1313,14 +1314,14 @@ body.has-modal-open {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  /* 墁E��線と背景色を�E確に白にして、グレー背景から浮かせめE*/
+  /* 陟・・髦憺こ螢ｹ竊帝妙譴ｧ蜍ｹ豼ｶ・ｲ郢ｧ蜻医・驕抵ｽｺ邵ｺ・ｫ騾具ｽｽ邵ｺ・ｫ邵ｺ蜉ｱ窶ｻ邵ｲ竏壹￡郢晢ｽｬ郢晢ｽｼ髢ｭ譴ｧ蜍ｹ邵ｺ荵晢ｽ芽ｱｬ・ｮ邵ｺ荵昶雷郢ｧ繝ｻ*/
   border: 1px solid #cbd5f5;
   border-radius: 0.5rem;
   padding: 0.5rem;
   background-color: #ffffff;
   color: #0f172a;
   line-height: 1.5;
-  /* 入力フォームと同じ高さを確俁E*/
+  /* 陷茨ｽ･陷牙ｸ吶Ψ郢ｧ・ｩ郢晢ｽｼ郢晢｣ｰ邵ｺ・ｨ陷ｷ蠕個ｧ鬯ｮ蛟･・・ｹｧ蝣､・｢・ｺ闖ｫ繝ｻ*/
   min-height: 2.6rem;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1444,7 +1445,7 @@ body.has-modal-open {
   white-space: nowrap;
 }
 
-/* FIX: 固定幁E��推薦日〜�E定後辞退日�E�E*/
+/* FIX: 陜暦ｽｺ陞ｳ螢ｼ・ｹ繝ｻ・ｼ蝓溯ｳ髦ｮ・ｦ隴鯉ｽ･邵ｲ諛ｷ繝ｻ陞ｳ螢ｼ・ｾ迹夲ｽｾ讓｣ﾂﾂ隴鯉ｽ･繝ｻ繝ｻ*/
 .detail-table--wide th:nth-child(4),
 .detail-table--wide th:nth-child(5),
 .detail-table--wide th:nth-child(6),
@@ -1481,7 +1482,7 @@ body.has-modal-open {
   white-space: nowrap;
 }
 
-/* 編雁E��INPUT - 表示用(.detail-value)と見た目を一致させめE*/
+/* 驍ｱ・ｨ鬮ｮ繝ｻ逡選NPUT - 髯ｦ・ｨ驕会ｽｺ騾包ｽｨ(.detail-value)邵ｺ・ｨ髫穂ｹ昶螺騾ｶ・ｮ郢ｧ蜑・ｽｸﾂ髢ｾ・ｴ邵ｺ霈披雷郢ｧ繝ｻ*/
 .detail-inline-input {
   width: 100%;
   box-sizing: border-box;
@@ -1489,7 +1490,7 @@ body.has-modal-open {
   border-radius: 0.5rem;
   padding: 0.5rem;
   font-size: 0.9rem;
-  /* detail-value の font-size(継承) に近づける */
+  /* detail-value 邵ｺ・ｮ font-size(驍ｯ蜻惹ｾ｡) 邵ｺ・ｫ髴台ｻ｣笆ｼ邵ｺ莉｣・・*/
   background-color: #ffffff;
   line-height: 1.5;
   min-height: 2.6rem;
@@ -1756,12 +1757,73 @@ body.has-modal-open {
   gap: 0.4rem;
 }
 
+.money-summary-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1.25rem;
+}
+
+.money-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.9rem;
+}
+
+.money-summary-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.money-summary-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.money-summary-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.7rem;
+  padding: 0.7rem 0.9rem;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.money-summary-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: #64748b;
+}
+
+.money-summary-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.money-summary-value.is-negative {
+  color: #dc2626;
+}
+
+.money-summary-value.is-net {
+  color: #0f766e;
+}
+
 .money-status-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
   margin-top: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px dashed #e2e8f0;
+  border-radius: 0.6rem;
+  background: #f8fafc;
 }
 
 .money-status-item {
@@ -1884,7 +1946,7 @@ body.has-modal-open {
 
 /* =========================================
    Phase 2026-02: SmartHR-Style Single Page Layout
-   - Tab ↁEAnchor Navigation
+   - Tab 遶翫・Anchor Navigation
    - Card-based Sections
    - Emoji-Free Professional Design
    ========================================= */
@@ -2606,7 +2668,7 @@ body.has-modal-open {
 }
 
 /* =========================================
-   CSスチE�Eタス管琁E��ネル
+   CS郢ｧ・ｹ郢昴・繝ｻ郢ｧ・ｿ郢ｧ・ｹ驍ゑｽ｡騾・・繝ｱ郢晞亂ﾎ・
    ========================================= */
 .cs-status-manage-panel {
   display: flex;
@@ -2674,52 +2736,195 @@ body.has-modal-open {
   color: #94a3b8;
 }
 
-.cs-status-manage-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  background: #ffffff;
-  border: 1px solid #c7d2fe;
-  border-radius: 999px;
-  padding: 0.18rem 0.55rem;
-  font-size: 0.78rem;
-  color: #1e293b;
-  white-space: nowrap;
+
+/* Sales & Refund Tab Refinement */
+.money-summary-section {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-.cs-status-manage-tag-label {
-  font-weight: 500;
+.money-summary-header {
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 1rem;
+  margin-bottom: 1.5rem;
 }
 
-.cs-status-manage-tag-fixed {
-  font-size: 0.65rem;
-  background: #dbeafe;
-  color: #1d4ed8;
-  border-radius: 999px;
-  padding: 0.05rem 0.3rem;
-  font-weight: 600;
-}
-
-.cs-status-manage-tag-remove {
-  font-size: 0.8rem;
-  color: #94a3b8;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0 0.1rem;
-  line-height: 1;
-  transition: color 0.15s;
+.money-summary-title {
+  font-size: 1.125rem;
   font-weight: 700;
+  color: #1e293b;
+  margin: 0;
 }
 
-.cs-status-manage-tag-remove:hover {
+.money-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.money-summary-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.money-summary-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.money-summary-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.money-summary-value.is-net {
+  color: #2563eb;
+  /* default primary if var is missing */
+  color: var(--app-primary, #2563eb);
+}
+
+.money-summary-value.is-negative {
   color: #ef4444;
 }
 
-/* CSスチE�Eタスのselectは常時�Eルダウン表示 */
-.candidate-cs-status-cell select.table-inline-input {
-  min-width: 150px;
-  font-size: 0.82rem;
+.money-status-row {
+  display: flex;
+  gap: 1.5rem;
+  padding: 1rem 1.25rem;
+  background: #f1f5f9;
+  border-radius: 0.5rem;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 1.5rem;
+  align-items: center;
 }
 
+.money-status-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
 
+.money-status-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.money-warning {
+  background: #fff7ed;
+  border: 1px solid #ffedd5;
+  color: #c2410c;
+  padding: 0.875rem 1.25rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.money-warning::before {
+  content: '⚠️';
+}
+
+.detail-table-wrapper h5 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  color: #1e293b;
+  border-left: 4px solid #cbd5e1;
+  padding-left: 0.75rem;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+}
+
+/* Searchable Dropdown Style */
+.searchable-dropdown-container {
+  position: relative;
+  width: 100%;
+}
+
+.searchable-dropdown-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 4px;
+  padding: 4px;
+  animation: dropdown-fade-in 0.15s ease-out;
+}
+
+@keyframes dropdown-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.searchable-dropdown-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.searchable-dropdown-item:hover {
+  background: #f1f5f9;
+  color: var(--app-primary);
+}
+
+.searchable-dropdown-item.is-active {
+  background: #eff6ff;
+  color: var(--app-primary);
+  font-weight: 600;
+}
+
+.searchable-dropdown-empty {
+  padding: 12px;
+  font-size: 13px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+/* Ensure filter fields with searchable dropdowns don't clip */
+.candidates-filter-grid {
+  overflow: visible !important;
+}
+
+.filter-field {
+  position: relative;
+}
