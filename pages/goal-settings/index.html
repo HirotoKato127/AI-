@@ -7,34 +7,23 @@
     </div>
 
     <div class="settings-tab-panel" data-settings-tab-panel="company-settings">
-      <div class="settings-card">
-        <div class="settings-card-headline">
-          <div class="settings-section-header-row">
-            <h4 class="settings-section-title">評価期間設定</h4>
-            <p class="settings-muted">この会社の評価サイクルを設定します。KPI の目標と実績の集計単位に使います。</p>
-          </div>
-          <div class="settings-section-subrow">
-            <div class="settings-radio-group" id="evaluationRuleGroup">
-              <label class="settings-radio">
-                <input type="radio" name="evaluationRule" value="monthly" checked />
-                <span>月（1日から月末）</span>
-              </label>
-            </div>
-            <!-- <button type="button" id="saveEvaluationRuleButton" class="settings-primary-button">期間設定を保存</button> -->
-          </div>
-        </div>
-        <!-- Advanced options removed -->
+      <!-- 評価期間設定 removed as per request -->
 
-        <div class="settings-card-actions">
-          <button type="button" id="saveEvaluationRuleButton" class="settings-primary-button">期間設定を保存</button>
-          <!-- <span class="settings-save-status" id="evaluationSaveStatus" aria-live="polite"></span> -->
-        </div>
-      </div>
 
       <div class="settings-card">
         <div class="settings-card-headline">
           <div class="settings-section-header-row">
-            <h4 class="settings-section-title">期間目標設定（会社共通）</h4>
+            <h4 class="settings-section-title">
+              期間目標設定（会社共通）
+              <span id="companyTargetNotice" class="settings-notice-badge is-hidden">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                  <path fill-rule="evenodd"
+                    d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"
+                    clip-rule="evenodd" />
+                </svg>
+                <span>目標を設定してください</span>
+              </span>
+            </h4>
             <p class="settings-muted">各評価期間あたりの会社全体の目標値を設定します。期間ごとに異なる目標を設定できます。</p>
           </div>
           <div class="settings-section-subrow">
@@ -68,7 +57,17 @@
       <div class="settings-card">
         <div class="settings-card-headline">
           <div class="settings-section-header-row">
-            <h4 class="settings-section-title">ページ別目標設定</h4>
+            <h4 class="settings-section-title">
+              ページ別目標設定
+              <span id="pageRateTargetNotice" class="settings-notice-badge is-hidden">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                  <path fill-rule="evenodd"
+                    d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"
+                    clip-rule="evenodd" />
+                </svg>
+                <span>目標を設定してください</span>
+              </span>
+            </h4>
             <p class="settings-muted">各画面で表示される「率」の目標値を設定します。目標に対する達成度に応じて表示色が変わります。</p>
           </div>
           <div class="settings-section-subrow">
@@ -248,7 +247,17 @@
       <div class="settings-card">
         <div class="settings-card-headline">
           <div class="settings-section-header-row">
-            <h4 class="settings-section-title">期間目標設定（自分）</h4>
+            <h4 class="settings-section-title">
+              期間目標設定（自分）
+              <span id="personalTargetNotice" class="settings-notice-badge is-hidden">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                  <path fill-rule="evenodd"
+                    d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"
+                    clip-rule="evenodd" />
+                </svg>
+                <span>目標を設定してください</span>
+              </span>
+            </h4>
             <p class="settings-muted">ログイン中の自分の評価期間ごとの目標値を設定します。</p>
           </div>
           <div class="settings-section-subrow">
@@ -283,7 +292,17 @@
       <div class="settings-card">
         <div class="settings-card-headline">
           <div class="settings-section-header-row">
-            <h4 class="settings-section-title">日別目標設定</h4>
+            <h4 class="settings-section-title">
+              日別目標設定
+              <span id="dailyTargetNotice" class="settings-notice-badge is-hidden">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                  <path fill-rule="evenodd"
+                    d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"
+                    clip-rule="evenodd" />
+                </svg>
+                <span>目標を設定してください</span>
+              </span>
+            </h4>
             <p class="settings-muted">選択中の評価期間内で、日ごとの目標値を設定します。</p>
           </div>
           <div class="settings-section-subrow">

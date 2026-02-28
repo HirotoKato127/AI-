@@ -529,7 +529,7 @@
     line-height: 1.6;
   }
 
-  /* ===== CS Status Management Modal ===== */
+    /* CSステータス管理モーダル */
   .teleapo-status-modal {
     position: fixed;
     top: 0;
@@ -558,50 +558,86 @@
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
   }
 
-  .teleapo-status-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid #f1f5f9;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+  /* 検索機能付きドロップダウンの基盤 */
+  .searchable-dropdown-container {
+    position: relative !important;
+    width: 100% !important;
   }
 
-  .teleapo-status-title {
-    font-size: 16px;
-    font-weight: 700;
-    color: #1e293b;
+  .searchable-dropdown-list {
+    position: absolute !important;
+    top: calc(100% + 4px) !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 9999 !important;
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+    max-height: 280px !important;
+    overflow-y: auto !important;
+    padding: 6px !important;
+    animation: dropdown-slide-down 0.2s cubic-bezier(0, 0, 0.2, 1) !important;
   }
 
-  .teleapo-status-body {
-    padding: 20px;
-    overflow-y: auto;
-    flex: 1;
+  @keyframes dropdown-slide-down {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
-  .teleapo-status-input-group {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 20px;
+  .searchable-dropdown-item {
+    padding: 10px 14px !important;
+    font-size: 13.5px !important;
+    color: #334155 !important;
+    cursor: pointer !important;
+    border-radius: 8px !important;
+    transition: all 0.15s ease !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
   }
 
-  .teleapo-status-input {
-    flex: 1;
-    padding: 8px 12px;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    font-size: 14px;
+  .searchable-dropdown-item:hover {
+    background: #f8fafc !important;
+    color: #2563eb !important;
   }
 
-  .teleapo-status-add-btn {
-    padding: 8px 16px;
-    background: #0077c7;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
+  .searchable-dropdown-item.is-active {
+    background: #eff6ff !important;
+    color: #2563eb !important;
+    font-weight: 600 !important;
   }
+
+  .searchable-dropdown-item::before {
+    content: ' ';
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    background: #cbd5e1;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .searchable-dropdown-empty {
+    padding: 20px !important;
+    font-size: 13px !important;
+    color: #94a3b8 !important;
+    text-align: center !important;
+  }
+
+  .searchable-dropdown-hint {
+    padding: 8px !important;
+    font-size: 10px !important;
+    color: #94a3b8 !important;
+    text-align: center !important;
+    border-top: 1px dashed #f1f5f9 !important;
+    margin-top: 4px !important;
+  }
+
+  .hidden { display: none !important; }
 </style>
 
 <section data-page="teleapo" id="teleapoPage" class="kpi-v2-wrapper">
@@ -883,10 +919,13 @@
           <label>担当者</label>
           <input id="dialFormEmployee" type="text" readonly />
         </div>
-        <div class="teleapo-form-field">
+                <div class="teleapo-form-field">
           <label>候補者名</label>
-          <input id="dialFormCandidateSearch" type="search" placeholder="候補者名で検索" autocomplete="off" />
-          <select id="dialFormCandidateSelect" required></select>
+          <div class="searchable-dropdown-container">
+            <input id="dialFormCandidateSearch" type="search" placeholder="候補者名で検索" autocomplete="off" />
+            <div id="dialFormCandidateSearchDropdown" class="searchable-dropdown-list hidden"></div>
+          </div>
+          <select id="dialFormCandidateSelect" class="hidden" required></select>
           <input id="dialFormCandidateName" type="hidden" />
         </div>
         <div class="teleapo-form-field">
@@ -934,9 +973,13 @@
             <div id="dialFormAdvisorPlannedCards" class="teleapo-advisor-planned-cards"></div>
           </div>
         </div>
-        <div class="teleapo-form-field">
+                <div class="teleapo-form-field">
           <label>CSステータス</label>
-          <select id="dialFormCsStatus">
+          <div class="searchable-dropdown-container">
+            <input type="text" id="dialFormCsStatusSearch" placeholder="ステータスを検索/選択..." autocomplete="off" />
+            <div id="dialFormCsStatusDropdown" class="searchable-dropdown-list hidden"></div>
+          </div>
+          <select id="dialFormCsStatus" class="hidden">
             <option value="">-</option>
             <option value="未対応">未対応</option>
             <option value="対応中">対応中</option>
@@ -988,10 +1031,13 @@
           <label>担当者</label>
           <input id="smsFormEmployee" type="text" readonly />
         </div>
-        <div class="teleapo-form-field">
+                <div class="teleapo-form-field">
           <label>候補者名</label>
-          <input id="smsFormCandidateSearch" type="search" placeholder="候補者名で検索" autocomplete="off" />
-          <select id="smsFormCandidateSelect" required></select>
+          <div class="searchable-dropdown-container">
+            <input id="smsFormCandidateSearch" type="search" placeholder="候補者名で検索" autocomplete="off" />
+            <div id="smsFormCandidateSearchDropdown" class="searchable-dropdown-list hidden"></div>
+          </div>
+          <select id="smsFormCandidateSelect" class="hidden" required></select>
           <input id="smsFormCandidateName" type="hidden" />
         </div>
         <div class="teleapo-form-field">
@@ -1024,9 +1070,13 @@
             <div id="smsFormAdvisorPlannedCards" class="teleapo-advisor-planned-cards"></div>
           </div>
         </div>
-        <div class="teleapo-form-field">
+                <div class="teleapo-form-field">
           <label>CSステータス</label>
-          <select id="smsFormCsStatus">
+          <div class="searchable-dropdown-container">
+            <input type="text" id="smsFormCsStatusSearch" placeholder="ステータスを検索/選択..." autocomplete="off" />
+            <div id="smsFormCsStatusDropdown" class="searchable-dropdown-list hidden"></div>
+          </div>
+          <select id="smsFormCsStatus" class="hidden">
             <option value="">-</option>
             <option value="未対応">未対応</option>
             <option value="対応中">対応中</option>
@@ -1066,6 +1116,7 @@
         <div>
           <p class="teleapo-collapsible-title">CSタスク管理</p>
           <p class="teleapo-collapsible-subtitle">対応が必要な候補者（CSステータス未設定かつ有効応募）</p>
+          <p class="teleapo-collapsible-subtitle">対象：登録日が直近1週間の候補者</p>
         </div>
         <div class="teleapo-collapsible-toggle">
           <button type="button" class="teleapo-filter-btn" onclick="openTeleapoCsStatusManager()"
@@ -1102,6 +1153,7 @@
         <div>
           <p class="teleapo-collapsible-title">候補者情報不足一覧</p>
           <p class="teleapo-collapsible-subtitle">年齢または電話番号が未登録の候補者</p>
+          <p class="teleapo-collapsible-subtitle">対象：登録日が直近1週間の候補者</p>
         </div>
         <div class="teleapo-collapsible-toggle">
           <span id="teleapoMissingInfoCount" class="teleapo-collapsible-count">0件</span>
@@ -1176,7 +1228,6 @@
                 <th class="whitespace-nowrap w-24">CSステータス</th>
                 <th class="whitespace-nowrap w-24">電話番号</th>
                 <th>連絡希望時間帯</th>
-                <th>メールアドレス</th>
                 <th data-sort="result" style="cursor: pointer;">アポ結果</th>
                 <th>メモ</th>
                 <th>削除</th>

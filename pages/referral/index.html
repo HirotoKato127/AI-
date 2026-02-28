@@ -1,4 +1,95 @@
-﻿<link rel="stylesheet" href="pages/referral/referral.css">
+﻿<link rel="stylesheet" href="pages/referral/referral.css?v=20260301_03">
+<style>
+  /* 検索機能付きドロップダウンの基盤 */
+  .searchable-dropdown-container {
+    position: relative !important;
+    width: 100% !important;
+  }
+
+  .searchable-dropdown-list {
+    position: absolute !important;
+    top: calc(100% + 4px) !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 9999 !important;
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+    max-height: 280px !important;
+    overflow-y: auto !important;
+    padding: 6px !important;
+    animation: dropdown-slide-down 0.2s cubic-bezier(0, 0, 0.2, 1) !important;
+  }
+
+  @keyframes dropdown-slide-down {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .searchable-dropdown-item {
+    padding: 10px 14px !important;
+    font-size: 13.5px !important;
+    color: #334155 !important;
+    cursor: pointer !important;
+    border-radius: 8px !important;
+    transition: all 0.15s ease !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+  }
+
+  .searchable-dropdown-item:hover {
+    background: #f8fafc !important;
+    color: #2563eb !important;
+  }
+
+  .searchable-dropdown-item.is-active {
+    background: #eff6ff !important;
+    color: #2563eb !important;
+    font-weight: 600 !important;
+  }
+
+  .searchable-dropdown-item::before {
+    content: ' ';
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    background: #cbd5e1;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .searchable-dropdown-empty {
+    padding: 20px !important;
+    font-size: 13px !important;
+    color: #94a3b8 !important;
+    text-align: center !important;
+  }
+
+  .searchable-dropdown-hint {
+    padding: 8px !important;
+    font-size: 10px !important;
+    color: #94a3b8 !important;
+    text-align: center !important;
+    border-top: 1px dashed #f1f5f9 !important;
+    margin-top: 4px !important;
+  }
+
+  .hidden {
+    display: none !important;
+  }
+</style>
 
 
 <!-- 紹介先企業管理ページ -->
@@ -23,9 +114,11 @@
         <div class="text-[11px] text-slate-400">* 必須</div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <label class="flex flex-col gap-1.5">
+        <label class="flex flex-col gap-1.5 searchable-dropdown-container">
           <span class="text-xs font-semibold text-slate-600">企業名 *</span>
-          <input type="text" id="referralCreateCompany" required class="referral-input" placeholder="例）株式会社サンブル" />
+          <input type="text" id="referralCreateCompany" required class="referral-input" placeholder="例）株式会社サンブル"
+            autocomplete="off" />
+          <div id="referralCreateCompanyDropdown" class="searchable-dropdown-list hidden"></div>
         </label>
         <label class="flex flex-col gap-1.5">
           <span class="text-xs font-semibold text-slate-600">募集職種 *</span>

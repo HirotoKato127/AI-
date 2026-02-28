@@ -14,6 +14,10 @@ const CREATE_REQUESTS_TABLE_COLSPAN = 7;
 const DELETE_REQUESTS_TABLE_COLSPAN = 6;
 
 const membersApi = (path) => `${MEMBERS_API_BASE}${path}`;
+const appendCacheBuster = (path) => {
+  const hasQuery = path.includes('?');
+  return `${path}${hasQuery ? '&' : '?'}_ts=${Date.now()}`;
+};
 
 let membersCache = [];
 let memberCreateRequestsCache = [];
@@ -170,11 +174,10 @@ async function loadMembers() {
       return;
     }
 
-    const response = await fetch(membersApi(MEMBERS_LIST_PATH), { headers });
-    const payload = await readJson(response);
-    if (!response.ok) {
-      throw new Error(payload?.error || `HTTP ${response.status}`);
-    }
+    const payload = await membersRequest(appendCacheBuster(MEMBERS_LIST_PATH), {
+      method: 'GET',
+      cache: 'no-store'
+    });
     membersCache = normalizeMembers(payload);
     renderMembers(membersCache);
   } catch (error) {
@@ -235,13 +238,13 @@ function normalizeMembers(result) {
   if (!Array.isArray(raw)) return [];
 
   return raw.map((member) => ({
-    id: member.id,
-    name: member.name || member.fullName || '',
-    email: member.email || '',
-    role: member.role || '',
-    isAdmin: Boolean(member.isAdmin ?? member.is_admin),
-    createdAt: member.createdAt || member.created_at || '',
-    updatedAt: member.updatedAt || member.updated_at || ''
+    id: member.id ?? member.user_id ?? member.userId ?? member.member_id ?? member.memberId ?? member.uid ?? '',
+    name: member.name || member.fullName || member.full_name || member.user_name || '',
+    email: member.email || member.mail || member.user_email || '',
+    role: member.role || member.member_role || member.user_role || member.department || '',
+    isAdmin: Boolean(member.isAdmin ?? member.is_admin ?? member.admin ?? member.is_admin_flag),
+    createdAt: member.createdAt || member.created_at || member.created || '',
+    updatedAt: member.updatedAt || member.updated_at || member.updated || ''
   }));
 }
 
@@ -664,7 +667,17 @@ async function handleMemberSubmit(event) {
 
   try {
     if (mode === 'edit') {
-      await updateMember(memberId, payload);
+      const result = await updateMember(memberId, payload);
+      const updatedMember = result?.member ? normalizeMembers([result.member])[0] : null;
+      if (updatedMember?.id) {
+        const idx = membersCache.findIndex((item) => String(item.id) === String(updatedMember.id));
+        if (idx >= 0) {
+          membersCache[idx] = { ...membersCache[idx], ...updatedMember };
+        } else {
+          membersCache.unshift(updatedMember);
+        }
+        renderMembers(membersCache);
+      }
       closeMemberModal();
       await loadMembers();
     } else {
@@ -716,18 +729,26 @@ async function handleMemberDelete(member) {
 }
 
 async function createMember(payload) {
+  const body = { ...payload };
+  if (payload?.isAdmin !== undefined && body.is_admin === undefined) {
+    body.is_admin = payload.isAdmin;
+  }
   return membersRequest(MEMBERS_LIST_PATH, {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: JSON.stringify(body)
   });
 }
 
 async function updateMember(id, payload) {
   if (!id) throw new Error('IDが見つかりません。');
   const encodedId = encodeURIComponent(String(id));
+  const body = { ...payload, id };
+  if (payload?.isAdmin !== undefined && body.is_admin === undefined) {
+    body.is_admin = payload.isAdmin;
+  }
   return membersRequest(`${MEMBERS_LIST_PATH}?id=${encodedId}`, {
     method: 'PUT',
-    body: JSON.stringify(payload)
+    body: JSON.stringify(body)
   });
 }
 

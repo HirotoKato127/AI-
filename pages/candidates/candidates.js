@@ -1006,6 +1006,13 @@ function convertManToYen(value) {
   return Math.round(parsed * MONEY_MAN_UNIT);
 }
 
+function normalizeMoneyValueToYen(value) {
+  if (value === "" || value === null || value === undefined) return 0;
+  const parsed = Number(String(value).replace(/,/g, ""));
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.abs(parsed) >= MONEY_MAN_UNIT ? parsed : Math.round(parsed * MONEY_MAN_UNIT);
+}
+
 function formatMoneyInputToMan(value) {
   if (value === "" || value === null || value === undefined) return "";
   const parsed = Number(String(value).replace(/,/g, ""));
@@ -1407,6 +1414,32 @@ function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
       input.dispatchEvent(new Event("input"));
     }
     dropdown.classList.add("hidden");
+  });
+}
+
+function buildSelectionCompanyOptions(candidate) {
+  const nameSet = new Set();
+  clientList.forEach((item) => {
+    if (item?.name) nameSet.add(item.name);
+  });
+  if (candidate?.applyCompanyName) nameSet.add(candidate.applyCompanyName);
+  if (candidate?.companyName) nameSet.add(candidate.companyName);
+  (candidate?.selectionProgress || []).forEach((row) => {
+    if (row?.companyName) nameSet.add(row.companyName);
+  });
+  return Array.from(nameSet).filter(Boolean).sort((a, b) => a.localeCompare(b, "ja"));
+}
+
+function initializeSelectionCompanyDropdowns(candidate) {
+  const container = getCandidateDetailContainer();
+  if (!container) return;
+  const inputs = container.querySelectorAll('[data-selection-company-input="true"]');
+  if (!inputs.length) return;
+  const optionsFn = () => buildSelectionCompanyOptions(candidate);
+  inputs.forEach((input) => {
+    const dropdownId = input.dataset.dropdownId;
+    if (!dropdownId || !input.id) return;
+    setupSearchableDropdown(input.id, dropdownId, null, optionsFn);
   });
 }
 
@@ -3583,6 +3616,7 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
 
   initializeDetailContentListeners();
   initializeDetailTabs(activeTabKey); // タブリスナー初期化
+  initializeSelectionCompanyDropdowns(candidate);
 }
 
 // タブナビゲーションの初期化
@@ -5155,9 +5189,10 @@ function renderAssigneeSection(candidate) {
       input: "select",
       options: buildUserOptions(candidate.csUserId, candidate.csName, {
         allowedRoles: ["caller"], // role=caller is CS in this app
-        blankLabel: "担当CSを選択",
+        blankLabel: "未設定",
         sourceList: masterCsUsers,
       }),
+      valueType: "number",
       path: "csUserId",
       displayFormatter: () => candidate.csName || "-",
       span: 3,
@@ -5168,9 +5203,10 @@ function renderAssigneeSection(candidate) {
       input: "select",
       options: buildUserOptions(candidate.advisorUserId, candidate.advisorName, {
         allowedRoles: ["advisor"],
-        blankLabel: "担当アドバイザーを選択",
+        blankLabel: "未設定",
         sourceList: masterAdvisorUsers,
       }),
+      valueType: "number",
       path: "advisorUserId",
       displayFormatter: () => candidate.advisorName || "-",
       span: 3,
@@ -5394,6 +5430,25 @@ function renderSelectionProgressSection(candidate) {
     const pathPrefix = `selectionProgress.${index}`;
     const r = normalizeSelectionRow(row);
     const deleteBtn = `<button type="button" class="text-red-600 hover:text-red-800 text-sm font-medium" data-remove-row="selectionProgress" data-index="${index}">削除</button>`;
+    const companyInputId = `selectionCompanyInput-${candidate.id}-${index}`;
+    const companyDropdownId = `selectionCompanyDropdown-${candidate.id}-${index}`;
+    const companyInputValue = r.companyName === 0 ? "0" : formatInputValue(r.companyName, "text");
+    const companyInput = `
+      <div class="searchable-dropdown-container">
+        <input
+          id="${companyInputId}"
+          type="text"
+          class="detail-table-input"
+          value="${escapeHtmlAttr(companyInputValue)}"
+          data-detail-field="${pathPrefix}.companyName"
+          data-detail-section="selection"
+          data-selection-company-input="true"
+          data-dropdown-id="${companyDropdownId}"
+          autocomplete="off"
+        >
+        <div id="${companyDropdownId}" class="searchable-dropdown-list hidden"></div>
+      </div>
+    `;
 
     return `
       <div class="selection-card bg-white rounded-lg border border-slate-200 shadow-sm p-4 mb-4 relative" data-selection-row="${index}">
@@ -5409,8 +5464,8 @@ function renderSelectionProgressSection(candidate) {
           <!-- 基本情報 (3 cols) -->
           <div class="lg:col-span-3 space-y-3">
             <div class="form-group">
-              <label class="block text-xs font-medium text-slate-500 mb-1">企業名</label>
-              ${renderTableInput(r.companyName, `${pathPrefix}.companyName`, "text", "selection", null, "client-list")}
+              <label class="block text-xs font-medium text-slate-500 mb-1" for="${companyInputId}">企業名</label>
+              ${companyInput}
             </div>
             <div class="form-group">
               <label class="block text-xs font-medium text-slate-500 mb-1">応募経路（媒体・固定）</label>
@@ -5830,11 +5885,7 @@ function renderMoneySection(candidate) {
     return null;
   };
 
-  const toAmount = (value) => {
-    if (value === null || value === undefined || value === "") return 0;
-    const num = Number(String(value).replace(/,/g, ""));
-    return Number.isFinite(num) ? num : 0;
-  };
+  const toAmount = (value) => normalizeMoneyValueToYen(value);
 
   // 受注情報の抽出 (内定承諾 or 入社 or 入社後辞退)
   const orderRows = progress
@@ -6782,7 +6833,10 @@ function handleCandidateDetailFieldChange(e) {
   updateCandidateDetailFieldValue(candidate, fieldPath, value);
 
   // クライアント検索のトリガー
-  if (target.getAttribute("list") === "client-list" && e.type === "input") {
+  const isCompanySearchInput =
+    target.getAttribute("list") === "client-list" ||
+    target.dataset.selectionCompanyInput === "true";
+  if (isCompanySearchInput && e.type === "input") {
     clearTimeout(clientSearchDebounceTimer);
     const queryValue = String(value || "").trim();
     clientSearchDebounceTimer = setTimeout(() => {

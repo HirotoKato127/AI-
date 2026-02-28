@@ -14,6 +14,7 @@ let pageSize = 50;
 let filteredData = [];
 
 let allData = [];
+let companyMasterList = [];
 
 let currentSort = 'company-asc';
 
@@ -185,6 +186,48 @@ async function loadReferralData() {
 
   applyFilters();
 
+}
+
+function extractCompanyName(item = {}) {
+  return item.companyName
+    || item.company
+    || item.name
+    || item.clientName
+    || item.client_name
+    || '';
+}
+
+async function loadCompanyMasterList() {
+  try {
+    const res = await fetch(CLIENTS_PROFILE_API_URL, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return;
+
+    const json = await res.json().catch(() => null);
+    const items = Array.isArray(json?.items)
+      ? json.items
+      : Array.isArray(json?.data)
+        ? json.data
+        : Array.isArray(json)
+          ? json
+          : [];
+
+    companyMasterList = items
+      .map((item) => ({
+        id: item?.id ?? item?.client_id ?? null,
+        name: extractCompanyName(item)
+      }))
+      .filter((item) => item.name);
+  } catch (err) {
+    console.warn('[referral] failed to load company master list', err);
+  }
+}
+
+function upsertCompanyMaster(name, id = null) {
+  const normalized = normalizeText(name || '');
+  if (!normalized) return;
+  const exists = companyMasterList.some((item) => normalizeText(item?.name || '') === normalized);
+  if (exists) return;
+  companyMasterList = [{ id, name: name }, ...companyMasterList];
 }
 
 
@@ -1322,6 +1365,24 @@ function buildReferralCandidateQuickViewHtml(candidate, state = {}) {
             <div class="text-sm font-medium text-slate-700">${locationText}</div>
           </div>
         </div>
+
+        <!-- Match Insights -->
+        ${(candidate.matchScore || candidate.matchReasons) ? `
+        <div class="bg-indigo-50/30 rounded-lg p-4 border border-indigo-100/50">
+          <div class="flex items-center justify-between mb-3">
+            <h4 class="text-xs font-bold text-indigo-600 flex items-center gap-2">
+              <span class="w-1 h-4 bg-indigo-500 rounded-full"></span>
+              AIマッチング分析
+            </h4>
+            <span class="px-2 py-0.5 bg-indigo-600 text-white rounded font-mono text-xs font-bold">${candidate.matchScore || 0}点</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            ${candidate.matchReasons && candidate.matchReasons.length
+        ? candidate.matchReasons.map(reason => `<span class="px-2 py-1 bg-white text-indigo-700 border border-indigo-100 rounded text-[11px] shadow-sm font-medium">✓ ${reason}</span>`).join('')
+        : '<span class="text-xs text-slate-400">一致ポイントに関する特記事項なし</span>'}
+          </div>
+        </div>
+        ` : ''}
 
         <!-- Selection Info -->
         ${selection ? `
@@ -3337,6 +3398,10 @@ async function handleCreateSubmit() {
     const created = buildCreatedCompany(payload, result);
 
     allData = [created, ...allData];
+    const createdName = created.companyName || created.company || created.name || created.clientName || '';
+    if (createdName) {
+      upsertCompanyMaster(createdName, created.id ?? null);
+    }
 
     selectedCompanyId = created.id;
 
@@ -3771,9 +3836,11 @@ export async function mount(appElement) {
     // デフォルト期間を直近1年に設定
     setDefaultDateRange();
 
-    await loadReferralData();
-
-    await loadCandidateSummaries();
+    await Promise.all([
+      loadReferralData(),
+      loadCompanyMasterList(),
+      loadCandidateSummaries()
+    ]);
 
     updateUI();
 
@@ -3933,15 +4000,31 @@ function setDefaultDateRange() {
  * 検索機能付きプルダウンの初期化
  */
 function initializeSearchableDropdowns() {
+  const getCompanyOptions = () => {
+    const nameSet = new Set();
+    companyMasterList.forEach((item) => {
+      if (item?.name) nameSet.add(item.name);
+    });
+    allData.forEach((item) => {
+      const name = item?.company;
+      if (name && name !== '-' && name !== 'ー') nameSet.add(name);
+    });
+
+    return Array.from(nameSet).sort((a, b) => a.localeCompare(b, "ja"));
+  };
+
   setupSearchableDropdown(
     "referralCompanyFilter",
     "referralCompanyFilterDropdown",
     null,
-    () => {
-      // 現在ロードされているデータからユニークな企業名を抽出してサジェスト
-      const companies = Array.from(new Set(allData.map(d => d.companyName || d.clientName).filter(Boolean)));
-      return companies.sort((a, b) => a.localeCompare(b, "ja"));
-    }
+    getCompanyOptions
+  );
+
+  setupSearchableDropdown(
+    "referralCreateCompany",
+    "referralCreateCompanyDropdown",
+    null,
+    getCompanyOptions
   );
 }
 
@@ -3960,27 +4043,36 @@ function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
     const query = input.value.trim().toLowerCase();
 
     // フィルタリング
-    const filtered = options.filter(opt => {
+    let filtered = options.filter(opt => {
       const label = typeof opt === "string" ? opt : opt.label;
       return label.toLowerCase().includes(query);
     });
 
-    if (filtered.length === 0) {
-      if (!query) {
+    // 50件上限（パフォーマンス）
+    const limit = 50;
+    const itemsToShow = filtered.slice(0, limit);
+
+    if (itemsToShow.length === 0) {
+      if (query) {
+        dropdown.innerHTML = '<div class="searchable-dropdown-empty">一致する候補がありません</div>';
+        dropdown.classList.remove("hidden");
+      } else {
         dropdown.classList.add("hidden");
-        return;
       }
-      dropdown.innerHTML = `<div class="searchable-dropdown-empty">一致する候補がありません</div>`;
+      return;
     } else {
-      dropdown.innerHTML = filtered.map(opt => {
+      dropdown.innerHTML = itemsToShow.map(opt => {
         const value = typeof opt === "string" ? opt : opt.value;
         const label = typeof opt === "string" ? opt : opt.label;
         const isActive = hiddenSelect && String(hiddenSelect.value) === String(value) ? "is-active" : "";
         return `<div class="searchable-dropdown-item ${isActive}" data-value="${String(value)}">${escapeHtml(label)}</div>`;
       }).join("");
-    }
 
-    dropdown.classList.remove("hidden");
+      if (filtered.length > limit) {
+        dropdown.innerHTML += `<div class="searchable-dropdown-hint">${filtered.length - limit}件以上が一致しています。絞り込んでください。</div>`;
+      }
+      dropdown.classList.remove("hidden");
+    }
   };
 
   const hideDropdown = () => {
@@ -4006,7 +4098,6 @@ function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
       hiddenSelect.dispatchEvent(new Event("change"));
     } else {
       input.dispatchEvent(new Event("input"));
-      // referral.js では input に独自にフィルタ適用させる必要があるかも
       input.dispatchEvent(new Event("change"));
     }
     dropdown.classList.add("hidden");

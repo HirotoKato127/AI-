@@ -132,7 +132,20 @@ const TELEAPO_PREDEFINED_CS_STATUS_OPTIONS = [
   '見込み(A)',
   '見込み(B)'
 ];
-const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
+const TELEAPO_CANDIDATES_RECENT_DAYS = 7;
+const TELEAPO_CANDIDATES_PAGE_SIZE = 500;
+const MAIL_TRIGGER_STATUSES_RAW = [
+  "34歳以下メール",
+  "34歳以下メール(tech)",
+  "35歳以上メール",
+  "外国籍メール"
+];
+const normalizeMailTriggerStatus = (value) =>
+  normalizeCsStatusOption(value)
+    .replace(/[\s\u3000]/g, "")
+    .replace(/（/g, "(")
+    .replace(/）/g, ")");
+const MAIL_TRIGGER_STATUSES = MAIL_TRIGGER_STATUSES_RAW.map(normalizeMailTriggerStatus);
 const TELEAPO_API_URL = `${PRIMARY_API_BASE}/teleapo/logs`;
 const TELEAPO_HEATMAP_DAYS = ['月', '火', '水', '木', '金'];
 const TELEAPO_HEATMAP_SLOTS = ['09-11', '11-13', '13-15', '15-17', '17-19'];
@@ -483,6 +496,139 @@ function escapeHtml(str) {
     .replaceAll("'", '&#39;');
 }
 
+function setupSearchableDropdown(inputId, dropdownId, hiddenIdOrSelectId, getOptionsFn, onSelect) {
+  const input = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  const targetElement = document.getElementById(hiddenIdOrSelectId);
+  if (!input || !dropdown) return;
+
+  const showDropdown = () => {
+    const options = getOptionsFn();
+    const query = input.value.trim().toLowerCase();
+    let filtered = options.filter(opt => {
+      const label = typeof opt === "string" ? opt : opt.label;
+      return String(label || "").toLowerCase().includes(query);
+    });
+    const limit = 50;
+    const itemsToShow = filtered.slice(0, limit);
+    if (itemsToShow.length === 0) {
+      if (query) {
+        dropdown.innerHTML = '<div class="searchable-dropdown-empty">一致する候補がありません</div>';
+        dropdown.classList.remove("hidden");
+      } else if (options.length > 0) {
+        const defaultShow = options.slice(0, limit);
+        dropdown.innerHTML = defaultShow.map(opt => {
+          const value = typeof opt === "string" ? opt : opt.value;
+          const label = typeof opt === "string" ? opt : opt.label;
+          const isActive = targetElement && String(targetElement.value) === String(value) ? "is-active" : "";
+          return `<div class="searchable-dropdown-item ${isActive}" data-value="${escapeHtml(String(value))}">${escapeHtml(label)}</div>`;
+        }).join("");
+        if (options.length > limit) {
+          dropdown.innerHTML += `<div class="searchable-dropdown-hint">${options.length - limit}件以上あります。絞り込んでください。</div>`;
+        }
+        dropdown.classList.remove("hidden");
+      } else {
+        dropdown.classList.add("hidden");
+      }
+    } else {
+      dropdown.innerHTML = itemsToShow.map(opt => {
+        const value = typeof opt === "string" ? opt : opt.value;
+        const label = typeof opt === "string" ? opt : opt.label;
+        const isActive = targetElement && String(targetElement.value) === String(value) ? "is-active" : "";
+        return `<div class="searchable-dropdown-item ${isActive}" data-value="${escapeHtml(String(value))}">${escapeHtml(label)}</div>`;
+      }).join("");
+      if (filtered.length > limit) {
+        dropdown.innerHTML += `<div class="searchable-dropdown-hint">${filtered.length - limit}件以上が一致しています。絞り込んでください。</div>`;
+      }
+      dropdown.classList.remove("hidden");
+    }
+  };
+
+  const hideDropdown = () => { setTimeout(() => { dropdown.classList.add("hidden"); }, 200); };
+  input.addEventListener("focus", showDropdown);
+  input.addEventListener("input", showDropdown);
+  input.addEventListener("blur", hideDropdown);
+  dropdown.addEventListener("click", (e) => {
+    const item = e.target.closest(".searchable-dropdown-item");
+    if (!item) return;
+    const value = item.dataset.value;
+    const label = item.textContent;
+    input.value = label;
+    if (targetElement) {
+      if (targetElement.tagName === "SELECT") {
+        const hasOption = Array.from(targetElement.options || []).some(
+          (opt) => String(opt.value) === String(value)
+        );
+        if (!hasOption) {
+          const opt = document.createElement("option");
+          opt.value = String(value);
+          opt.textContent = label;
+          targetElement.appendChild(opt);
+        }
+      }
+      targetElement.value = value;
+      targetElement.dispatchEvent(new Event("change"));
+    }
+    if (onSelect) onSelect(value, label);
+    dropdown.classList.add("hidden");
+  });
+}
+
+function initializeTeleapoSearchableDropdowns() {
+  // 1. Candidate Name (Dial Form)
+  setupSearchableDropdown(
+    "dialFormCandidateSearch",
+    "dialFormCandidateSearchDropdown",
+    "dialFormCandidateSelect",
+    () => candidateNameList.map(name => ({ value: name, label: name })),
+    (value, label) => {
+      const name = String(label || value || "").trim();
+      const candidateId = name ? candidateNameMap.get(name) : null;
+      if (typeof setDialFormCandidateSelection === 'function') {
+        setDialFormCandidateSelection(name, { candidateId });
+      }
+    }
+  );
+
+  // 2. CS Status (Dial Form)
+  setupSearchableDropdown(
+    "dialFormCsStatusSearch",
+    "dialFormCsStatusDropdown",
+    "dialFormCsStatus",
+    () => {
+      const candidates = (typeof teleapoCandidateMaster !== 'undefined') ? teleapoCandidateMaster : [];
+      return buildTeleapoCsStatusOptions({ candidates });
+    }
+  );
+
+  // 3. Candidate Name (SMS Form)
+  setupSearchableDropdown(
+    "smsFormCandidateSearch",
+    "smsFormCandidateSearchDropdown",
+    "smsFormCandidateSelect",
+    () => candidateNameList.map(name => ({ value: name, label: name })),
+    (value, label) => {
+      const name = String(label || value || "").trim();
+      const candidateId = name ? candidateNameMap.get(name) : null;
+      if (typeof setSmsFormCandidateSelection === 'function') {
+        setSmsFormCandidateSelection(name, { candidateId });
+      }
+    }
+  );
+
+  // 4. CS Status (SMS Form)
+  setupSearchableDropdown(
+    "smsFormCsStatusSearch",
+    "smsFormCsStatusDropdown",
+    "smsFormCsStatus",
+    () => {
+      const candidates = (typeof teleapoCandidateMaster !== 'undefined') ? teleapoCandidateMaster : [];
+      return buildTeleapoCsStatusOptions({ candidates });
+    }
+  );
+}
+
+
 function normalizeNameKey(name) {
   return String(name ?? '')
     .replace(/[\s\u3000]/g, '')
@@ -548,6 +694,32 @@ function buildApiHeaders() {
     headers.Authorization = `Bearer ${token}`;
   }
   return headers;
+}
+
+async function submitTeleapoLog(payload) {
+  const headers = { ...buildApiHeaders(), "Content-Type": "application/json" };
+  const tryRequest = async (method, url) => {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: JSON.stringify(payload)
+    });
+    return res;
+  };
+
+  let res = await tryRequest("PUT", TELEAPO_LOGS_URL);
+  if (res.status === 404 || res.status === 405) {
+    res = await tryRequest("POST", TELEAPO_LOGS_URL);
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 function normalizeMemberItems(payload) {
@@ -1613,16 +1785,16 @@ function normalizeCsStatusOption(value) {
 }
 
 function isMailTriggerCsStatus(value) {
-  const normalized = normalizeCsStatusOption(value);
+  const normalized = normalizeMailTriggerStatus(value);
   if (!normalized) return false;
   return MAIL_TRIGGER_STATUSES.includes(normalized);
 }
 
 function shouldConfirmCsStatusMailSend(newStatus, oldStatus) {
-  const normalizedNew = normalizeCsStatusOption(newStatus);
+  const normalizedNew = normalizeMailTriggerStatus(newStatus);
   if (!normalizedNew) return false;
   if (!MAIL_TRIGGER_STATUSES.includes(normalizedNew)) return false;
-  const normalizedOld = normalizeCsStatusOption(oldStatus);
+  const normalizedOld = normalizeMailTriggerStatus(oldStatus);
   return normalizedNew !== normalizedOld;
 }
 
@@ -2301,7 +2473,10 @@ function openCandidateQuickView(candidateId, candidateName) {
       <p class="text-sm text-slate-500">候補者詳細を取得しています...</p>
     </div>
   `);
-  openTeleapoCandidateModal();
+  if (!openTeleapoCandidateModal()) {
+    navigateToCandidateDetailPage(candidateId, candidateName);
+    return;
+  }
 
   if (!resolvedId) {
     setCandidateQuickViewContent(`
@@ -2345,10 +2520,11 @@ function openCandidateQuickView(candidateId, candidateName) {
 
 function openTeleapoCandidateModal() {
   const modal = document.getElementById("teleapoCandidateModal");
-  if (!modal) return;
+  if (!modal) return false;
   modal.classList.add("is-open");
   modal.setAttribute("aria-hidden", "false");
   document.body.classList.add("teleapo-candidate-open");
+  return true;
 }
 
 function closeTeleapoCandidateModal() {
@@ -3277,6 +3453,23 @@ function toDateTimeString(value) {
   return `${d.getFullYear()}/${zeroPad(d.getMonth() + 1)}/${zeroPad(d.getDate())} ${zeroPad(d.getHours())}:${zeroPad(d.getMinutes())}`;
 }
 
+function formatDateYmd(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getRecentRegisteredRange(days = TELEAPO_CANDIDATES_RECENT_DAYS) {
+  const end = new Date();
+  const start = new Date();
+  const offset = Math.max(1, Number(days) || TELEAPO_CANDIDATES_RECENT_DAYS) - 1;
+  start.setDate(end.getDate() - offset);
+  return { from: formatDateYmd(start), to: formatDateYmd(end) };
+}
+
 function buildLogHighlightFingerprint(candidateId, calledAt, callerUserId, candidateName) {
   const ts = new Date(calledAt).getTime();
   if (!Number.isFinite(ts)) return null;
@@ -4149,7 +4342,7 @@ function renderLogPagination(totalCount, totalPages, startIndex, endIndex) {
 
   const from = Math.max(1, startIndex + 1);
   const to = Math.max(from, endIndex);
-  const summary = `${from}-${to} / ${totalCount}件`;
+  const summary = `${from}-${to}件 / 全${totalCount}件（${teleapoLogPage}/${totalPages}ページ）`;
 
   if (!Number.isFinite(totalPages) || totalPages <= 1) {
     container.innerHTML = `<div class="teleapo-log-pagination-summary">${summary}</div>`;
@@ -4165,13 +4358,16 @@ function renderLogPagination(totalCount, totalPages, startIndex, endIndex) {
   const pageButtons = [];
   for (let page = startPage; page <= endPage; page += 1) {
     const isActive = page === teleapoLogPage;
+    const rangeStart = (page - 1) * TELEAPO_LOGS_PER_PAGE + 1;
+    const rangeEnd = Math.min(page * TELEAPO_LOGS_PER_PAGE, totalCount);
+    const label = `${rangeStart}-${rangeEnd}`;
     pageButtons.push(`
       <button
         type="button"
         class="teleapo-log-page-btn ${isActive ? 'is-active' : ''}"
         data-log-page="${page}"
         aria-current="${isActive ? 'page' : 'false'}"
-      >${page}</button>
+      >${label}</button>
     `);
   }
 
@@ -4240,7 +4436,10 @@ function renderLogTable() {
            class="text-indigo-600 hover:text-indigo-800 underline bg-transparent border-0 p-0"
            data-action="open-candidate"
            data-candidate-id="${escapeHtml(targetCandidateId || '')}"
-           data-candidate-name="${escapeHtml(targetLabel)}">${targetText}</button>`
+           data-candidate-name="${escapeHtml(targetLabel)}"
+           onclick="window.navigateToCandidateDetail?.(this.dataset.candidateId, this.dataset.candidateName)">
+           ${targetText}
+         </button>`
       : targetText;
 
     // CSステータス解決
@@ -4268,7 +4467,6 @@ function renderLogTable() {
     const contactTimeTextValue = String(contactTimeValue ?? "").trim();
     if (!contactTimeTextValue) enqueueContactTimeFetch(targetCandidateId || row.candidateId);
     const contactTimeText = escapeHtml(contactTimeTextValue || "-");
-    const emailText = escapeHtml(row.email || '');
     const memoText = escapeHtml(row.memo || '');
     const isHighlight = shouldHighlightLog(row);
     const rowClass = isHighlight ? 'teleapo-log-highlight' : '';
@@ -4288,7 +4486,6 @@ function renderLogTable() {
         <td>${csStatusCell}</td>
         <td>${telText}</td>
         <td class="whitespace-nowrap">${contactTimeText}</td>
-        <td>${emailText}</td>
         <td>
           ${flags.flowLabels
         ? `
@@ -4408,7 +4605,7 @@ function getWeekOfMonth(dt) {
   return Math.floor((firstDay + dt.getDate() - 1) / 7) + 1;
 }
 
-function buildEmployeeTrendPoints(empLogs, modeOverride) {
+function buildEmployeeTrendPoints(empLogs, modeOverride, attrMap) {
   const range = getDateRange(empLogs);
   if (!range) return { mode: modeOverride || 'month', points: [] };
 
@@ -4427,10 +4624,14 @@ function buildEmployeeTrendPoints(empLogs, modeOverride) {
     return buckets.get(key);
   };
 
+  const attribution = attrMap || buildAttributionMap(empLogs);
+
   empLogs.forEach(log => {
     const dt = parseDateTime(log.datetime);
     if (!dt) return;
     const flags = classifyTeleapoResult(log);
+    const stageKey = getStageCountKey(log);
+    const isTel = log.route === ROUTE_TEL;
     let key; let label; let sortValue;
 
     if (mode === 'hour') {
@@ -4462,10 +4663,15 @@ function buildEmployeeTrendPoints(empLogs, modeOverride) {
     }
 
     const bucket = addBucket(key, label, sortValue);
-    bucket.dials += 1;
-    if (flags.isConnect) bucket.connects += 1;
-    if (flags.isSet) bucket.sets += 1;
-    if (flags.isShow) bucket.shows += 1;
+    if (isTel) {
+      bucket.dials += 1;
+      if (flags.isConnect) bucket.connects += 1;
+    }
+    if (stageKey && attribution.has(stageKey)) {
+      const attr = attribution.get(stageKey);
+      if (flags.isSet && attr.setLogId === log.id) bucket.sets += 1;
+      if (flags.isShow && attr.showLogId === log.id) bucket.shows += 1;
+    }
   });
 
   const points = Array.from(buckets.values())
@@ -4488,21 +4694,20 @@ function getTrendModeLabel(mode) {
   return '月';
 }
 
-function renderEmployeeSummary(empName, empLogs, trend) {
-  const setKeys = new Set();
-  const showKeys = new Set();
+function renderEmployeeSummary(empName, empLogs, trend, attrMap) {
+  const attribution = attrMap || buildAttributionMap(empLogs);
   const summary = empLogs.reduce((acc, log) => {
     const flags = classifyTeleapoResult(log);
     const stageKey = getStageCountKey(log);
-    acc.dials += 1;
-    if (flags.isConnect) acc.connects += 1;
-    if (flags.isSet && stageKey && !setKeys.has(stageKey)) {
-      setKeys.add(stageKey);
-      acc.sets += 1;
+    const isTel = log.route === ROUTE_TEL;
+    if (isTel) {
+      acc.dials += 1;
+      if (flags.isConnect) acc.connects += 1;
     }
-    if (flags.isShow && stageKey && !showKeys.has(stageKey)) {
-      showKeys.add(stageKey);
-      acc.shows += 1;
+    if (stageKey && attribution.has(stageKey)) {
+      const attr = attribution.get(stageKey);
+      if (flags.isSet && attr.setLogId === log.id) acc.sets += 1;
+      if (flags.isShow && attr.showLogId === log.id) acc.shows += 1;
     }
     return acc;
   }, { dials: 0, connects: 0, sets: 0, shows: 0 });
@@ -4644,15 +4849,16 @@ function renderEmployeeTrendChart(empName, logs) {
   const titleEl = document.getElementById('teleapoEmployeeChartTitle');
   if (!wrapper || !svg || !titleEl) return;
 
-  const empLogs = logs.filter(l => l.route === ROUTE_TEL && l.employee === empName);
+  const empLogs = logs.filter(l => l.employee === empName);
   if (!empLogs.length) { wrapper.classList.add('hidden'); return; }
 
-  titleEl.textContent = `${empName} さんのKPI推移（架電のみ）`;
+  titleEl.textContent = `${empName} さんのKPI推移`;
 
-  const trend = buildEmployeeTrendPoints(empLogs, teleapoEmployeeTrendMode);
+  const attrMap = buildAttributionMap(logs);
+  const trend = buildEmployeeTrendPoints(empLogs, teleapoEmployeeTrendMode, attrMap);
   const { mode, points } = trend;
   if (!points.length) { wrapper.classList.add('hidden'); return; }
-  renderEmployeeSummary(empName, empLogs, trend);
+  renderEmployeeSummary(empName, empLogs, trend, attrMap);
 
   const width = 880;
   const height = 340;
@@ -4788,7 +4994,7 @@ function applyFilters() {
   });
 
   const scopeLogs = teleapoSummaryScope.type === 'employee'
-    ? teleapoFilteredLogs.filter(l => l.employee === teleapoSummaryScope.name && l.route === ROUTE_TEL)
+    ? teleapoFilteredLogs.filter(l => l.employee === teleapoSummaryScope.name)
     : teleapoFilteredLogs;
 
   renderSummary(scopeLogs, teleapoSummaryScope.type === 'employee' ? `${teleapoSummaryScope.name}さんのKPI` : '全体KPI', rangeLabel ? `${teleapoSummaryScope.name} / ${rangeLabel}` : teleapoSummaryScope.name);
@@ -5524,7 +5730,7 @@ async function fetchTeleapoApi() {
   const url = new URL(TELEAPO_LOGS_URL);
   params.forEach((value, key) => url.searchParams.append(key, value));
 
-  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), { headers: buildApiHeaders() });
   if (!res.ok) throw new Error(`Teleapo API HTTP ${res.status}`);
   return res.json();
 }
@@ -5578,16 +5784,31 @@ async function loadCandidates() {
   renderCsTaskTable([], { loading: true });
   renderMissingInfoTable([], { loading: true });
   try {
-    const listUrl = new URL(CANDIDATES_API_URL, window.location.origin);
-    listUrl.searchParams.set('limit', '200');
-    listUrl.searchParams.set('offset', '0');
-    listUrl.searchParams.set('sort', 'desc');
-    const res = await fetch(listUrl.toString(), { headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error(`Candidates API Error: ${res.status}`);
+    const range = getRecentRegisteredRange();
+    const items = [];
+    let offset = 0;
+    let page = 0;
 
-    const data = await res.json();
-    const rawItems = Array.isArray(data.items) ? data.items : [];
-    const items = rawItems.map(item => normalizeCandidateDetail(item) || item);
+    while (page < 50) {
+      const listUrl = new URL(CANDIDATES_API_URL, window.location.origin);
+      listUrl.searchParams.set('limit', String(TELEAPO_CANDIDATES_PAGE_SIZE));
+      listUrl.searchParams.set('offset', String(offset));
+      listUrl.searchParams.set('sort', 'desc');
+      if (range.from) listUrl.searchParams.set('from', range.from);
+      if (range.to) listUrl.searchParams.set('to', range.to);
+
+      const res = await fetch(listUrl.toString(), { headers: buildApiHeaders(), cache: "no-store" });
+      if (!res.ok) throw new Error(`Candidates API Error: ${res.status}`);
+
+      const data = await res.json();
+      const rawItems = Array.isArray(data.items) ? data.items : [];
+      const pageItems = rawItems.map(item => normalizeCandidateDetail(item) || item);
+      items.push(...pageItems);
+
+      if (pageItems.length < TELEAPO_CANDIDATES_PAGE_SIZE) break;
+      offset += TELEAPO_CANDIDATES_PAGE_SIZE;
+      page += 1;
+    }
 
     candidateNameMap.clear();
     candidateIdMap.clear();
@@ -6458,25 +6679,10 @@ function bindDialForm() {
       if (candidateIdValue) payload.candidateId = candidateIdValue;
       if (Number.isFinite(callNo) && callNo > 0) payload.callNo = callNo;
 
-      // 5. PUT送信
-      const res = await fetch(TELEAPO_LOGS_URL, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
-      }
+      // 5. 送信
+      const responseJson = await submitTeleapoLog(payload);
 
       // 6. 成功時の処理
-      let responseJson = null;
-      try {
-        responseJson = await res.json();
-      } catch (e) {
-        responseJson = null;
-      }
       const responseId =
         responseJson?.id ??
         responseJson?.log_id ??
@@ -6731,23 +6937,8 @@ function bindSmsForm() {
       };
       if (candidateIdValue) payload.candidateId = candidateIdValue;
 
-      const res = await fetch(TELEAPO_LOGS_URL, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const responseJson = await submitTeleapoLog(payload);
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
-      }
-
-      let responseJson = null;
-      try {
-        responseJson = await res.json();
-      } catch (e) {
-        responseJson = null;
-      }
       const responseId =
         responseJson?.id ??
         responseJson?.log_id ??
@@ -7093,6 +7284,7 @@ function initDialForm() {
   refreshTeleapoCsStatusSelects({ candidates: teleapoCandidateMaster });
   updateInterviewFieldVisibility(document.getElementById("dialFormResult")?.value);
   bindDialForm();
+  initializeTeleapoSearchableDropdowns();
 }
 
 function initSmsForm() {
@@ -7102,5 +7294,5 @@ function initSmsForm() {
   refreshDialFormAdvisorSelect(teleapoCandidateMaster);
   updateSmsFormInterviewFieldVisibility(document.getElementById("smsFormResult")?.value);
   bindSmsForm();
+  initializeTeleapoSearchableDropdowns();
 }
-

@@ -296,10 +296,6 @@
    Or just keep them as clean blocks. 
    Let's add a subtle left accent to the field wrapper to guide the eye? */
 
-.settings-rate-field-wrapper {
-  /* Helper to wrap if needed */
-}
-
 /* Duplicated rule removed */
 
 .settings-rate-note {
@@ -346,6 +342,55 @@
   font-size: 13px;
   color: #10b981;
   font-weight: 600;
+}
+
+/* Notice Badge */
+.settings-notice-badge {
+  display: inline-flex;
+  align-items: center;
+  background-color: #fefce8;
+  /* Yellow-50 */
+  color: #854d0e;
+  /* Yellow-800 */
+  padding: 3px 12px;
+  border-radius: 99px;
+  /* Pill shape */
+  border: 1px solid #fef08a;
+  /* Yellow-200 */
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  font-weight: 700;
+  gap: 6px;
+  margin-left: 14px;
+  vertical-align: 0.1em;
+  /* Fine-tune vertical position */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: badge-appear 0.4s ease-out;
+}
+
+@keyframes badge-appear {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.settings-notice-badge svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #ca8a04;
+  /* Yellow-600 icon */
+}
+
+.settings-notice-badge.is-hidden {
+  display: none;
 }
 
 /* Legend Styling */

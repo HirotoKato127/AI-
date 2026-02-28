@@ -1,5 +1,6 @@
 ﻿// Ad Performance Page JavaScript Module (RDS integrated)
 
+import { getSession } from '../../scripts/auth.js';
 import { goalSettingsService } from '../../scripts/services/goalSettings.js';
 
 // 目標値キャッシュ
@@ -58,6 +59,11 @@ let currentGraphMetric = 'roas';
 let contractInfoCache = new Map();
 let contractFetchInFlight = new Map();
 let contractEditTarget = null;
+
+function getAuthHeaders() {
+  const token = getSession()?.token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 function formatContractDateValue(value) {
   const text = String(value ?? '').trim();
@@ -245,6 +251,101 @@ function resolveMediaId(item) {
   return '';
 }
 
+function normalizePeriod(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const match = text.match(/(\d{4})[/-](\d{1,2})/);
+  if (match) {
+    const y = match[1];
+    const m = String(match[2]).padStart(2, '0');
+    return `${y}-${m}`;
+  }
+  return text.length >= 7 ? text.slice(0, 7) : text;
+}
+
+function normalizeAdItem(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const mediaName =
+    raw.mediaName ??
+    raw.media_name ??
+    raw.route ??
+    raw.route_name ??
+    raw.apply_route ??
+    raw.applyRoute ??
+    raw.media ??
+    raw.source ??
+    '';
+
+  const period =
+    normalizePeriod(
+      raw.period ??
+      raw.month ??
+      raw.year_month ??
+      raw.yearMonth ??
+      raw.ym ??
+      raw.date ??
+      raw.targetMonth
+    );
+
+  const toNumber = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  };
+
+  const normalized = {
+    id: raw.id ?? (period && mediaName ? `${period}-${mediaName}` : undefined),
+    mediaName: String(mediaName ?? '').trim() || '(unknown)',
+    period,
+    applications: toNumber(
+      raw.applications ??
+      raw.application_count ??
+      raw.apply_count ??
+      raw.applies ??
+      raw.total_applications
+    ),
+    validApplications: toNumber(
+      raw.validApplications ??
+      raw.valid_applications ??
+      raw.valid_application_count ??
+      raw.valid_app_count ??
+      raw.validApplicationsCount
+    ),
+    initialInterviews: toNumber(
+      raw.initialInterviews ??
+      raw.initial_interviews ??
+      raw.first_interview_done ??
+      raw.first_interview_count ??
+      raw.firstInterviewCount ??
+      raw.first_interview_at ??
+      raw[MAP_INITIAL_INTERVIEWS_FIELD]
+    ),
+    offers: toNumber(raw.offers ?? raw.offer_count ?? raw.offers_count),
+    hired: toNumber(raw.hired ?? raw.hires ?? raw.joined ?? raw.join_count ?? raw.joined_count),
+    refund: toNumber(raw.refund ?? raw.refund_amount ?? raw.refundAmount),
+    cost: toNumber(raw.cost ?? raw.ad_cost ?? raw.cost_amount ?? raw.adCost),
+    totalSales: toNumber(
+      raw.totalSales ??
+      raw.total_sales ??
+      raw.fee_amount ??
+      raw.feeAmount ??
+      raw.sales ??
+      raw.revenue
+    )
+  };
+
+  if (raw.retentionWarranty != null) normalized.retentionWarranty = raw.retentionWarranty;
+  if (raw.retention != null) normalized.retention = raw.retention;
+  if (raw.retention_rate != null) normalized.retention_rate = raw.retention_rate;
+  if (raw.retention30 != null) normalized.retention30 = raw.retention30;
+  if (raw.retention_30 != null) normalized.retention_30 = raw.retention_30;
+
+  const mediaId = resolveMediaId(raw);
+  if (mediaId) normalized.mediaId = mediaId;
+
+  return normalized;
+}
+
 function getContractCacheKey(mediaName, mediaId) {
   const name = String(mediaName ?? '').trim();
   if (name) return name;
@@ -304,7 +405,10 @@ async function fetchContractInfo(mediaName, mediaId) {
   const nameValue = String(mediaName ?? '').trim();
   if (idValue) url.searchParams.set('id', idValue);
   if (nameValue) url.searchParams.set('mediaName', nameValue);
-  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), {
+    headers: { Accept: 'application/json', ...getAuthHeaders() },
+    cache: 'no-store'
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Ad contract API HTTP ${res.status}: ${text}`);
@@ -344,7 +448,11 @@ async function saveContractInfo(mediaName, payload, mediaId) {
   if (idValue) body.id = idValue;
   const res = await fetch(AD_CONTRACT_API_URL, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...getAuthHeaders()
+    },
     body: JSON.stringify(body)
   });
   if (!res.ok) {
@@ -379,13 +487,19 @@ async function loadAdPerformanceData() {
   url.searchParams.set('mode', 'performance');
   url.searchParams.set('startMonth', requestStart);
   url.searchParams.set('endMonth', requestEnd);
-  url.searchParams.set('groupBy', 'route');
+  url.searchParams.set('groupBy', ADS_GROUP_BY);
 
-  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), {
+    headers: { Accept: 'application/json', ...getAuthHeaders() },
+    cache: 'no-store'
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
 
   const data = await res.json();
-  const items = Array.isArray(data?.items) ? data.items : [];
+  const rawItems = Array.isArray(data?.items)
+    ? data.items
+    : (Array.isArray(data) ? data : []);
+  const items = rawItems.map(normalizeAdItem).filter(Boolean);
   // Default is latest month; do not auto-expand to full range.
 
   adState.summary = data?.summary ?? null;
@@ -395,7 +509,7 @@ async function loadAdPerformanceData() {
   // We should NOT bake rates into data permanently if we want to switch modes without reloading.
   // But wait, applySortAndRender calls getAggregatedSorted which calls aggregateByMedia which calls calcDerivedRates.
   // So as long as calcDerivedRates uses adState.calcMode, we are good.
-  adState.data = items; // Store raw items logic invoked in aggregate logic
+  adState.data = items; // Store normalized items
   applyFilters();
 }
 function calcDerivedRates(item) {
@@ -404,9 +518,8 @@ function calcDerivedRates(item) {
   const cost = Number(item.cost) || 0;
   const hired = Number(item.hired) || 0;
   const refund = Number(item.refund) || 0;
-  // ★修正: 候補者マスタの「受注金額」は「万円」単位だが、
-  // 広告管理画面では「円」として扱いたい（ROAS計算等）ため、10000を掛けて「円」に変換する。
-  const totalSales = (Number(item.totalSales) || 0) * 10000;
+  // ★修正: APIの totalSales/fee_amount は「円」前提で返却されるため、そのまま使用する
+  const totalSales = Number(item.totalSales) || 0;
   const retentionWarranty = resolveRetentionValue(item);
 
   // ROAS計算：契約費用が0の時は'-'を返す
@@ -486,7 +599,8 @@ function applyFilters(text) {
   const end = document.getElementById('adEndDate')?.value;
 
   adState.filtered = adState.data.filter(item => {
-    const matchesMedia = !filterText || item.mediaName.toLowerCase() === filterText;
+    const name = String(item.mediaName || '').toLowerCase();
+    const matchesMedia = !filterText || name === filterText;
     const withinStart = !start || (item.period && item.period >= start);
     const withinEnd = !end || (item.period && item.period <= end);
     return matchesMedia && withinStart && withinEnd;
@@ -725,16 +839,27 @@ function updateAdSummary(data, summary) {
   const useSummary = summary && typeof summary === 'object' && !selectedMediaFilter;
   const rate = (num, den) => (den ? (num / den) * 100 : 0);
 
+  const pickSummaryNumber = (obj, keys) => {
+    if (!obj) return 0;
+    for (const key of keys) {
+      if (obj[key] != null) {
+        const num = Number(obj[key]);
+        if (Number.isFinite(num)) return num;
+      }
+    }
+    return 0;
+  };
+
   const totalApps = useSummary
-    ? Number(summary.totalApplications || 0)
+    ? pickSummaryNumber(summary, ['totalApplications', 'total_applications', 'applications', 'totalApplicationsCount'])
     : data.reduce((sum, d) => sum + (d.applications || 0), 0);
 
   const totalValid = useSummary
-    ? Number(summary.totalValid || 0)
+    ? pickSummaryNumber(summary, ['totalValid', 'total_valid', 'validApplications', 'valid_applications', 'totalValidApplications'])
     : data.reduce((sum, d) => sum + (d.validApplications || 0), 0);
 
   const totalHired = useSummary
-    ? Number(summary.totalHired || 0)
+    ? pickSummaryNumber(summary, ['totalHired', 'total_hired', 'hired', 'hires'])
     : data.reduce((sum, d) => sum + (d.hired || 0), 0);
 
   const totalSales = data.reduce((sum, d) => sum + (Number(d.totalSales) || 0), 0);

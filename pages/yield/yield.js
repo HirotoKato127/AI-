@@ -22,9 +22,18 @@ const DEFAULT_ADVISOR_USER_ID = 30;
 const DEFAULT_CALC_MODE = 'cohort';
 const DEFAULT_RATE_CALC_MODE = 'base';
 const RATE_CALC_MODE_STORAGE_KEY = 'yieldRateCalcMode.v1';
-const YIELD_UI_VERSION = '20260228_08';
+const YIELD_UI_VERSION = '20260301_01';
 const MODE_SCOPE_KEYS = ['personalMonthly', 'personalPeriod', 'companyMonthly', 'companyPeriod', 'companyTerm', 'employee'];
-const KPI_BREAKDOWN_SUPPORTED_DIMENSIONS = new Set(['job', 'gender', 'age', 'media']);
+const KPI_BREAKDOWN_SUPPORTED_DIMENSIONS = new Set([
+  'job',
+  'gender',
+  'age',
+  'media',
+  'other_selection_status',
+  'address_pref',
+  'has_chronic_disease',
+  'personal_concerns'
+]);
 const CANDIDATE_REVENUE_LIMIT = 200;
 
 if (typeof window !== 'undefined') {

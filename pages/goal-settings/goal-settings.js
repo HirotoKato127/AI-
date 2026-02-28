@@ -1,4 +1,6 @@
 import { goalSettingsService } from '../../scripts/services/goalSettings.js';
+import { hasRole } from '../../scripts/auth.js';
+
 
 const KPI_FIELDS = [
   { key: 'newInterviewsTarget', label: '新規面談数' },
@@ -52,13 +54,14 @@ export async function mount() {
     console.warn('[goal-settings] failed to load settings', error);
   }
   hydrateInitialState();
+  applyRoleBasedTabs();
   initializeTabs();
-  renderEvaluationRuleSection();
+  // renderEvaluationRuleSection(); // Removed as per request
   renderPeriodSelects();
   await renderCompanyTargets();
   await renderPersonalTargets();
   await renderDailyTargets();
-  await renderPageRateTargets(); // ???????
+  await renderPageRateTargets();
   bindEvents();
 }
 
@@ -102,7 +105,7 @@ function bindEvents() {
     renderPeriodSelects();
   });
 
-  document.getElementById('saveEvaluationRuleButton')?.addEventListener('click', handleSaveEvaluationRule);
+  // document.getElementById('saveEvaluationRuleButton')?.addEventListener('click', handleSaveEvaluationRule); // Removed
   document.getElementById('companyPeriodSelect')?.addEventListener('change', handleCompanyPeriodChange);
   document.getElementById('saveCompanyTargetButton')?.addEventListener('click', handleSaveCompanyTarget);
   document.getElementById('personalPeriodSelect')?.addEventListener('change', handlePersonalPeriodChange);
@@ -134,61 +137,19 @@ function initializeTabs() {
   });
 }
 
-async function handleRuleSelect(nextRule) {
-  const options = readRuleOptions(nextRule);
-  state.evaluationRule = { type: nextRule, options };
-  state.evaluationPeriods = goalSettingsService.generateDefaultPeriods(state.evaluationRule);
-  const firstPeriod = state.evaluationPeriods[0];
-  const todayId = findPeriodIdByDate(isoDate(new Date()), state.evaluationPeriods);
-  state.selectedCompanyPeriodId = todayId || firstPeriod?.id || '';
-  state.selectedPersonalPeriodId = state.selectedCompanyPeriodId;
-  state.selectedPersonalDailyPeriodId = todayId || firstPeriod?.id || '';
-  renderEvaluationRuleSection();
-  renderPeriodSelects();
-  await renderCompanyTargets();
-  await renderPersonalTargets();
-  await renderDailyTargets();
-}
-
-async function handleSaveEvaluationRule() {
-  const type = getSelectedRule();
-  const options = readRuleOptions(type);
-  const rule = { type, options };
-  state.evaluationRule = rule;
-  state.evaluationPeriods = goalSettingsService.generateDefaultPeriods(rule);
-  try {
-    await goalSettingsService.setEvaluationRule(rule);
-  } catch (error) {
-    console.error('[goal-settings] failed to save evaluation rule', error);
-    showSaveStatus('evaluationSaveStatus', '保存に失敗しました');
-    return;
+function applyRoleBasedTabs() {
+  const isAdvisor = hasRole('advisor');
+  const personalTab = document.querySelector('[data-settings-tab="personal-settings"]');
+  if (personalTab && !isAdvisor) {
+    personalTab.style.display = 'none';
+    // Ensure we are not on the personal tab if hidden
+    const companyTab = document.querySelector('[data-settings-tab="company-settings"]');
+    if (companyTab) {
+      companyTab.click(); // Reset to company settings
+    }
   }
-  goalSettingsService.setEvaluationPeriods(state.evaluationPeriods);
-  const firstPeriod = state.evaluationPeriods[0];
-  const todayId = findPeriodIdByDate(isoDate(new Date()), state.evaluationPeriods);
-  state.selectedCompanyPeriodId = todayId || firstPeriod?.id || '';
-  state.selectedPersonalPeriodId = state.selectedCompanyPeriodId;
-  state.selectedPersonalDailyPeriodId = todayId || firstPeriod?.id || '';
-  renderEvaluationRuleSection();
-  renderPeriodSelects();
-  await renderCompanyTargets();
-  await renderPersonalTargets();
-  await renderDailyTargets();
-  showSaveStatus('evaluationSaveStatus', '期間設定を保存しました');
 }
 
-function renderEvaluationRuleSection() {
-  const radios = document.querySelectorAll('input[name="evaluationRule"]');
-  radios.forEach(radio => {
-    radio.checked = radio.value === state.evaluationRule.type;
-  });
-  toggleRuleOptions();
-}
-
-
-function renderCustomPeriodsTable() {
-  // カスタム期間テーブルは廃止
-}
 
 function addCustomPeriodRow() {
   const now = new Date();
@@ -295,6 +256,8 @@ async function renderPageRateTargets() {
     const value = Number(target[key]);
     input.value = Number.isFinite(value) && value > 0 ? value : '';
   });
+
+  updateNoticeVisibility('pageRateTargetNotice', target);
 }
 
 async function handleSavePageRateTargets() {
@@ -309,6 +272,7 @@ async function handleSavePageRateTargets() {
   try {
     await goalSettingsService.savePageRateTargets(state.selectedPageRatePeriodId, targets);
     showSaveStatus('pageRateTargetSaveStatus', '保存が完了しました');
+    await renderPageRateTargets(); // Refresh notice
   } catch (error) {
     console.error('[goal-settings] failed to save page rate targets', error);
     showSaveStatus('pageRateTargetSaveStatus', '保存に失敗しました');
@@ -321,6 +285,7 @@ async function renderCompanyTargets() {
   }
   const target = goalSettingsService.getCompanyPeriodTarget(state.selectedCompanyPeriodId) || {};
   renderTargetTable('companyTargetTableBody', target);
+  updateNoticeVisibility('companyTargetNotice', target);
 }
 
 async function renderPersonalTargets() {
@@ -329,6 +294,7 @@ async function renderPersonalTargets() {
   }
   const target = goalSettingsService.getPersonalPeriodTarget(state.selectedPersonalPeriodId) || {};
   renderTargetTable('personalTargetTableBody', target);
+  updateNoticeVisibility('personalTargetNotice', target);
 }
 
 function renderTargetTable(tbodyId, target = {}) {
@@ -377,6 +343,7 @@ async function handleSaveCompanyTarget() {
   try {
     await goalSettingsService.saveCompanyPeriodTarget(state.selectedCompanyPeriodId, values);
     showSaveStatus('companyTargetSaveStatus', '保存が完了しました');
+    await renderCompanyTargets(); // Refresh notice
   } catch (error) {
     console.error('[goal-settings] failed to save company target', error);
     showSaveStatus('companyTargetSaveStatus', '保存に失敗しました');
@@ -389,6 +356,7 @@ async function handleSavePersonalTarget() {
   try {
     await goalSettingsService.savePersonalPeriodTarget(state.selectedPersonalPeriodId, values);
     showSaveStatus('personalTargetSaveStatus', '保存が完了しました');
+    await renderPersonalTargets(); // Refresh notice
   } catch (error) {
     console.error('[goal-settings] failed to save personal target', error);
     showSaveStatus('personalTargetSaveStatus', '保存に失敗しました');
@@ -428,6 +396,13 @@ async function renderDailyTargets() {
       `;
     })
     .join('');
+
+  // Check if any daily targets are set
+  const isAnyDailySet = Object.values(savedTargets).some(t => Object.values(t).some(v => Number(v) > 0));
+  const dailyNotice = document.getElementById('dailyTargetNotice');
+  if (dailyNotice) {
+    dailyNotice.classList.toggle('is-hidden', isAnyDailySet);
+  }
 }
 
 async function handleDistributeDailyTargets() {
@@ -496,6 +471,7 @@ async function handleSaveDailyTargets() {
   try {
     await goalSettingsService.savePersonalDailyTargets(periodId, dailyTargets);
     showSaveStatus('dailyTargetSaveStatus', '保存が完了しました');
+    await renderDailyTargets(); // Refresh notice
   } catch (error) {
     console.error('[goal-settings] failed to save daily targets', error);
     showSaveStatus('dailyTargetSaveStatus', '保存に失敗しました');
@@ -520,7 +496,10 @@ function enumerateDates(start, end) {
 }
 
 function isoDate(date) {
-  return date.toISOString().split('T')[0];
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function numberOrEmpty(value) {
@@ -630,3 +609,11 @@ function calcCumulativeValue(total, index, length) {
   if (index >= length - 1) return totalNumber;
   return Math.round((totalNumber * (index + 1)) / length);
 }
+
+function updateNoticeVisibility(noticeId, targetObj) {
+  const notice = document.getElementById(noticeId);
+  if (!notice) return;
+  const isSet = Object.values(targetObj || {}).some(val => Number(val) > 0);
+  notice.classList.toggle('is-hidden', isSet);
+}
+
