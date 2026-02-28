@@ -177,7 +177,8 @@ export const handler = async (event) => {
 
     const dailyByAdvisor = new Map();
     res.rows.forEach(row => {
-      const id = String(row.advisor_user_id || "");
+      const rawId = row?.advisor_user_id;
+      const id = rawId === null || rawId === undefined || rawId === "" ? "0" : String(rawId);
       if (!id) return;
       const day = typeof row.day === "string" ? row.day : isoDate(new Date(row.day));
       if (!dailyByAdvisor.has(id)) dailyByAdvisor.set(id, {});
@@ -197,8 +198,8 @@ export const handler = async (event) => {
     }
 
     const employees = Array.from(idSet).map(id => ({
-      advisorUserId: Number(id),
-      name: nameById.get(id) || `ID:${id}`,
+      advisorUserId: String(id) === "0" ? null : Number(id),
+      name: String(id) === "0" ? "未割当" : (nameById.get(id) || `ID:${id}`),
       daily: dailyByAdvisor.get(id) || {}
     }));
 

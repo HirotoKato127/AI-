@@ -1607,3 +1607,36 @@
 
   </div>
 
+  <div class="yield-revenue-modal is-hidden" id="yieldRevenueModal" aria-hidden="true">
+    <div class="yield-revenue-modal-backdrop" data-revenue-modal-close></div>
+    <div class="yield-revenue-modal-card" role="dialog" aria-modal="true" aria-labelledby="yieldRevenueModalTitle">
+      <div class="yield-revenue-modal-header">
+        <div>
+          <h4 class="yield-revenue-modal-title" id="yieldRevenueModalTitle">売上計上一覧</h4>
+          <p class="yield-revenue-modal-subtitle" id="yieldRevenueModalSubtitle"></p>
+        </div>
+        <button type="button" class="yield-revenue-modal-close" data-revenue-modal-close>閉じる</button>
+      </div>
+      <div class="yield-revenue-modal-tabs">
+        <button type="button" class="yield-revenue-modal-tab is-active" data-revenue-tab="converted">売上計上</button>
+        <button type="button" class="yield-revenue-modal-tab" data-revenue-tab="confirmed">受注確定</button>
+      </div>
+      <div class="yield-revenue-modal-summary" id="yieldRevenueModalSummary"></div>
+      <div class="kpi-v2-employee-table-wrapper table-white table-surface yield-revenue-modal-table">
+        <div class="kpi-v2-scroll-area">
+          <table class="kpi-v2-employee-table yield-revenue-table">
+            <thead>
+              <tr>
+                <th scope="col">候補者</th>
+                <th scope="col">担当</th>
+                <th scope="col" class="yield-revenue-col-amount">計上収支</th>
+                <th scope="col" class="yield-revenue-col-date">計上日</th>
+              </tr>
+            </thead>
+            <tbody id="yieldRevenueModalBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="yield-revenue-modal-note" id="yieldRevenueModalNote"></div>
+    </div>
+  </div>

@@ -16,12 +16,19 @@ const pool = new Pool({
 const PORT = process.env.PORT || 8080;
 
 const app = express();
-app.get("/api/clients", async (_req, res) => {
+app.get("/api/clients", async (req, res) => {
+  const nameQuery = req.query.name || "";
   const client = await pool.connect();
   try {
-    const { rows } = await client.query(
-      "SELECT id, name FROM clients ORDER BY name ASC"
-    );
+    let q = "SELECT id, name FROM clients";
+    const params = [];
+    if (nameQuery) {
+      q += " WHERE name ILIKE $1";
+      params.push(`%${nameQuery}%`);
+    }
+    q += " ORDER BY name ASC LIMIT 100";
+
+    const { rows } = await client.query(q, params);
     res.json(rows);
   } catch (error) {
     console.error("Failed to fetch clients", error);

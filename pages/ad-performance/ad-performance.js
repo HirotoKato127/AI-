@@ -404,7 +404,9 @@ function calcDerivedRates(item) {
   const cost = Number(item.cost) || 0;
   const hired = Number(item.hired) || 0;
   const refund = Number(item.refund) || 0;
-  const totalSales = Number(item.totalSales) || 0;
+  // ★修正: 候補者マスタの「受注金額」は「万円」単位だが、
+  // 広告管理画面では「円」として扱いたい（ROAS計算等）ため、10000を掛けて「円」に変換する。
+  const totalSales = (Number(item.totalSales) || 0) * 10000;
   const retentionWarranty = resolveRetentionValue(item);
 
   // ROAS計算：契約費用が0の時は'-'を返す

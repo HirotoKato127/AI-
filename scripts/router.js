@@ -5,7 +5,7 @@
 
 import { getSession, hasRole, onAuthChange } from './auth.js';
 import { authRepo } from './api/repositories/auth.js?v=20260120_2';
-import { MODULE_VERSIONS } from './module-versions.js?v=20260227_04';
+import { MODULE_VERSIONS } from './module-versions.js?v=20260227_18';
 
 const POST_LOGIN_REDIRECT_KEY = 'dashboard.postLoginRedirect';
 
@@ -13,10 +13,10 @@ const routes = {
   login: () => import("../pages/login/login.js"),
   mypage: () => import("../pages/mypage/mypage.js?v=20260225_01"),
   members: () => import("../pages/members/members.js"),
-  yield: () => import("../pages/yield/yield.js?v=20260227_01"),
-  "yield-personal": () => import("../pages/yield-personal/yield-personal.js?v=20260227_01"),
-  "yield-company": () => import("../pages/yield-company/yield-company.js?v=20260227_01"),
-  "yield-admin": () => import("../pages/yield-admin/yield-admin.js?v=20260227_01"),
+  yield: () => import("../pages/yield/yield.js?v=20260228_02"),
+  "yield-personal": () => import("../pages/yield-personal/yield-personal.js?v=20260228_02"),
+  "yield-company": () => import("../pages/yield-company/yield-company.js?v=20260228_02"),
+  "yield-admin": () => import("../pages/yield-admin/yield-admin.js?v=20260228_02"),
   candidates: () => import(`../pages/candidates/candidates.js?v=${MODULE_VERSIONS.candidates}`),
   "candidate-detail": () => import(`../pages/candidate-detail/candidate-detail.js?v=${MODULE_VERSIONS.candidateDetail}`),
   "ad-performance": () => import("../pages/ad-performance/ad-performance.js?v=20260322_18"),
@@ -49,10 +49,10 @@ const routeMeta = {
 
 // CSS files for specific pages
 const pageCSS = {
-  yield: "pages/yield/yield.css?v=20260225_13",
-  "yield-personal": "pages/yield/yield.css?v=20260225_13",
-  "yield-company": "pages/yield/yield.css?v=20260225_13",
-  "yield-admin": "pages/yield/yield.css?v=20260225_13",
+  yield: "pages/yield/yield.css?v=20260228_02",
+  "yield-personal": "pages/yield/yield.css?v=20260228_02",
+  "yield-company": "pages/yield/yield.css?v=20260228_02",
+  "yield-admin": "pages/yield/yield.css?v=20260228_02",
   mypage: "pages/mypage/mypage.css?v=20260213_01",
   candidates: "pages/candidates/candidates.css?v=20260225_01",
   "candidate-detail": "pages/candidate-detail/candidate-detail.css?v=20260225_01",

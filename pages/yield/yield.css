@@ -821,6 +821,141 @@
   color: #94a3b8;
 }
 
+.revenue-drilldown-trigger {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.revenue-drilldown-trigger:hover {
+  color: #0f172a;
+}
+
+.yield-revenue-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+}
+
+.yield-revenue-modal.is-hidden {
+  display: none;
+}
+
+.yield-revenue-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.yield-revenue-modal-card {
+  position: relative;
+  width: min(96vw, 980px);
+  max-height: 88vh;
+  background: #ffffff;
+  border-radius: 0.9rem;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.yield-revenue-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.2rem 1.5rem 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  gap: 1rem;
+}
+
+.yield-revenue-modal-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.yield-revenue-modal-subtitle {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 0.2rem;
+}
+
+.yield-revenue-modal-close {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.yield-revenue-modal-tabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem 0.5rem;
+}
+
+.yield-revenue-modal-tab {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.yield-revenue-modal-tab.is-active {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.yield-revenue-modal-summary {
+  padding: 0 1.5rem 0.75rem;
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.yield-revenue-modal-table {
+  padding: 0 1.5rem 1rem;
+  overflow: hidden;
+}
+
+.yield-revenue-modal-table .kpi-v2-scroll-area {
+  max-height: 45vh;
+}
+
+.yield-revenue-table th,
+.yield-revenue-table td {
+  white-space: nowrap;
+}
+
+.yield-revenue-col-amount {
+  text-align: right;
+}
+
+.yield-revenue-col-date {
+  text-align: center;
+}
+
+.yield-revenue-empty {
+  text-align: center;
+  color: #94a3b8;
+  padding: 0.9rem 0;
+}
+
+.yield-revenue-modal-note {
+  padding: 0 1.5rem 1rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
 
 /* Responsive adjustments */
 @media (max-width: 1024px) {

@@ -16,14 +16,19 @@ const MEMBERS_LIST_PATH = '/members';
 const KPI_YIELD_PATH = '/yield';
 const KPI_YIELD_TREND_PATH = '/yield/trend';
 const KPI_YIELD_BREAKDOWN_PATH = '/yield/breakdown';
+const KPI_YIELD_CANDIDATES_PATH = '/yield/candidates';
 const KPI_TARGETS_PATH = '/kpi-targets';
 const DEFAULT_ADVISOR_USER_ID = 30;
 const DEFAULT_CALC_MODE = 'cohort';
 const DEFAULT_RATE_CALC_MODE = 'base';
 const RATE_CALC_MODE_STORAGE_KEY = 'yieldRateCalcMode.v1';
-const YIELD_UI_VERSION = '20260225_18';
+const YIELD_UI_VERSION = '20260228_02';
 const MODE_SCOPE_KEYS = ['personalMonthly', 'personalPeriod', 'companyMonthly', 'companyPeriod', 'companyTerm', 'employee'];
+<<<<<<< Updated upstream
 const KPI_BREAKDOWN_SUPPORTED_DIMENSIONS = new Set(['job', 'gender', 'age', 'media']);
+=======
+const CANDIDATE_REVENUE_LIMIT = 200;
+>>>>>>> Stashed changes
 
 if (typeof window !== 'undefined') {
   window.__yieldVersion = YIELD_UI_VERSION;
@@ -578,12 +583,31 @@ async function fetchYieldBreakdownFromApi({ startDate, endDate, scope, advisorUs
   };
 }
 
+<<<<<<< Updated upstream
 async function fetchYieldBreakdownSafely(params) {
   const dimension = String(params?.dimension || '').toLowerCase();
   if (!KPI_BREAKDOWN_SUPPORTED_DIMENSIONS.has(dimension)) {
     return { labels: [], data: [] };
   }
   return fetchYieldBreakdownFromApi(params);
+=======
+async function fetchCandidateRevenueFromApi({ startDate, endDate, scope, advisorUserId, calcModeScope = 'companyMonthly' }) {
+  const params = {
+    from: startDate,
+    to: endDate,
+    scope,
+    ...buildCalcModeParams(calcModeScope)
+  };
+  if (Number.isFinite(advisorUserId) && advisorUserId > 0) {
+    params.advisorUserId = advisorUserId;
+  }
+  const json = await fetchJson(`${KPI_API_BASE}${KPI_YIELD_CANDIDATES_PATH}`, params);
+  const items = Array.isArray(json?.items) ? json.items : [];
+  return {
+    meta: json?.meta || null,
+    items: items.map(normalizeCandidateRevenueItem)
+  };
+>>>>>>> Stashed changes
 }
 
 // CS蜷代￠: teleapo API縺九ｉ譌･蛻･実績繧貞叙蠕・
@@ -1408,6 +1432,18 @@ const state = {
     rows: [],
     filters: { search: '', sortKey: 'name', sortOrder: 'asc' }
   },
+  revenueDrilldown: {
+    open: false,
+    loading: false,
+    scope: 'company',
+    startDate: '',
+    endDate: '',
+    calcModeScope: 'companyMonthly',
+    label: '',
+    tab: 'converted',
+    items: [],
+    error: ''
+  },
   companyMs: {
     metricKeys: {
       marketing: 'newInterviews',
@@ -1571,6 +1607,88 @@ function setTextByRef(ref, value) {
   if (element) {
     element.textContent = value;
   }
+}
+
+function ensureRevenueDrilldownModal() {
+  if (document.getElementById('yieldRevenueModal')) return;
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = `
+    <div class="yield-revenue-modal is-hidden" id="yieldRevenueModal" aria-hidden="true">
+      <div class="yield-revenue-modal-backdrop" data-revenue-modal-close></div>
+      <div class="yield-revenue-modal-card" role="dialog" aria-modal="true" aria-labelledby="yieldRevenueModalTitle">
+        <div class="yield-revenue-modal-header">
+          <div>
+            <h4 class="yield-revenue-modal-title" id="yieldRevenueModalTitle">売上計上一覧</h4>
+            <p class="yield-revenue-modal-subtitle" id="yieldRevenueModalSubtitle"></p>
+          </div>
+          <button type="button" class="yield-revenue-modal-close" data-revenue-modal-close>閉じる</button>
+        </div>
+        <div class="yield-revenue-modal-tabs">
+          <button type="button" class="yield-revenue-modal-tab is-active" data-revenue-tab="converted">売上計上</button>
+          <button type="button" class="yield-revenue-modal-tab" data-revenue-tab="confirmed">受注確定</button>
+        </div>
+        <div class="yield-revenue-modal-summary" id="yieldRevenueModalSummary"></div>
+        <div class="kpi-v2-employee-table-wrapper table-white table-surface yield-revenue-modal-table">
+          <div class="kpi-v2-scroll-area">
+            <table class="kpi-v2-employee-table yield-revenue-table">
+              <thead>
+                <tr>
+                  <th scope="col">候補者</th>
+                  <th scope="col">担当</th>
+                  <th scope="col" class="yield-revenue-col-amount">計上収支</th>
+                  <th scope="col" class="yield-revenue-col-date">計上日</th>
+                </tr>
+              </thead>
+              <tbody id="yieldRevenueModalBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="yield-revenue-modal-note" id="yieldRevenueModalNote"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrapper.firstElementChild);
+}
+
+function resolveEvaluationPeriodRange(periodId, fallbackRange) {
+  const period = state.evaluationPeriods.find(item => item.id === periodId);
+  if (period?.startDate && period?.endDate) {
+    return { startDate: period.startDate, endDate: period.endDate };
+  }
+  return fallbackRange || { startDate: '', endDate: '' };
+}
+
+function clearRevenueDrilldownTarget(element) {
+  if (!element) return;
+  element.classList.remove('revenue-drilldown-trigger');
+  element.removeAttribute('role');
+  element.removeAttribute('tabindex');
+  delete element.dataset.revenueScope;
+  delete element.dataset.revenueStart;
+  delete element.dataset.revenueEnd;
+  delete element.dataset.revenueLabel;
+  delete element.dataset.revenueCalcScope;
+}
+
+function bindRevenueDrilldownTarget(elementId, { scope, startDate, endDate, label, calcModeScope }) {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+  if (!startDate || !endDate) {
+    clearRevenueDrilldownTarget(element);
+    return;
+  }
+  element.classList.add('revenue-drilldown-trigger');
+  element.dataset.revenueScope = scope || 'company';
+  element.dataset.revenueStart = startDate;
+  element.dataset.revenueEnd = endDate;
+  if (label) element.dataset.revenueLabel = label;
+  if (calcModeScope) element.dataset.revenueCalcScope = calcModeScope;
+  element.setAttribute('role', 'button');
+  element.setAttribute('tabindex', '0');
+  element.setAttribute('aria-label', `${label || '売上'}の計上候補者を表示`);
+  if (element.dataset.revenueBound === 'true') return;
+  element.addEventListener('click', () => openRevenueDrilldownFromTrigger(element));
+  element.dataset.revenueBound = 'true';
 }
 
 function readGoals(storageKey) {
@@ -1889,11 +2007,13 @@ export async function mount(root) {
   } catch (error) {
     console.warn('[yield] failed to load goal settings', error);
   }
+  safe('ensureRevenueDrilldownModal', ensureRevenueDrilldownModal);
   safe('initializeDatePickers', initializeDatePickers);
   safe('initPersonalPeriodPreset', initPersonalPeriodPreset);
   safe('initCompanyPeriodPreset', initCompanyPeriodPreset);
   safe('initEmployeePeriodPreset', initEmployeePeriodPreset);
   safe('initializeEmployeeControls', initializeEmployeeControls);
+  safe('initializeRevenueDrilldownControls', initializeRevenueDrilldownControls);
   safe('initializeCompanyDailyEmployeeSelect', initializeCompanyDailyEmployeeSelect);
   safe('initializeCompanyPeriodSections', initializeCompanyPeriodSections);
   safe('initializeDashboardSection', initializeDashboardSection);
@@ -1908,7 +2028,7 @@ export async function mount(root) {
   if (typeof document !== 'undefined') {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = './pages/yield/yield.css?v=20260225_18';
+    link.href = './pages/yield/yield.css?v=20260228_02';
     document.head.appendChild(link);
   }
 }
@@ -2059,6 +2179,44 @@ function initializeEmployeeControls() {
   });
 
   sortSelect?.addEventListener('change', handleEmployeeSort);
+}
+
+function initializeRevenueDrilldownControls() {
+  const root = document.body;
+  if (!root || root.dataset.revenueDrilldownBound === 'true') return;
+
+  root.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+    const closeTarget = target?.closest?.('[data-revenue-modal-close]');
+    if (closeTarget) {
+      closeRevenueDrilldown();
+      return;
+    }
+    const tabTarget = target?.closest?.('[data-revenue-tab]');
+    if (tabTarget) {
+      setRevenueDrilldownTab(tabTarget.dataset.revenueTab || 'converted');
+      return;
+    }
+    const trigger = target?.closest?.('.revenue-drilldown-trigger');
+    if (trigger) {
+      openRevenueDrilldownFromTrigger(trigger);
+    }
+  });
+
+  root.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.revenueDrilldown?.open) {
+      closeRevenueDrilldown();
+      return;
+    }
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const triggerTarget = event.target instanceof Element ? event.target : event.target?.parentElement;
+    const trigger = triggerTarget?.closest?.('.revenue-drilldown-trigger');
+    if (!trigger) return;
+    event.preventDefault();
+    openRevenueDrilldownFromTrigger(trigger);
+  });
+
+  root.dataset.revenueDrilldownBound = 'true';
 }
 
 function initializeCompanyPeriodSections() {
@@ -2298,6 +2456,14 @@ function renderPersonalSummary(rangeData, monthOverride) {
   setText('personalAchievementRate', rateText);
   setText('personalCurrent', `¥${summary.currentAmount.toLocaleString()}`);
   setText('personalTarget', `¥${summary.targetAmount.toLocaleString()}`);
+  const personalRange = resolveEvaluationPeriodRange(state.personalEvaluationPeriodId, getCurrentMonthRange());
+  bindRevenueDrilldownTarget('personalCurrent', {
+    scope: 'personal',
+    startDate: personalRange.startDate,
+    endDate: personalRange.endDate,
+    label: '自分の売上',
+    calcModeScope: 'personalMonthly'
+  });
   const progressFill = document
     .getElementById('personalAchievementRate')
     ?.closest('.kpi-v2-summary-unified')
@@ -2389,6 +2555,14 @@ async function renderPersonalPeriodRevenueSummary(data = state.kpi.personalPerio
   const achv = targetAmount > 0 ? Math.round((current / targetAmount) * 100) : 0;
   setText('personalPeriodCurrent', `¥${current.toLocaleString()}`);
   setText('personalPeriodTarget', `¥${targetAmount.toLocaleString()}`);
+  const range = state.ranges.personalPeriod || {};
+  bindRevenueDrilldownTarget('personalPeriodCurrent', {
+    scope: 'personal',
+    startDate: range.startDate,
+    endDate: range.endDate,
+    label: '自分の売上（期間）',
+    calcModeScope: 'personalPeriod'
+  });
   setText('personalPeriodAchievementRate', targetAmount > 0 ? `${achv}%` : '');
   const bar = document.getElementById('personalPeriodAchievementBar');
   if (bar) {
@@ -2489,6 +2663,14 @@ async function renderCompanyPeriodRevenueSummary(data = state.kpi.companyPeriod)
   const achv = targetAmount > 0 ? Math.round((current / targetAmount) * 100) : 0;
   setText('companyPeriodCurrent', `¥${current.toLocaleString()}`);
   setText('companyPeriodTarget', `¥${targetAmount.toLocaleString()}`);
+  const range = state.ranges.companyPeriod || {};
+  bindRevenueDrilldownTarget('companyPeriodCurrent', {
+    scope: 'company',
+    startDate: range.startDate,
+    endDate: range.endDate,
+    label: '全社売上（期間）',
+    calcModeScope: 'companyPeriod'
+  });
   setText('companyPeriodAchievementRate', targetAmount > 0 ? `${achv}%` : '');
   const bar = document.getElementById('companyPeriodAchievementBar');
   if (bar) {
@@ -2512,6 +2694,14 @@ function renderCompanyRevenueSummary(target = {}) {
   console.log('[yield] company revenue summary', { target, current, targetAmount, monthly: state.kpi.companyMonthly });
   setText('companyCurrent', `¥${current.toLocaleString()}`);
   setText('companyTarget', `¥${targetAmount.toLocaleString()}`);
+  const companyRange = resolveEvaluationPeriodRange(state.companyEvaluationPeriodId, getCurrentMonthRange());
+  bindRevenueDrilldownTarget('companyCurrent', {
+    scope: 'company',
+    startDate: companyRange.startDate,
+    endDate: companyRange.endDate,
+    label: '全社売上',
+    calcModeScope: 'companyMonthly'
+  });
   setText('companyAchievementRate', targetAmount > 0 ? `${achv}%` : '');
   const bar = document.getElementById('companyAchievementBar');
   if (bar) {
@@ -3264,6 +3454,233 @@ function formatCurrencyCell(value) {
   // 荳・・蜊倅ｽ阪〒陦ｨ遉ｺ
   const manyen = Math.round(numeric / 10000);
   return `¥${manyen.toLocaleString()}万`;
+}
+
+function formatYen(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const numeric = num(value);
+  if (!Number.isFinite(numeric)) return '';
+  return `¥${numeric.toLocaleString()}`;
+}
+
+function formatYenOrDash(value) {
+  const formatted = formatYen(value);
+  return formatted || '-';
+}
+
+function formatCandidateDate(dateStr) {
+  if (!dateStr) return '';
+  const parsed = parseLocalDate(dateStr);
+  if (!parsed || Number.isNaN(parsed)) return String(dateStr);
+  return `${parsed.getFullYear()}/${String(parsed.getMonth() + 1).padStart(2, '0')}/${String(parsed.getDate()).padStart(2, '0')}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizeCandidateRevenueItem(item) {
+  const candidateId = item?.candidateId ?? item?.candidate_id ?? null;
+  const candidateNameRaw = item?.candidateName ?? item?.candidate_name ?? item?.name ?? '';
+  const advisorNameRaw = item?.advisorName ?? item?.advisor_name ?? '';
+  const feeAmount = num(item?.feeAmount ?? item?.fee_amount ?? 0);
+  const refundAmount = num(item?.refundAmount ?? item?.refund_amount ?? 0);
+  const netRevenue = Number.isFinite(Number(item?.netRevenue))
+    ? num(item?.netRevenue)
+    : feeAmount - refundAmount;
+  const orderDate = item?.orderDate ?? item?.order_date ?? null;
+  const withdrawDate = item?.withdrawDate ?? item?.withdraw_date ?? null;
+  const orderConfirmed = Boolean(item?.orderConfirmed ?? item?.orderReported ?? item?.order_reported);
+  const revenueConverted = Boolean(item?.revenueConverted ?? orderDate);
+  return {
+    candidateId,
+    candidateName: candidateNameRaw || (candidateId ? `ID:${candidateId}` : '候補者未設定'),
+    advisorName: advisorNameRaw || '未設定',
+    feeAmount,
+    refundAmount,
+    netRevenue,
+    orderDate,
+    withdrawDate,
+    orderConfirmed,
+    revenueConverted
+  };
+}
+
+function buildCandidateRevenueSummary(items) {
+  return items.reduce((acc, item) => {
+    acc.total += 1;
+    if (item?.orderConfirmed) acc.confirmed += 1;
+    if (item?.revenueConverted) acc.converted += 1;
+    if (num(item?.refundAmount) > 0) acc.refundCount += 1;
+    acc.netTotal += num(item?.netRevenue);
+    return acc;
+  }, {
+    total: 0,
+    confirmed: 0,
+    converted: 0,
+    refundCount: 0,
+    netTotal: 0
+  });
+}
+
+function filterRevenueDrilldownItems(items, tabKey) {
+  if (tabKey === 'confirmed') {
+    return items.filter(item => item.orderConfirmed);
+  }
+  return items.filter(item => item.revenueConverted);
+}
+
+function updateRevenueDrilldownTabStyles(tabKey) {
+  document.querySelectorAll('[data-revenue-tab]').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.revenueTab === tabKey);
+  });
+}
+
+function setRevenueDrilldownTab(tabKey) {
+  if (!state.revenueDrilldown) return;
+  state.revenueDrilldown.tab = tabKey === 'confirmed' ? 'confirmed' : 'converted';
+  updateRevenueDrilldownTabStyles(state.revenueDrilldown.tab);
+  renderRevenueDrilldownModal();
+}
+
+function openRevenueDrilldownFromTrigger(trigger) {
+  const scope = trigger.dataset.revenueScope || 'company';
+  const startDate = trigger.dataset.revenueStart || '';
+  const endDate = trigger.dataset.revenueEnd || '';
+  const label = trigger.dataset.revenueLabel || '';
+  const calcModeScope = trigger.dataset.revenueCalcScope || 'companyMonthly';
+  openRevenueDrilldown({ scope, startDate, endDate, label, calcModeScope });
+}
+
+async function openRevenueDrilldown({ scope, startDate, endDate, label, calcModeScope }) {
+  if (!startDate || !endDate) return;
+  ensureRevenueDrilldownModal();
+  const modal = document.getElementById('yieldRevenueModal');
+  if (!modal) return;
+  state.revenueDrilldown = {
+    ...state.revenueDrilldown,
+    open: true,
+    loading: true,
+    scope,
+    startDate,
+    endDate,
+    calcModeScope,
+    label,
+    tab: 'converted',
+    items: [],
+    error: ''
+  };
+  modal.classList.remove('is-hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  updateRevenueDrilldownTabStyles('converted');
+  renderRevenueDrilldownModal();
+
+  try {
+    const advisorUserId = scope === 'personal' ? await resolveAdvisorUserId() : null;
+    const payload = await fetchCandidateRevenueFromApi({
+      startDate,
+      endDate,
+      scope,
+      advisorUserId,
+      calcModeScope
+    });
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    state.revenueDrilldown.items = items;
+    state.revenueDrilldown.loading = false;
+    renderRevenueDrilldownModal();
+  } catch (error) {
+    console.error('[yield] revenue drilldown failed', error);
+    state.revenueDrilldown.loading = false;
+    state.revenueDrilldown.error = 'データ取得に失敗しました。';
+    renderRevenueDrilldownModal();
+  }
+}
+
+function closeRevenueDrilldown() {
+  const modal = document.getElementById('yieldRevenueModal');
+  if (modal) {
+    modal.classList.add('is-hidden');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  if (state.revenueDrilldown) {
+    state.revenueDrilldown.open = false;
+  }
+}
+
+function renderRevenueDrilldownModal() {
+  const modal = document.getElementById('yieldRevenueModal');
+  if (!modal || !state.revenueDrilldown) return;
+  const titleEl = document.getElementById('yieldRevenueModalTitle');
+  const subtitleEl = document.getElementById('yieldRevenueModalSubtitle');
+  const summaryEl = document.getElementById('yieldRevenueModalSummary');
+  const body = document.getElementById('yieldRevenueModalBody');
+  const noteEl = document.getElementById('yieldRevenueModalNote');
+
+  const { label, startDate, endDate, loading, tab, error } = state.revenueDrilldown;
+  const titleText = tab === 'confirmed' ? '受注確定候補者' : '売上計上候補者';
+  if (titleEl) titleEl.textContent = titleText;
+  if (subtitleEl) {
+    const labelText = label ? `${label} ` : '';
+    subtitleEl.textContent = `${labelText}${startDate} 〜 ${endDate}`;
+  }
+
+  const items = (state.revenueDrilldown.items || []).map(normalizeCandidateRevenueItem);
+  const filtered = filterRevenueDrilldownItems(items, tab);
+  const limited = filtered.slice(0, CANDIDATE_REVENUE_LIMIT);
+
+  if (!body) return;
+
+  if (loading) {
+    body.innerHTML = `<tr><td colspan="4" class="yield-revenue-empty">読み込み中...</td></tr>`;
+    if (summaryEl) summaryEl.textContent = '読み込み中';
+    if (noteEl) noteEl.textContent = '';
+    return;
+  }
+
+  if (error) {
+    body.innerHTML = `<tr><td colspan="4" class="yield-revenue-empty">${escapeHtml(error)}</td></tr>`;
+    if (summaryEl) summaryEl.textContent = '';
+    if (noteEl) noteEl.textContent = '';
+    return;
+  }
+
+  if (!limited.length) {
+    body.innerHTML = `<tr><td colspan="4" class="yield-revenue-empty">対象データがありません。</td></tr>`;
+    if (summaryEl) summaryEl.textContent = '0件';
+    if (noteEl) noteEl.textContent = '';
+    return;
+  }
+
+  const rows = limited.map(item => {
+    const orderDateLabel = item.orderDate ? formatCandidateDate(item.orderDate) : '-';
+    return `
+      <tr>
+        <td>${escapeHtml(item.candidateName)}</td>
+        <td>${escapeHtml(item.advisorName)}</td>
+        <td class="yield-revenue-col-amount">${formatYenOrDash(item.netRevenue)}</td>
+        <td class="yield-revenue-col-date">${orderDateLabel}</td>
+      </tr>
+    `;
+  }).join('');
+
+  body.innerHTML = rows;
+  const summary = buildCandidateRevenueSummary(filtered);
+  if (summaryEl) {
+    const summaryText = tab === 'confirmed'
+      ? `受注確定 ${summary.total}件 / 収支合計 ${formatYen(summary.netTotal)}`
+      : `売上計上 ${summary.total}件 / 計上収支合計 ${formatYen(summary.netTotal)}`;
+    summaryEl.textContent = summaryText;
+  }
+  if (noteEl) {
+    noteEl.textContent = filtered.length > CANDIDATE_REVENUE_LIMIT
+      ? `上位${CANDIDATE_REVENUE_LIMIT}件のみ表示中`
+      : '';
+  }
 }
 
 
@@ -6402,7 +6819,6 @@ async function initializeDashboardSection() {
       const chronic = unwrapBreakdown(chronicResult, 'has_chronic_disease');
       const concern = unwrapBreakdown(concernResult, 'personal_concerns');
       const media = unwrapBreakdown(mediaResult, 'media');
-
       state.dashboard[scope].trendData = trend;
       state.dashboard[scope].breakdown = {
         jobCategories: job,

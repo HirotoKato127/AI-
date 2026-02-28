@@ -13,13 +13,7 @@ const pool = new Pool({
   connectionTimeoutMillis: 3000,
 });
 
-const ALLOWED_ORIGINS = new Set([
-  "http://localhost:8000",
-  "http://localhost:8001",
-  "http://localhost:8081",
-  "https://agent-key.pages.dev",
-  "https://develop.agent-key.pages.dev",
-]);
+const ALLOWED_ORIGINS = new Set(["http://localhost:8000", "http://localhost:8001"]);
 const baseHeaders = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Methods": "GET,OPTIONS",
@@ -28,10 +22,8 @@ const baseHeaders = {
 
 function buildHeaders(event) {
   const origin = event?.headers?.origin || event?.headers?.Origin || "";
-  if (ALLOWED_ORIGINS.has(origin)) {
-    return { ...baseHeaders, "Access-Control-Allow-Origin": origin };
-  }
-  return baseHeaders;
+  const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "*";
+  return { ...baseHeaders, "Access-Control-Allow-Origin": allowOrigin };
 }
 
 function getPath(event) {
@@ -93,13 +85,6 @@ function normalizeGroupBy(raw) {
 function normalizeRateCalcMode(raw) {
   const value = String(raw || "step").toLowerCase();
   return value === "base" ? "base" : "step";
-}
-
-// ★追加: 売上計上基準の正規化
-function normalizeRevenueTiming(raw) {
-  const value = String(raw || "occurrence").toLowerCase();
-  // application: 応募月(created_at)計上, occurrence: 発生月(請求日)計上
-  return value === "application" ? "application" : "occurrence";
 }
 
 function normalizeDimension(raw) {
@@ -179,6 +164,7 @@ function withRates(counts) {
   };
 }
 
+// base方式（新規面談数を分母）
 function withRatesBaseMode(counts) {
   const safe = { ...cloneCounts(), ...counts };
   return {
@@ -193,6 +179,7 @@ function withRatesBaseMode(counts) {
   };
 }
 
+// rateCalcModeに応じて切り替え
 function withRatesByMode(counts, rateCalcMode) {
   return rateCalcMode === "base" ? withRatesBaseMode(counts) : withRates(counts);
 }
@@ -256,15 +243,7 @@ function enumeratePeriods(startDate, endDate, granularity) {
   return periods;
 }
 
-// ★修正: revenueTiming 対応
-function buildSummarySql(advisorFilter, revenueTiming = "occurrence") {
-  const feeDateCol = revenueTiming === "application" ? "c.created_at" : "p.order_date";
-  const refundDateCol = revenueTiming === "application" ? "c.created_at" : "p.withdraw_date";
-  const proposalDateCol = "COALESCE(ca.proposal_date, ca.recommended_at::date)";
-  const offerDateCol = "COALESCE(ca.offer_date, ca.offer_at::date)";
-  const offerAcceptDateCol = "COALESCE(ca.offer_accept_date, ca.offer_accepted_at::date)";
-  const joinDateCol = "COALESCE(ca.join_date, ca.joined_at::date)";
-
+function buildSummarySql(advisorFilter) {
   return `
     SELECT c.advisor_user_id AS advisor_user_id,
            'newInterviews' AS metric,
@@ -279,7 +258,7 @@ function buildSummarySql(advisorFilter, revenueTiming = "occurrence") {
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${proposalDateCol} BETWEEN $1 AND $2
+    WHERE ca.recommended_at::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -315,7 +294,7 @@ function buildSummarySql(advisorFilter, revenueTiming = "occurrence") {
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerDateCol} BETWEEN $1 AND $2
+    WHERE ca.offer_date::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -324,7 +303,7 @@ function buildSummarySql(advisorFilter, revenueTiming = "occurrence") {
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerAcceptDateCol} BETWEEN $1 AND $2
+    WHERE ca.offer_accept_date::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -333,37 +312,13 @@ function buildSummarySql(advisorFilter, revenueTiming = "occurrence") {
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${joinDateCol} BETWEEN $1 AND $2
-    ${advisorFilter}
-    GROUP BY c.advisor_user_id
-    UNION ALL
-    SELECT c.advisor_user_id,
-           'revenue' AS metric,
-           COALESCE(SUM(p.fee_amount), 0)::int
-    FROM placements p
-    JOIN candidate_applications ca ON ca.id = p.candidate_application_id
-    JOIN candidates c ON c.id = ca.candidate_id
-    WHERE ${feeDateCol}::date BETWEEN $1 AND $2
-    ${advisorFilter}
-    GROUP BY c.advisor_user_id
-    UNION ALL
-    SELECT c.advisor_user_id,
-           'revenue' AS metric,
-           (COALESCE(SUM(p.refund_amount), 0) * -1)::int
-    FROM placements p
-    JOIN candidate_applications ca ON ca.id = p.candidate_application_id
-    JOIN candidates c ON c.id = ca.candidate_id
-    WHERE ${refundDateCol}::date BETWEEN $1 AND $2
+    WHERE ca.join_date::date BETWEEN $1 AND $2
     ${advisorFilter}
     GROUP BY c.advisor_user_id
   `;
 }
 
 function buildPlannedSql(advisorFilter) {
-  const proposalDateCol = "COALESCE(ca.proposal_date, ca.recommended_at::date)";
-  const offerDateCol = "COALESCE(ca.offer_date, ca.offer_at::date)";
-  const offerAcceptDateCol = "COALESCE(ca.offer_accept_date, ca.offer_accepted_at::date)";
-  const joinDateCol = "COALESCE(ca.join_date, ca.joined_at::date)";
   return `
     SELECT c.advisor_user_id AS advisor_user_id,
            'newInterviews' AS metric,
@@ -378,7 +333,7 @@ function buildPlannedSql(advisorFilter) {
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${proposalDateCol} > $1
+    WHERE ca.recommended_at::date > $1
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -414,7 +369,7 @@ function buildPlannedSql(advisorFilter) {
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerDateCol} > $1
+    WHERE ca.offer_date::date > $1
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -423,7 +378,7 @@ function buildPlannedSql(advisorFilter) {
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerAcceptDateCol} > $1
+    WHERE ca.offer_accept_date::date > $1
     ${advisorFilter}
     GROUP BY c.advisor_user_id
     UNION ALL
@@ -432,21 +387,13 @@ function buildPlannedSql(advisorFilter) {
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${joinDateCol} > $1
+    WHERE ca.join_date::date > $1
     ${advisorFilter}
     GROUP BY c.advisor_user_id
   `;
 }
 
-// ★修正: revenueTiming 対応
-function buildDailySql(advisorFilterCandidates, advisorFilterTeleapo, revenueTiming = "occurrence") {
-  const feeDateCol = revenueTiming === "application" ? "c.created_at" : "p.order_date";
-  const refundDateCol = revenueTiming === "application" ? "c.created_at" : "p.withdraw_date";
-  const proposalDateCol = "COALESCE(ca.proposal_date, ca.recommended_at::date)";
-  const offerDateCol = "COALESCE(ca.offer_date, ca.offer_at::date)";
-  const offerAcceptDateCol = "COALESCE(ca.offer_accept_date, ca.offer_accepted_at::date)";
-  const joinDateCol = "COALESCE(ca.join_date, ca.joined_at::date)";
-
+function buildDailySql(advisorFilterCandidates, advisorFilterTeleapo) {
   return `
     SELECT c.advisor_user_id AS advisor_user_id,
            c.first_contact_at::date AS day,
@@ -458,14 +405,14 @@ function buildDailySql(advisorFilterCandidates, advisorFilterTeleapo, revenueTim
     GROUP BY c.advisor_user_id, day
     UNION ALL
     SELECT c.advisor_user_id,
-           ${proposalDateCol},
+           ca.recommended_at::date,
            'proposals' AS metric,
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${proposalDateCol} BETWEEN $1 AND $2
+    WHERE ca.recommended_at::date BETWEEN $1 AND $2
     ${advisorFilterCandidates}
-    GROUP BY c.advisor_user_id, ${proposalDateCol}
+    GROUP BY c.advisor_user_id, ca.recommended_at::date
     UNION ALL
     SELECT c.advisor_user_id,
            ca.recommended_at::date,
@@ -498,44 +445,44 @@ function buildDailySql(advisorFilterCandidates, advisorFilterTeleapo, revenueTim
     GROUP BY c.advisor_user_id, ca.first_interview_at::date
     UNION ALL
     SELECT c.advisor_user_id,
-           ${offerDateCol},
+           ca.offer_date::date,
            'offers' AS metric,
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerDateCol} BETWEEN $1 AND $2
+    WHERE ca.offer_date::date BETWEEN $1 AND $2
     ${advisorFilterCandidates}
-    GROUP BY c.advisor_user_id, ${offerDateCol}
+    GROUP BY c.advisor_user_id, ca.offer_date::date
     UNION ALL
     SELECT c.advisor_user_id,
-           ${offerAcceptDateCol},
+           ca.offer_accept_date::date,
            'accepts' AS metric,
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${offerAcceptDateCol} BETWEEN $1 AND $2
+    WHERE ca.offer_accept_date::date BETWEEN $1 AND $2
     ${advisorFilterCandidates}
-    GROUP BY c.advisor_user_id, ${offerAcceptDateCol}
+    GROUP BY c.advisor_user_id, ca.offer_accept_date::date
     UNION ALL
     SELECT c.advisor_user_id,
-           ${joinDateCol},
+           ca.join_date::date,
            'hires' AS metric,
            COUNT(*)::int
     FROM candidates c
     JOIN candidate_applications ca ON ca.candidate_id = c.id
-    WHERE ${joinDateCol} BETWEEN $1 AND $2
+    WHERE ca.join_date::date BETWEEN $1 AND $2
     ${advisorFilterCandidates}
-    GROUP BY c.advisor_user_id, ${joinDateCol}
+    GROUP BY c.advisor_user_id, ca.join_date::date
     UNION ALL
     SELECT c.advisor_user_id,
-           c.created_at::date,
+           c.first_contact_at::date,
            'validApplications' AS metric,
            COUNT(*)::int
     FROM candidates c
-    WHERE c.created_at::date BETWEEN $1 AND $2
+    WHERE c.first_contact_at::date BETWEEN $1 AND $2
       AND c.is_effective_application = true
     ${advisorFilterCandidates}
-    GROUP BY c.advisor_user_id, c.created_at::date
+    GROUP BY c.advisor_user_id, c.first_contact_at::date
     UNION ALL
     SELECT t.caller_user_id AS advisor_user_id,
            t.called_at::date,
@@ -558,34 +505,23 @@ function buildDailySql(advisorFilterCandidates, advisorFilterTeleapo, revenueTim
     GROUP BY t.caller_user_id, t.called_at::date
     UNION ALL
     SELECT c.advisor_user_id,
-           ${feeDateCol}::date,
+           ca.joined_at::date,
            'revenue' AS metric,
            COALESCE(SUM(p.fee_amount), 0)::int
     FROM placements p
     JOIN candidate_applications ca ON ca.id = p.candidate_application_id
     JOIN candidates c ON c.id = ca.candidate_id
-    WHERE ${feeDateCol}::date BETWEEN $1 AND $2
+    WHERE ca.joined_at::date BETWEEN $1 AND $2
     ${advisorFilterCandidates}
-    GROUP BY c.advisor_user_id, ${feeDateCol}::date
-    UNION ALL
-    SELECT c.advisor_user_id,
-           ${refundDateCol}::date,
-           'revenue' AS metric,
-           (COALESCE(SUM(p.refund_amount), 0) * -1)::int
-    FROM placements p
-    JOIN candidate_applications ca ON ca.id = p.candidate_application_id
-    JOIN candidates c ON c.id = ca.candidate_id
-    WHERE ${refundDateCol}::date BETWEEN $1 AND $2
-    ${advisorFilterCandidates}
-    GROUP BY c.advisor_user_id, ${refundDateCol}::date
+    GROUP BY c.advisor_user_id, ca.joined_at::date
   `;
 }
 
-async function fetchSummaryRows(client, { startDate, endDate, advisorUserId, revenueTiming }) {
+async function fetchSummaryRows(client, { startDate, endDate, advisorUserId }) {
   const params = [startDate, endDate];
   const advisorFilter = Number.isFinite(advisorUserId) && advisorUserId > 0 ? `AND c.advisor_user_id = $3` : "";
   if (advisorFilter) params.push(advisorUserId);
-  const res = await client.query(buildSummarySql(advisorFilter, revenueTiming), params);
+  const res = await client.query(buildSummarySql(advisorFilter), params);
   return res.rows || [];
 }
 
@@ -597,27 +533,26 @@ async function fetchPlannedRows(client, { baseDate, advisorUserId }) {
   return res.rows || [];
 }
 
-async function fetchDailyRows(client, { startDate, endDate, advisorUserId, revenueTiming }) {
+async function fetchDailyRows(client, { startDate, endDate, advisorUserId }) {
   const params = [startDate, endDate];
   const hasAdvisor = Number.isFinite(advisorUserId) && advisorUserId > 0;
   const advisorFilterCandidates = hasAdvisor ? `AND c.advisor_user_id = $3` : "";
   const advisorFilterTeleapo = hasAdvisor ? `AND t.caller_user_id = $3` : "";
   if (hasAdvisor) params.push(advisorUserId);
-  const res = await client.query(buildDailySql(advisorFilterCandidates, advisorFilterTeleapo, revenueTiming), params);
+  const res = await client.query(buildDailySql(advisorFilterCandidates, advisorFilterTeleapo), params);
   return res.rows || [];
 }
 
 function buildCountsMap(rows) {
   const map = new Map();
   rows.forEach((row) => {
-    const rawId = row?.advisor_user_id;
-    const id = rawId === null || rawId === undefined || rawId === "" ? "0" : String(rawId);
+    const id = String(row.advisor_user_id || "");
     if (!id) return;
     const metric = String(row.metric || "");
     if (!METRIC_KEYS.includes(metric)) return;
     if (!map.has(id)) map.set(id, cloneCounts());
     const counts = map.get(id);
-    counts[metric] += Number(row.count || 0);
+    counts[metric] = Number(row.count || 0);
   });
   return map;
 }
@@ -631,8 +566,7 @@ function sumCountsMap(map) {
 function buildDailyMap(rows) {
   const map = new Map();
   rows.forEach((row) => {
-    const rawId = row?.advisor_user_id;
-    const id = rawId === null || rawId === undefined || rawId === "" ? "0" : String(rawId);
+    const id = String(row.advisor_user_id || "");
     if (!id) return;
     const day = normalizeDateKey(row.day);
     if (!day) return;
@@ -641,7 +575,7 @@ function buildDailyMap(rows) {
     if (!map.has(id)) map.set(id, {});
     const daily = map.get(id);
     if (!daily[day]) daily[day] = {};
-    daily[day][metric] = Number(daily[day][metric] || 0) + Number(row.count || 0);
+    daily[day][metric] = Number(row.count || 0);
   });
   return map;
 }
@@ -675,18 +609,7 @@ async function fetchAdvisorNames(client, advisorIds) {
   return new Map(res.rows.map((row) => [String(row.id), row.name || `ID:${row.id}`]));
 }
 
-function resolveAdvisorDisplay(id, nameMap) {
-  const idStr = String(id ?? "");
-  if (idStr === "0") {
-    return { advisorUserId: null, name: "未割当" };
-  }
-  const numId = Number(idStr);
-  return {
-    advisorUserId: Number.isFinite(numId) ? numId : null,
-    name: nameMap.get(idStr) || `ID:${idStr}`,
-  };
-}
-
+// 目標値取得関数
 async function fetchGoalTarget(client, { periodId, advisorUserId, scope }) {
   const sql = `
     SELECT targets
@@ -728,7 +651,6 @@ async function fetchGoalTarget(client, { periodId, advisorUserId, scope }) {
       interviewsHeldTarget: Number(targets.interviewsHeldTarget || targets.interviewsHeld || 0),
       offersTarget: Number(targets.offersTarget || targets.offers || 0),
       hiresTarget: Number(targets.hiresTarget || targets.hires || 0),
-      revenueTarget: Number(targets.revenueTarget || targets.revenue || 0),
     };
   } catch (err) {
     console.warn('[fetchGoalTarget] error:', err);
@@ -741,35 +663,41 @@ async function fetchGoalTarget(client, { periodId, advisorUserId, scope }) {
       interviewsHeldTarget: 0,
       offersTarget: 0,
       hiresTarget: 0,
-      revenueTarget: 0,
     };
   }
 }
 
+// period_id抽出関数
 function extractPeriodId(dateStr) {
+  // "2025-01-15" → "2025-01"
   return String(dateStr).substring(0, 7);
 }
 
+// 達成率計算関数
 function calculateAchievementRate(current, target) {
   if (!target || target === 0) return 0;
   return Math.round((current / target) * 100);
 }
 
+// buildKpiPayload を拡張（達成率、目標値を含む）
 async function buildKpiPayloadWithTargets(client, currentCounts, prevCounts, { periodId, advisorUserId, scope, rateCalcMode = 'step' }) {
   const current = withRatesByMode(currentCounts, rateCalcMode);
   const prev = withRatesByMode(prevCounts, rateCalcMode);
 
+  // 目標値を取得
   const targets = await fetchGoalTarget(client, { periodId, advisorUserId, scope });
 
-  const revenueCurrent = Number(current.revenue || 0);
-  const revenueTarget = Number(targets.revenueTarget || 0);
-  const achievementRate = calculateAchievementRate(revenueCurrent, revenueTarget);
+  // 達成率を計算
+  const achievementRate = calculateAchievementRate(current.accepts, targets.acceptsTarget);
 
   return {
     ...current,
+    // 達成率関連
     achievementRate,
-    currentAmount: revenueCurrent,
-    targetAmount: revenueTarget,
+    currentAmount: current.accepts,
+    targetAmount: targets.acceptsTarget,
+
+    // 前月比（カウント）
     prevNewInterviews: prev.newInterviews,
     prevProposals: prev.proposals,
     prevRecommendations: prev.recommendations,
@@ -778,6 +706,8 @@ async function buildKpiPayloadWithTargets(client, currentCounts, prevCounts, { p
     prevOffers: prev.offers,
     prevAccepts: prev.accepts,
     prevHires: prev.hires,
+
+    // 前月比（率）
     prevProposalRate: prev.proposalRate,
     prevRecommendationRate: prev.recommendationRate,
     prevInterviewScheduleRate: prev.interviewScheduleRate,
@@ -788,6 +718,7 @@ async function buildKpiPayloadWithTargets(client, currentCounts, prevCounts, { p
   };
 }
 
+// 既存の buildKpiPayload（互換性のため残す）
 function buildKpiPayload(currentCounts, prevCounts) {
   const current = withRates(currentCounts);
   const prev = withRates(prevCounts);
@@ -831,8 +762,8 @@ function buildRatesPayload(counts) {
   };
 }
 
-async function fetchTrendSeries(client, { startDate, endDate, advisorUserId, granularity, revenueTiming }) {
-  const rows = await fetchDailyRows(client, { startDate, endDate, advisorUserId, revenueTiming });
+async function fetchTrendSeries(client, { startDate, endDate, advisorUserId, granularity }) {
+  const rows = await fetchDailyRows(client, { startDate, endDate, advisorUserId });
   const dailyMap = buildDailyMap(rows);
   const merged = mergeDailySeries(Array.from(dailyMap.values()));
   const grouped = granularity === "month" ? groupSeriesByMonth(merged) : merged;
@@ -897,10 +828,9 @@ function buildAgeLabelSql() {
   `;
 }
 
-async function fetchBreakdownItems(client, { dimension, startDate, endDate, advisorUserId, calcMode = "period" }) {
+async function fetchBreakdownItems(client, { dimension, startDate, endDate, advisorUserId }) {
   const params = [startDate, endDate];
   let advisorFilter = "";
-  const baseDateCol = calcMode === "cohort" ? "c.created_at::date" : "c.first_contact_at::date";
   if (Number.isFinite(advisorUserId) && advisorUserId > 0) {
     params.push(advisorUserId);
     advisorFilter = `AND c.advisor_user_id = $${params.length}`;
@@ -911,7 +841,7 @@ async function fetchBreakdownItems(client, { dimension, startDate, endDate, advi
     const res = await client.query(
       `SELECT ${labelSql} AS label, COUNT(*)::int AS count
        FROM candidates c
-       WHERE ${baseDateCol} BETWEEN $1 AND $2
+       WHERE c.first_contact_at::date BETWEEN $1 AND $2
        ${advisorFilter}
        GROUP BY label`,
       params
@@ -924,7 +854,7 @@ async function fetchBreakdownItems(client, { dimension, startDate, endDate, advi
     const res = await client.query(
       `SELECT ${labelSql} AS label, COUNT(*)::int AS count
        FROM candidates c
-       WHERE ${baseDateCol} BETWEEN $1 AND $2
+       WHERE c.first_contact_at::date BETWEEN $1 AND $2
        ${advisorFilter}
        GROUP BY label`,
       params
@@ -938,7 +868,7 @@ async function fetchBreakdownItems(client, { dimension, startDate, endDate, advi
       `SELECT ${labelSql} AS label, COUNT(DISTINCT c.id)::int AS count
        FROM candidates c
        LEFT JOIN candidate_applications ca ON ca.candidate_id = c.id
-       WHERE ${baseDateCol} BETWEEN $1 AND $2
+       WHERE c.first_contact_at::date BETWEEN $1 AND $2
        ${advisorFilter}
        GROUP BY label`,
       params
@@ -952,7 +882,7 @@ async function fetchBreakdownItems(client, { dimension, startDate, endDate, advi
       `SELECT ${labelSql} AS label, COUNT(DISTINCT c.id)::int AS count
        FROM candidates c
        LEFT JOIN candidate_applications ca ON ca.candidate_id = c.id
-       WHERE ${baseDateCol} BETWEEN $1 AND $2
+       WHERE c.first_contact_at::date BETWEEN $1 AND $2
        ${advisorFilter}
        GROUP BY label`,
       params
@@ -1102,8 +1032,7 @@ function computeCohortRangeAggregate(rows, range, rateCalcMode = "step") {
 function buildCohortAggregateMap(rows, range, rateCalcMode = "step") {
   const map = new Map();
   rows.forEach((row) => {
-    const rawId = row?.advisorUserId;
-    const id = rawId === null || rawId === undefined || rawId === "" ? "0" : String(rawId);
+    const id = String(row.advisorUserId || "");
     if (!id) return;
     let entry = map.get(id);
     if (!entry) {
@@ -1121,34 +1050,6 @@ function buildCohortAggregateMap(rows, range, rateCalcMode = "step") {
     });
   });
   return finalized;
-}
-
-function addCohortCountsFromDates(counts, dates) {
-  if (!dates?.newInterviews) return;
-  counts.newInterviews += 1;
-  if (hasReached(dates.newInterviews, dates.proposals)) counts.proposals += 1;
-  if (hasReached(dates.proposals, dates.recommendations)) counts.recommendations += 1;
-  if (hasReached(dates.recommendations, dates.interviewsScheduled)) counts.interviewsScheduled += 1;
-  if (hasReached(dates.interviewsScheduled, dates.interviewsHeld)) counts.interviewsHeld += 1;
-  if (hasReached(dates.interviewsHeld, dates.offers)) counts.offers += 1;
-  if (hasReached(dates.offers, dates.accepts)) counts.accepts += 1;
-  if (hasReached(dates.newInterviews, dates.hires)) counts.hires += 1;
-}
-
-function buildCohortDailyMap(rows, range) {
-  const map = new Map();
-  rows.forEach((row) => {
-    const rawId = row?.advisorUserId;
-    const id = rawId === null || rawId === undefined || rawId === "" ? "0" : String(rawId);
-    const dates = row?.dates || {};
-    const cohortDate = dates.newInterviews;
-    if (!id || !isInRange(cohortDate, range)) return;
-    if (!map.has(id)) map.set(id, {});
-    const series = map.get(id);
-    if (!series[cohortDate]) series[cohortDate] = cloneCounts();
-    addCohortCountsFromDates(series[cohortDate], dates);
-  });
-  return map;
 }
 
 function initStepwiseBucket() {
@@ -1331,15 +1232,16 @@ function buildStepwiseKpiPayload(counts, prevCounts, currentRates, prevRates, nu
   };
 }
 
+// buildStepwiseKpiPayload を拡張（達成率、目標値を含む）
 async function buildStepwiseKpiPayloadWithTargets(client, counts, prevCounts, currentRates, prevRates, numerators, { periodId, advisorUserId, scope }) {
   const safeCounts = { ...cloneCounts(), ...counts };
   const safePrevCounts = { ...cloneCounts(), ...prevCounts };
 
+  // 目標値を取得
   const targets = await fetchGoalTarget(client, { periodId, advisorUserId, scope });
 
-  const revenueCurrent = Number(safeCounts.revenue || 0);
-  const revenueTarget = Number(targets.revenueTarget || 0);
-  const achievementRate = calculateAchievementRate(revenueCurrent, revenueTarget);
+  // 達成率を計算
+  const achievementRate = calculateAchievementRate(safeCounts.accepts, targets.acceptsTarget);
 
   return {
     ...safeCounts,
@@ -1352,9 +1254,10 @@ async function buildStepwiseKpiPayloadWithTargets(client, counts, prevCounts, cu
     cohortAccepts: Number(numerators.acceptRate || 0),
     cohortHires: Number(numerators.hireRate || 0),
 
+    // 達成率関連
     achievementRate,
-    currentAmount: revenueCurrent,
-    targetAmount: revenueTarget,
+    currentAmount: safeCounts.accepts,
+    targetAmount: targets.acceptsTarget,
 
     prevNewInterviews: safePrevCounts.newInterviews,
     prevProposals: safePrevCounts.proposals,
@@ -1463,19 +1366,19 @@ async function fetchCohortStageRows(client, { advisorUserId }) {
   const res = await client.query(
     `SELECT c.id AS candidate_id,
             c.advisor_user_id AS advisor_user_id,
-            c.created_at::date AS new_interviews,
-            MIN(COALESCE(ca.proposal_date, ca.recommended_at::date))::date AS proposals,
+            c.first_contact_at::date AS new_interviews,
+            MIN(ca.recommended_at)::date AS proposals,
             MIN(ca.recommended_at)::date AS recommendations,
             MIN(ca.first_interview_set_at)::date AS interviews_scheduled,
             MIN(ca.first_interview_at)::date AS interviews_held,
-            MIN(COALESCE(ca.offer_date, ca.offer_at::date))::date AS offers,
-            MIN(COALESCE(ca.offer_accept_date, ca.offer_accepted_at::date))::date AS accepts,
-            MIN(COALESCE(ca.join_date, ca.joined_at::date))::date AS hires
+            MIN(ca.offer_date)::date AS offers,
+            MIN(ca.offer_accept_date)::date AS accepts,
+            MIN(ca.join_date)::date AS hires
      FROM candidates c
      LEFT JOIN candidate_applications ca ON ca.candidate_id = c.id
-     WHERE c.created_at IS NOT NULL
+     WHERE c.first_contact_at IS NOT NULL
      ${advisorFilter}
-     GROUP BY c.id, c.advisor_user_id, c.created_at`,
+     GROUP BY c.id, c.advisor_user_id, c.first_contact_at`,
     params
   );
   return (res.rows || []).map((row) => ({
@@ -1511,9 +1414,6 @@ export const handler = async (event) => {
   const calcMode = normalizeCalcMode(qs.calcMode);
   const rateCalcMode = normalizeRateCalcMode(qs.rateCalcMode);
   const dimension = normalizeDimension(qs.dimension);
-  const revenueTiming = normalizeRevenueTiming(
-    qs.revenueTiming ?? qs.timeBasis ?? qs.countBasis
-  );
   const plannedRaw = String(qs.planned || "").toLowerCase();
   const isPlanned = plannedRaw === "1" || plannedRaw === "true" || plannedRaw === "planned";
 
@@ -1570,31 +1470,23 @@ export const handler = async (event) => {
           endDate: range.endDate,
           advisorUserId: scope === "personal" ? advisorUserId : advisorUserId,
           granularity: trendGranularity,
-          revenueTiming,
         });
         const rows = await fetchCohortStageRows(client, {
           advisorUserId: scope === "personal" ? advisorUserId : advisorUserId,
         });
-        const cohortDailyMap = buildCohortDailyMap(rows, range);
-        const merged = mergeDailySeries(Array.from(cohortDailyMap.values()));
-        const grouped = trendGranularity === "month" ? groupSeriesByMonth(merged) : merged;
-        const periods = enumeratePeriods(range.startDate, range.endDate, trendGranularity);
-        const revenueMap = new Map(
-          eventSeries.map((item) => [item.period, Number(item?.counts?.revenue || 0)])
-        );
-        series = periods.map((period) => {
-          const counts = grouped[period] || cloneCounts();
-          counts.revenue = revenueMap.get(period) || 0;
-          const payload = buildRatesPayload(counts);
-          return { period, ...payload };
-        });
+        const rateSeries = buildStepwiseRateSeries(rows, range, trendGranularity);
+        const rateMap = new Map(rateSeries.map((item) => [item.period, item.rates]));
+        series = eventSeries.map((item) => ({
+          period: item.period,
+          counts: item.counts,
+          rates: rateMap.get(item.period) || item.rates,
+        }));
       } else {
         series = await fetchTrendSeries(client, {
           startDate: range.startDate,
           endDate: range.endDate,
           advisorUserId: scope === "personal" ? advisorUserId : advisorUserId,
           granularity: trendGranularity,
-          revenueTiming,
         });
       }
       return {
@@ -1608,7 +1500,6 @@ export const handler = async (event) => {
             advisorUserId: advisorUserId ?? null,
             granularity: trendGranularity,
             calcMode,
-            revenueTiming,
           },
           series,
         }),
@@ -1628,7 +1519,6 @@ export const handler = async (event) => {
         startDate: range.startDate,
         endDate: range.endDate,
         advisorUserId: scope === "personal" ? advisorUserId : advisorUserId,
-        calcMode,
       });
       let items = rows.map((row) => ({
         label: row.label || "不明",
@@ -1667,7 +1557,6 @@ export const handler = async (event) => {
       advisorUserId: advisorUserId ?? null,
       granularity,
       groupBy,
-      revenueTiming,
     };
 
     if (granularity === "summary") {
@@ -1684,14 +1573,11 @@ export const handler = async (event) => {
         const nameMap = await fetchAdvisorNames(client, idList);
         let items = [];
         if (groupBy === "advisor") {
-          items = idList.map((id) => {
-            const display = resolveAdvisorDisplay(id, nameMap);
-            return {
-              advisorUserId: display.advisorUserId,
-              name: display.name,
-              kpi: countsMap.get(id) || cloneCounts(),
-            };
-          });
+          items = idList.map((id) => ({
+            advisorUserId: Number(id),
+            name: nameMap.get(id) || `ID:${id}`,
+            kpi: countsMap.get(id) || cloneCounts(),
+          }));
         } else {
           let counts;
           if (advisorUserId) {
@@ -1724,14 +1610,6 @@ export const handler = async (event) => {
         const stageRows = await fetchCohortStageRows(client, { advisorUserId: stageAdvisorFilter });
         const cohortMap = buildCohortAggregateMap(stageRows, range, rateCalcMode);
         const prevCohortMap = prevRange ? buildCohortAggregateMap(stageRows, prevRange, rateCalcMode) : new Map();
-
-        const revenueFilter = advisorUserId ? advisorUserId : null;
-        const revenueRows = await fetchSummaryRows(client, { ...range, advisorUserId: revenueFilter, revenueTiming });
-        const prevRevenueRows = prevRange ? await fetchSummaryRows(client, { ...prevRange, advisorUserId: revenueFilter, revenueTiming }) : [];
-        const revenueMap = buildCountsMap(revenueRows);
-        const prevRevenueMap = buildCountsMap(prevRevenueRows);
-        const getRevenueById = (map, id) => Number(map.get(String(id))?.revenue || 0);
-        const getRevenueTotal = (map) => Number(sumCountsMap(map).revenue || 0);
         const ids = new Set([...cohortMap.keys(), ...prevCohortMap.keys()]);
         if (advisorUserId) ids.add(String(advisorUserId));
         const idList = Array.from(ids).filter((id) => id);
@@ -1739,32 +1617,30 @@ export const handler = async (event) => {
         const prevRangeSafe = prevRange || null;
         const emptyAgg = buildEmptyCohortAggregate(rateCalcMode);
 
+        // period_idを取得
         const periodId = extractPeriodId(range.startDate);
 
         if (groupBy === "advisor") {
           items = [];
           for (const id of idList) {
-            const display = resolveAdvisorDisplay(id, nameMap);
             const currentAgg = cohortMap.get(id) || emptyAgg;
             const prevAgg = prevRangeSafe ? prevCohortMap.get(id) || emptyAgg : emptyAgg;
-            const currentCounts = { ...currentAgg.counts, revenue: getRevenueById(revenueMap, id) };
-            const prevCounts = { ...prevAgg.counts, revenue: getRevenueById(prevRevenueMap, id) };
             const kpi = await buildStepwiseKpiPayloadWithTargets(
               client,
-              currentCounts,
-              prevCounts,
+              currentAgg.counts,
+              prevAgg.counts,
               currentAgg.rates,
               prevAgg.rates,
               currentAgg.numerators,
               {
                 periodId,
-                advisorUserId: display.advisorUserId,
+                advisorUserId: Number(id),
                 scope: 'personal'
               }
             );
             items.push({
-              advisorUserId: display.advisorUserId,
-              name: display.name,
+              advisorUserId: Number(id),
+              name: nameMap.get(id) || `ID:${id}`,
               kpi
             });
           }
@@ -1777,18 +1653,10 @@ export const handler = async (event) => {
           const prevAgg = prevRangeSafe
             ? computeCohortRangeAggregate(rowsForScope, prevRangeSafe, rateCalcMode)
             : emptyAgg;
-          const currentCounts = {
-            ...currentAgg.counts,
-            revenue: advisorUserId ? getRevenueById(revenueMap, advisorUserId) : getRevenueTotal(revenueMap)
-          };
-          const prevCounts = {
-            ...prevAgg.counts,
-            revenue: advisorUserId ? getRevenueById(prevRevenueMap, advisorUserId) : getRevenueTotal(prevRevenueMap)
-          };
           const kpi = await buildStepwiseKpiPayloadWithTargets(
             client,
-            currentCounts,
-            prevCounts,
+            currentAgg.counts,
+            prevAgg.counts,
             currentAgg.rates,
             prevAgg.rates,
             currentAgg.numerators,
@@ -1808,8 +1676,8 @@ export const handler = async (event) => {
         }
       } else {
         const summaryFilter = scope === "personal" ? advisorUserId : advisorUserId;
-        const currentRows = await fetchSummaryRows(client, { ...range, advisorUserId: summaryFilter, revenueTiming });
-        const prevRows = prevRange ? await fetchSummaryRows(client, { ...prevRange, advisorUserId: summaryFilter, revenueTiming }) : [];
+        const currentRows = await fetchSummaryRows(client, { ...range, advisorUserId: summaryFilter });
+        const prevRows = prevRange ? await fetchSummaryRows(client, { ...prevRange, advisorUserId: summaryFilter }) : [];
         const countsMap = buildCountsMap(currentRows);
         const prevMap = buildCountsMap(prevRows);
 
@@ -1818,23 +1686,23 @@ export const handler = async (event) => {
         const idList = Array.from(ids);
         const nameMap = await fetchAdvisorNames(client, idList);
 
+        // period_idを取得
         const periodId = extractPeriodId(range.startDate);
 
         if (groupBy === "advisor") {
           items = [];
           for (const id of idList) {
-            const display = resolveAdvisorDisplay(id, nameMap);
             const counts = countsMap.get(id) || cloneCounts();
             const prevCounts = prevMap.get(id) || cloneCounts();
             const kpi = await buildKpiPayloadWithTargets(client, counts, prevCounts, {
               periodId,
-              advisorUserId: display.advisorUserId,
+              advisorUserId: Number(id),
               scope: 'personal',
               rateCalcMode
             });
             items.push({
-              advisorUserId: display.advisorUserId,
-              name: display.name,
+              advisorUserId: Number(id),
+              name: nameMap.get(id) || `ID:${id}`,
               kpi
             });
           }
@@ -1872,14 +1740,8 @@ export const handler = async (event) => {
     }
 
     const dailyFilter = scope === "personal" ? advisorUserId : advisorUserId;
-    let dailyMap = new Map();
-    if (calcMode === "cohort") {
-      const stageRows = await fetchCohortStageRows(client, { advisorUserId: dailyFilter });
-      dailyMap = buildCohortDailyMap(stageRows, range);
-    } else {
-      const dailyRows = await fetchDailyRows(client, { ...range, advisorUserId: dailyFilter, revenueTiming });
-      dailyMap = buildDailyMap(dailyRows);
-    }
+    const dailyRows = await fetchDailyRows(client, { ...range, advisorUserId: dailyFilter });
+    const dailyMap = buildDailyMap(dailyRows);
 
     const ids = new Set(dailyMap.keys());
     if (advisorUserId) ids.add(String(advisorUserId));
@@ -1889,12 +1751,11 @@ export const handler = async (event) => {
     let items = [];
     if (groupBy === "advisor") {
       items = idList.map((id) => {
-        const display = resolveAdvisorDisplay(id, nameMap);
         const series = dailyMap.get(id) || {};
         const normalized = granularity === "month" ? groupSeriesByMonth(series) : series;
         return {
-          advisorUserId: display.advisorUserId,
-          name: display.name,
+          advisorUserId: Number(id),
+          name: nameMap.get(id) || `ID:${id}`,
           series: normalized,
         };
       });

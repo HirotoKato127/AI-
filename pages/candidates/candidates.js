@@ -50,6 +50,7 @@ const filterConfig = [
   { id: "candidatesFilterName", event: "input" },
   { id: "candidatesFilterCompany", event: "change" },
   { id: "candidatesFilterAdvisor", event: "change" },
+  { id: "candidatesFilterCs", event: "change" },
   { id: "candidatesFilterValid", event: "change" },
   { id: "candidatesFilterPhase", event: "change" },
   { id: "candidatesFilterCsStatus", event: "change" },
@@ -211,6 +212,9 @@ function normalizeCsStatusOption(value) {
 // CSステータス同期用の定数 (teleapo.js と共通)
 const CANDIDATES_CS_STATUS_STORAGE_KEY = 'candidates_custom_cs_statuses';
 const CANDIDATES_CS_STATUS_DELETED_KEY = 'candidates_deleted_default_cs_statuses';
+const CANDIDATES_CS_STATUS_SYSTEM_KEY = 'CS_STATUS';
+let csStatusOptionsLoadPromise = null;
+let csStatusStorageListener = null;
 
 function readCsStatusStorage() {
   const custom = new Set();
@@ -232,17 +236,92 @@ function readCsStatusStorage() {
   return { custom, deleted };
 }
 
-function rememberCsStatusOption(value) {
+function syncCsStatusManageStateFromStorage() {
+  const { custom, deleted } = readCsStatusStorage();
+  customCsStatusOptions.clear();
+  deletedDefaultCsStatuses.clear();
+  custom.forEach((value) => {
+    const normalized = normalizeCsStatusOption(value);
+    if (normalized) customCsStatusOptions.add(normalized);
+  });
+  deleted.forEach((value) => {
+    const normalized = normalizeCsStatusOption(value);
+    if (normalized) deletedDefaultCsStatuses.add(normalized);
+  });
+}
+
+async function fetchCsStatusOptionsFromApi() {
+  try {
+    const res = await fetch(`${PRIMARY_API_BASE}/system-options?key=${encodeURIComponent(CANDIDATES_CS_STATUS_SYSTEM_KEY)}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const options = data?.item || data?.options || {};
+    const custom = Array.isArray(options.custom) ? options.custom : [];
+    const deleted = Array.isArray(options.deleted) ? options.deleted : [];
+
+    customCsStatusOptions.clear();
+    deletedDefaultCsStatuses.clear();
+    custom.forEach((value) => {
+      const normalized = normalizeCsStatusOption(value);
+      if (normalized) customCsStatusOptions.add(normalized);
+    });
+    deleted.forEach((value) => {
+      const normalized = normalizeCsStatusOption(value);
+      if (normalized) deletedDefaultCsStatuses.add(normalized);
+    });
+
+    saveCsStatusManageState();
+    refreshAllCsStatusSelects();
+    renderCsStatusManageList();
+  } catch (err) {
+    console.error('CSステータスのAPI取得に失敗しました', err);
+  }
+}
+
+function ensureCsStatusOptionsLoaded({ force = false } = {}) {
+  if (force) csStatusOptionsLoadPromise = null;
+  if (csStatusOptionsLoadPromise) return csStatusOptionsLoadPromise;
+  csStatusOptionsLoadPromise = fetchCsStatusOptionsFromApi()
+    .catch((err) => {
+      console.error('CSステータス取得エラー:', err);
+    });
+  return csStatusOptionsLoadPromise;
+}
+
+async function persistCsStatusManageStateToApi() {
+  try {
+    const payload = {
+      key: CANDIDATES_CS_STATUS_SYSTEM_KEY,
+      options: {
+        custom: Array.from(customCsStatusOptions),
+        deleted: Array.from(deletedDefaultCsStatuses)
+      }
+    };
+    const res = await fetch(`${PRIMARY_API_BASE}/system-options`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (err) {
+    console.error('CSステータスのAPI登録に失敗しました', err);
+  }
+}
+
+function rememberCsStatusOption(value, { allowRestore = false } = {}) {
   const normalized = normalizeCsStatusOption(value);
   if (!normalized) return "";
 
   const { custom, deleted } = readCsStatusStorage();
 
-  // 削除済みリストにあれば復元、そうでなければカスタムに追加
+  // 削除済みを自動復元しない（ユーザーの明示操作のみ復元）
   if (deleted.has(normalized)) {
+    if (!allowRestore) return normalized;
     deleted.delete(normalized);
     localStorage.setItem(CANDIDATES_CS_STATUS_DELETED_KEY, JSON.stringify(Array.from(deleted)));
-  } else if (!PREDEFINED_CS_STATUS_OPTIONS.includes(normalized)) {
+  }
+
+  if (!PREDEFINED_CS_STATUS_OPTIONS.includes(normalized)) {
     custom.add(normalized);
     localStorage.setItem(CANDIDATES_CS_STATUS_STORAGE_KEY, JSON.stringify(Array.from(custom)));
   }
@@ -270,13 +349,20 @@ function buildCsStatusOptions(selectedValue = "") {
   (allCandidates || []).forEach((candidate) => {
     append(normalizeCsStatusOption(candidate?.csStatus ?? candidate?.cs_status));
   });
-  // 5. 現在選択中の値
-  if (selected) append(selected);
 
   const list = Array.from(values).sort((a, b) => a.localeCompare(b, "ja"));
   const options = [{ value: "", label: "未設定" }].concat(
     list.map((value) => ({ value, label: value }))
   );
+
+  if (selected && !list.includes(selected) && !deleted.has(selected)) {
+    options.push({ value: selected, label: selected });
+  }
+
+  // 削除済みだが現在値に使われているものは、選択肢に復活（表示のみ）
+  if (selected && deleted.has(selected) && !list.includes(selected)) {
+    options.push({ value: selected, label: `${selected} (削除済み)`, disabled: true });
+  }
 
   return options.map((option) => ({
     ...option,
@@ -538,7 +624,7 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
       row.closeExpectedDate ??
       row.closing_plan_date ??
       null,
-    feeAmount: row.feeAmount ?? row.fee_amount ?? "",
+    feeAmount: row.feeAmount ?? row.fee_amount ?? row.fee ?? "",
     selectionNote: row.selectionNote ?? row.selection_note ?? "",
     status: row.status ?? row.stage_current ?? "",
   }));
@@ -762,6 +848,38 @@ function findClientByName(name) {
   return null;
 }
 
+async function fetchClientIdByNameFromApi(name) {
+  const rawName = String(name ?? "").trim();
+  if (!rawName) return null;
+  try {
+    const res = await fetch(`${CANDIDATES_API_BASE}/clients?name=${encodeURIComponent(rawName)}`);
+    if (!res.ok) return null;
+    const results = await res.json();
+    if (!Array.isArray(results) || results.length === 0) return null;
+
+    // Merge into clientList for later lookups
+    results.forEach((item) => {
+      const id = item?.id ?? item?.ID;
+      const nameVal = item?.name ?? item?.companyName ?? item?.company_name;
+      if (!id || !nameVal) return;
+      const exists = clientList.some((c) => String(c.id) === String(id));
+      if (!exists) clientList.push({ id, name: nameVal });
+    });
+
+    const key = normalizeClientNameKey(rawName);
+    const exact = results.find((item) => {
+      const n = item?.name ?? item?.companyName ?? item?.company_name ?? "";
+      return normalizeClientNameKey(n) === key;
+    });
+    if (exact?.id) return exact.id;
+
+    if (results.length === 1 && results[0]?.id) return results[0].id;
+  } catch (err) {
+    console.warn("fetchClientIdByNameFromApi failed:", err);
+  }
+  return null;
+}
+
 function findClientById(id) {
   if (id === null || id === undefined || id === "") return null;
   const needle = String(id);
@@ -783,6 +901,9 @@ async function ensureClientIdByName(name) {
 
   const existing = findClientByName(rawName);
   if (existing?.id) return existing.id;
+
+  const apiResolved = await fetchClientIdByNameFromApi(rawName);
+  if (apiResolved) return apiResolved;
 
   const key = normalizeClientNameKey(rawName);
   if (!key) return null;
@@ -876,6 +997,40 @@ function normalizeMoneyNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+const MONEY_MAN_UNIT = 10000;
+
+function convertManToYen(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const parsed = Number(String(value).replace(/,/g, ""));
+  if (!Number.isFinite(parsed)) return null;
+  return Math.round(parsed * MONEY_MAN_UNIT);
+}
+
+function formatMoneyInputToMan(value) {
+  if (value === "" || value === null || value === undefined) return "";
+  const parsed = Number(String(value).replace(/,/g, ""));
+  if (!Number.isFinite(parsed)) return value;
+  if (Math.abs(parsed) >= MONEY_MAN_UNIT) {
+    const man = parsed / MONEY_MAN_UNIT;
+    const rounded = Math.round(man * 100) / 100;
+    return String(rounded);
+  }
+  return String(parsed);
+}
+
+function isMoneyInputField(fieldPath, sectionKey) {
+  if (!fieldPath) return false;
+  const key = fieldPath.split(".").slice(-1)[0];
+  if (sectionKey === "money") return key === "feeAmount" || key === "refundAmount";
+  if (sectionKey === "selection") return key === "fee";
+  return false;
+}
+
+function normalizeMoneyInputValue(value, fieldPath, sectionKey) {
+  if (!isMoneyInputField(fieldPath, sectionKey)) return value;
+  return convertManToYen(value);
+}
+
 function normalizeMoneyBoolean(value) {
   if (value === "" || value === null || value === undefined) return null;
   if (value === true || value === "true" || value === 1 || value === "1") return true;
@@ -917,8 +1072,8 @@ function syncMoneyInfoFromSelectionProgress(candidate) {
     next.companyName = companyName;
     next.company_name = companyName;
 
-    if (hasOwn(row, "feeAmount") || hasOwn(row, "fee_amount")) {
-      const feeAmount = normalizeMoneyNumber(row.feeAmount ?? row.fee_amount);
+    if (hasOwn(row, "feeAmount") || hasOwn(row, "fee_amount") || hasOwn(row, "fee")) {
+      const feeAmount = normalizeMoneyNumber(row.feeAmount ?? row.fee_amount ?? row.fee);
       next.feeAmount = feeAmount;
       next.fee_amount = feeAmount;
     }
@@ -1034,6 +1189,18 @@ function buildBooleanOptions(value, { trueLabel = "報告済み", falseLabel = "
 // =========================
 export function mount() {
   loadCsStatusManageState(); // ローカルストレージから削除済みステータス等を復元
+  void ensureCsStatusOptionsLoaded({ force: true }); // 架電管理の最新CSステータスを取得（強制更新）
+
+  if (!csStatusStorageListener) {
+    csStatusStorageListener = (event) => {
+      if (!event || !event.key) return;
+      if (![CANDIDATES_CS_STATUS_STORAGE_KEY, CANDIDATES_CS_STATUS_DELETED_KEY].includes(event.key)) return;
+      syncCsStatusManageStateFromStorage();
+      refreshAllCsStatusSelects();
+      renderCsStatusManageList();
+    };
+    window.addEventListener("storage", csStatusStorageListener);
+  }
 
   initializeCandidatesFilters();
   initializeSortControl();
@@ -1120,11 +1287,11 @@ function initializeCandidatesFilters() {
   const resetButton = document.getElementById("candidatesFilterReset");
   if (resetButton) resetButton.addEventListener("click", handleFilterReset);
 
-  // フェーズフィルターの初期化（固定値）
-  setFilterSelectOptions("candidatesFilterPhase", PHASE_ORDER);
+  // フェーズフィルターの初期化（一覧の内容に合わせて後で更新）
+  setFilterSelectOptions("candidatesFilterPhase", []);
 
-  // CSステータスフィルターの初期化（事前定義オプション）
-  setFilterSelectOptions("candidatesFilterCsStatus", PREDEFINED_CS_STATUS_OPTIONS);
+  // CSステータスフィルターの初期化（保存済み/削除済みを反映）
+  refreshAllCsStatusSelects();
 }
 
 async function loadFilterMasters() {
@@ -1145,27 +1312,54 @@ async function loadFilterMasters() {
 
     if (sources.length) setFilterSelectOptions("candidatesFilterSource", sources);
     if (companies.length) setFilterSelectOptions("candidatesFilterCompany", companies);
-    if (advisors.length) setFilterSelectOptions("candidatesFilterAdvisor", advisors);
+    const facetsCsUsers = Array.isArray(json.csUsers) ? json.csUsers : [];
+
+    let masterDataUsers = Array.isArray(json.users) ? json.users : null;
+    
+    if (!masterDataUsers) {
+      try {
+        const listRes = await fetch(candidatesApi(`${CANDIDATES_LIST_PATH}?limit=1`));
+        if (listRes.ok) {
+          const listJson = await listRes.json();
+          if (listJson.items && listJson.items.length > 0) {
+            const sampleId = listJson.items[0].id;
+            const detailRes = await fetch(candidatesApi(`${CANDIDATES_LIST_PATH}/${sampleId}?includeMaster=true`));
+            if (detailRes.ok) {
+              const detailJson = await detailRes.json();
+              if (detailJson && detailJson.masters && Array.isArray(detailJson.masters.users)) {
+                 masterDataUsers = detailJson.masters.users;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Fallback master user fetch failed:", e);
+      }
+    }
+
+    if (Array.isArray(masterDataUsers)) {
+      masterUsers = masterDataUsers;
+      const filteredAdvisors = masterDataUsers.filter(u => u.role === 'advisor' && u.active !== false).map(u => u.name);
+      const filteredCsUsers = masterDataUsers.filter(u => u.role === 'caller' && u.active !== false).map(u => u.name);
+      if (filteredAdvisors.length) setFilterSelectOptions("candidatesFilterAdvisor", filteredAdvisors);
+      if (filteredCsUsers.length) setFilterSelectOptions("candidatesFilterCs", filteredCsUsers);
+    } else {
+      if (advisors.length) {
+        setFilterSelectOptions("candidatesFilterAdvisor", advisors);
+      }
+      if (facetsCsUsers.length || advisors.length) {
+        setFilterSelectOptions("candidatesFilterCs", facetsCsUsers.length ? facetsCsUsers : advisors);
+      }
+    }
     if (csStatuses.length) {
       masterCsStatusOptions = buildUniqueValues(csStatuses);
       masterCsStatusOptions.forEach((status) => rememberCsStatusOption(status));
     }
     // 事前定義オプションを常に追加する
     PREDEFINED_CS_STATUS_OPTIONS.forEach((status) => rememberCsStatusOption(status));
-    const allCsStatuses = buildUniqueValues([
-      ...PREDEFINED_CS_STATUS_OPTIONS,
-      ...(masterCsStatusOptions || []),
-    ]);
-    setFilterSelectOptions("candidatesFilterCsStatus", allCsStatuses);
+    refreshAllCsStatusSelects();
 
-    if (phases.length) {
-      const uniquePhases = buildUniqueValues(phases);
-      const orderedPhases = [
-        ...PHASE_ORDER.filter((phase) => uniquePhases.includes(phase)),
-        ...uniquePhases.filter((phase) => !PHASE_ORDER.includes(phase)),
-      ];
-      setFilterSelectOptions("candidatesFilterPhase", orderedPhases);
-    }
+    // フェーズは一覧の内容に合わせて更新するため、ここでは設定しない
   } catch (e) {
     // ignore
   }
@@ -1265,14 +1459,21 @@ async function loadCandidatesData(filtersOverride = {}) {
       });
     }
     // Server-side filtering/paging: keep current page as-is, but allow local sort.
-    filteredCandidates = sortCandidates(allCandidates.slice(), currentSortKey, currentSortOrder);
+    const phaseFiltered = filters.phase
+      ? applyCandidatesFilters(allCandidates, { phase: filters.phase })
+      : allCandidates;
+    filteredCandidates = sortCandidates(phaseFiltered.slice(), currentSortKey, currentSortOrder);
+    updatePhaseFilterOptionsFromList(filteredCandidates);
     pendingInlineUpdates = {};
 
     renderCandidatesTable(filteredCandidates);
     updateHeaderSortStyles();
-    listTotal = Number(result.total ?? filteredCandidates.length ?? 0);
-    updateCandidatesCount(listTotal);
-    renderCandidatesPagination({ total: listTotal, page: listPage, pageSize: LIST_PAGE_SIZE, count: filteredCandidates.length });
+    const totalCount = filters.phase
+      ? filteredCandidates.length
+      : Number(result.total ?? filteredCandidates.length ?? 0);
+    listTotal = totalCount;
+    updateCandidatesCount(totalCount);
+    renderCandidatesPagination({ total: totalCount, page: listPage, pageSize: LIST_PAGE_SIZE, count: filteredCandidates.length });
     if (screeningRules) {
       void hydrateValidApplicationsFromDetail(filteredCandidates);
     }
@@ -1481,6 +1682,7 @@ function collectFilters() {
     name: getElementValue("candidatesFilterName"),
     company: getElementValue("candidatesFilterCompany"),
     advisor: getElementValue("candidatesFilterAdvisor"),
+    cs: getElementValue("candidatesFilterCs"),
     valid: getElementValue("candidatesFilterValid"),
     phase: getElementValue("candidatesFilterPhase"),
     csStatus: getElementValue("candidatesFilterCsStatus"),
@@ -1823,9 +2025,10 @@ function buildCandidatesQuery(filters, { limit = LIST_PAGE_SIZE, offset = 0, vie
   if (filters.startDate) p.set("from", filters.startDate);
   if (filters.endDate) p.set("to", filters.endDate);
   if (filters.source) p.set("source", filters.source);
-  if (filters.phase) p.set("phase", filters.phase);
+  // phaseは表示フェーズ（クライアント計算）なのでローカルフィルタで扱う
   if (filters.csStatus) p.set("csStatus", filters.csStatus);
   if (filters.advisor) p.set("advisor", filters.advisor);
+  if (filters.cs) p.set("cs", filters.cs);
   if (filters.name) p.set("name", filters.name);
   if (filters.company) p.set("company", filters.company);
   if (filters.valid) p.set("valid", filters.valid);
@@ -1842,6 +2045,7 @@ function hasActiveFilters(filters) {
     || filters.source
     || filters.phase
     || filters.advisor
+    || filters.cs
     || filters.name
     || filters.company
     || filters.valid
@@ -1916,6 +2120,7 @@ function applyCandidatesFilters(list, filters) {
     if (filters.name && !includesFilterText(candidate.candidateName, filters.name)) return false;
     if (filters.company && !matchesSelectValue(getCandidateCompanyName(candidate), filters.company)) return false;
     if (filters.advisor && !matchesSelectValue(getCandidateAdvisorName(candidate), filters.advisor)) return false;
+    if (filters.cs && !matchesSelectValue(candidate.csName, filters.cs)) return false;
     if (filters.source && !matchesSelectValue(getCandidateSourceName(candidate), filters.source)) return false;
 
     if (validTarget) {
@@ -1990,15 +2195,30 @@ function updateFilterSelectOptions(list) {
     if (Array.isArray(phaseList)) phases.push(...phaseList);
   });
 
-  const uniquePhases = buildUniqueValues(phases);
+  const uniquePhases = buildUniqueValues([...PHASE_ORDER, ...phases]);
   const orderedPhases = [
-    ...PHASE_ORDER.filter((phase) => uniquePhases.includes(phase)),
+    ...PHASE_ORDER,
     ...uniquePhases.filter((phase) => !PHASE_ORDER.includes(phase)),
   ];
 
   setFilterSelectOptions("candidatesFilterSource", buildUniqueValues(sources));
   setFilterSelectOptions("candidatesFilterCompany", buildUniqueValues(companies));
   setFilterSelectOptions("candidatesFilterAdvisor", buildUniqueValues(advisors));
+  setFilterSelectOptions("candidatesFilterPhase", orderedPhases);
+}
+
+function updatePhaseFilterOptionsFromList(list) {
+  const phases = [];
+  list.forEach((candidate) => {
+    const phaseList = getCandidatePhaseList(candidate);
+    if (Array.isArray(phaseList)) phases.push(...phaseList);
+  });
+
+  const uniquePhases = buildUniqueValues(phases);
+  const orderedPhases = [
+    ...PHASE_ORDER.filter((phase) => uniquePhases.includes(phase)),
+    ...uniquePhases.filter((phase) => !PHASE_ORDER.includes(phase)),
+  ];
   setFilterSelectOptions("candidatesFilterPhase", orderedPhases);
 }
 
@@ -2111,7 +2331,6 @@ async function loadCandidatesCalendarData(filtersOverride = {}) {
       if (filters.source) qs.set("source", filters.source);
       if (filters.company) qs.set("company", filters.company);
       if (filters.advisor) qs.set("advisor", filters.advisor);
-      if (filters.phase) qs.set("phase", filters.phase);
       if (filters.valid) qs.set("valid", filters.valid);
 
       const url = candidatesApi(`${CANDIDATES_LIST_PATH}?${qs.toString()}`);
@@ -2131,7 +2350,9 @@ async function loadCandidatesCalendarData(filtersOverride = {}) {
       if (items.length >= total) break;
     }
 
-    calendarCandidates = items;
+    calendarCandidates = filters.phase
+      ? applyCandidatesFilters(items, { phase: filters.phase })
+      : items;
     renderNextActionCalendar(calendarCandidates);
   } catch (e) {
     console.error("カレンダーデータの取得に失敗しました。", e);
@@ -2255,9 +2476,9 @@ function buildTableRow(candidate) {
       ${renderTextCell(candidate, "csStatus")}
       
       ${renderTextCell(candidate, "source", {
-        readOnly: true,
-        format: (_, row) => getCandidateSourceName(row),
-      })}
+    readOnly: true,
+    format: (_, row) => getCandidateSourceName(row),
+  })}
 
       ${renderCheckboxCell(candidate, "validApplication", "有効応募")}
       ${renderCandidateNameCell(candidate)}
@@ -2481,7 +2702,7 @@ function handleInlineCsStatusOptionAdd(button) {
   const value = normalizeCsStatusOption(input?.value);
   if (!value || !select) return;
 
-  rememberCsStatusOption(value);
+  rememberCsStatusOption(value, { allowRestore: true });
   const exists = Array.from(select.options || []).some((option) => String(option.value) === value);
   if (!exists) {
     const option = document.createElement("option");
@@ -2545,10 +2766,10 @@ async function handleInlineCsStatusSave(button) {
 function renderTextCell(candidate, field, options = {}) {
   const raw = candidate[field] ?? "";
 
-  // CSステータスは常にプルダウンで表示して即時変更できるようにする
+  // CSステータスは候補者管理では編集不可（架電管理画面のステータスを表示のみ）
   if (field === "csStatus" || field === "cs_status") {
-    const optionsHtml = buildCsStatusOptionsHtml(raw);
-    return `<td class="candidate-cs-status-cell"><select class="table-inline-input candidate-cs-status-select" data-field="csStatus" data-cs-status-select-edit>${optionsHtml}</select></td>`;
+    const display = normalizeCsStatusOption(raw) || "-";
+    return `<td class="candidate-cs-status-cell"><span class="candidate-cs-status-value">${escapeHtml(display)}</span></td>`;
   }
 
   if (!candidatesEditMode || options.readOnly) {
@@ -2577,6 +2798,7 @@ function renderTextCell(candidate, field, options = {}) {
 function renderCsStatusManageList() {
   const listEl = document.getElementById("csStatusManageList");
   if (!listEl) return;
+  syncCsStatusManageStateFromStorage();
 
   // 表示するオプション（事前定義 + ユーザー追加）から削除済みのものを除外
   const activePredefined = PREDEFINED_CS_STATUS_OPTIONS.filter(s => !deletedDefaultCsStatuses.has(s));
@@ -2654,8 +2876,9 @@ function handleCsStatusManageAdd() {
 
   customCsStatusOptions.add(value);
   deletedDefaultCsStatuses.delete(value); // もし削除済みリストにあれば復帰させる
-  rememberCsStatusOption(value);
+  rememberCsStatusOption(value, { allowRestore: true });
   saveCsStatusManageState(); // 保存
+  void persistCsStatusManageStateToApi();
   input.value = "";
 
   // パネルのリストを再描画
@@ -2674,6 +2897,7 @@ function handleCsStatusManageDelete(status) {
   }
   deletedDefaultCsStatuses.add(status);
   saveCsStatusManageState(); // 保存
+  void persistCsStatusManageStateToApi();
 
   // パネルのリストを再描画
   renderCsStatusManageList();
@@ -2683,6 +2907,7 @@ function handleCsStatusManageDelete(status) {
 }
 
 function refreshAllCsStatusSelects() {
+  syncCsStatusManageStateFromStorage();
   // テーブル内の全CSステータスselectの選択肢を再構築する
   const selects = document.querySelectorAll("[data-cs-status-select-edit]");
   selects.forEach((select) => {
@@ -2693,12 +2918,24 @@ function refreshAllCsStatusSelects() {
     select.innerHTML = buildCsStatusOptionsHtml(currentValue);
   });
 
+  // 詳細パネル内のCSステータスselectも更新
+  const detailSelects = document.querySelectorAll(
+    'select[data-detail-field="csStatus"], select[data-detail-field="cs_status"]'
+  );
+  detailSelects.forEach((select) => {
+    const currentValue = select.value ?? "";
+    select.innerHTML = buildCsStatusOptionsHtml(currentValue);
+    if (currentValue) select.value = currentValue;
+  });
+
   // フィルタープルダウンも更新
   const activePredefined = PREDEFINED_CS_STATUS_OPTIONS.filter(s => !deletedDefaultCsStatuses.has(s));
   const activeCustom = Array.from(customCsStatusOptions).filter(s => !deletedDefaultCsStatuses.has(s));
+  const activeMaster = (masterCsStatusOptions || []).filter(s => !deletedDefaultCsStatuses.has(s));
   const allCsStatuses = buildUniqueValues([
     ...activePredefined,
     ...activeCustom,
+    ...activeMaster,
   ]);
   setFilterSelectOptions("candidatesFilterCsStatus", allCsStatuses);
 }
@@ -2716,14 +2953,7 @@ function saveCsStatusManageState() {
 // 状態をLocalStorageから復元するヘルパー
 function loadCsStatusManageState() {
   try {
-    const savedCustom = localStorage.getItem('candidates_custom_cs_statuses');
-    if (savedCustom) {
-      JSON.parse(savedCustom).forEach(s => customCsStatusOptions.add(s));
-    }
-    const savedDeleted = localStorage.getItem('candidates_deleted_default_cs_statuses');
-    if (savedDeleted) {
-      JSON.parse(savedDeleted).forEach(s => deletedDefaultCsStatuses.add(s));
-    }
+    syncCsStatusManageStateFromStorage();
   } catch (e) {
     console.warn("Failed to load CS status options from localStorage", e);
   }
@@ -2742,8 +2972,7 @@ async function toggleCandidatesEditMode() {
     button.classList.toggle("is-active", candidatesEditMode);
   }
 
-  // CSステータス管理パネルの表示・非表示を切り替える
-  toggleCsStatusManagePanel(candidatesEditMode);
+  // CSステータス管理パネルは候補者管理では使用しない（架電管理で管理）
 
   // テーブル再描画（他の編集フィールドのため）
   renderCandidatesTable(filteredCandidates);
@@ -3522,6 +3751,9 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
         value = value === "true" || value === true;
       }
 
+      const sectionKey = input.dataset.detailSection;
+      value = normalizeMoneyInputValue(value, path, sectionKey);
+
       updateCandidateFieldValue(candidate, path, value);
 
       // 特殊フィールドの同期
@@ -3578,8 +3810,15 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
         };
         const mappedKey = keyMap[key] || key;
 
-        newData[mappedKey] = input.value;
-        if (input.value) hasInput = true;
+        let rawValue = input.value;
+        if (input.dataset.valueType === "number") {
+          rawValue = rawValue === "" ? null : Number(rawValue);
+        }
+        if (["fee", "feeAmount", "refundAmount"].includes(mappedKey)) {
+          rawValue = convertManToYen(rawValue);
+        }
+        newData[mappedKey] = rawValue;
+        if (rawValue !== "" && rawValue !== null && rawValue !== undefined) hasInput = true;
       });
 
       const fixedRoute = getCandidateSourceName(candidate);
@@ -4116,6 +4355,11 @@ function cleanupCandidatesEventListeners() {
   });
   detailContentHandlers.click = null;
   detailContentHandlers.input = null;
+
+  if (csStatusStorageListener) {
+    window.removeEventListener("storage", csStatusStorageListener);
+    csStatusStorageListener = null;
+  }
 }
 
 // ====== Detail Content Handlers ======
@@ -4207,7 +4451,7 @@ function handleAddCsStatusOption(button) {
   const value = normalizeCsStatusOption(input?.value);
   if (!value) return;
 
-  rememberCsStatusOption(value);
+  rememberCsStatusOption(value, { allowRestore: true });
 
   if (select) {
     const exists = Array.from(select.options || []).some((option) => String(option.value) === value);
@@ -4565,6 +4809,9 @@ function handleDetailFieldChange(event) {
     }
   }
 
+  const sectionKey = target.dataset.detailSection;
+  value = normalizeMoneyInputValue(value, fieldPath, sectionKey);
+
   updateCandidateFieldValue(candidate, fieldPath, value);
 
   if (fieldPath === "attendanceConfirmed") {
@@ -4641,6 +4888,13 @@ function handleDetailFieldChange(event) {
     const index = Number(selectionMatch[1]);
     const row = candidate.selectionProgress?.[index];
     if (row) {
+      if (fieldPath.endsWith(".companyName") || fieldPath.endsWith(".company_name")) {
+        const resolved = findClientByName(row.companyName);
+        if (resolved?.id) {
+          row.clientId = resolved.id;
+          row.client_id = resolved.id;
+        }
+      }
       if (fieldPath.endsWith(".clientId")) {
         row.companyName = resolveClientName(row.clientId);
       }
@@ -4939,10 +5193,9 @@ function renderHearingSection(candidate) {
     {
       label: "CSステータス",
       value: candidate.csStatus ?? "",
-      input: "select",
-      options: buildCsStatusOptions(candidate.csStatus ?? ""),
-      path: "csStatus",
       span: 3,
+      editable: false,
+      displayFormatter: (v) => normalizeCsStatusOption(v) || "-",
     },
     {
       label: "架電メモ",
@@ -5074,7 +5327,7 @@ function renderSelectionProgressSection(candidate) {
              <div>
                 <label class="block text-xs font-medium text-slate-500 mb-1">FEE (万円)</label>
                 <div class="relative">
-                  ${renderTableInput(r.fee, `${pathPrefix}.fee`, "number", "selection")}
+                  ${renderTableInput(formatMoneyInputToMan(r.fee), `${pathPrefix}.fee`, "number", "selection", "number")}
                   <span class="absolute right-2 top-1.5 text-xs text-slate-400">万</span>
                 </div>
              </div>
@@ -5436,6 +5689,12 @@ function renderMoneySection(candidate) {
     return null;
   };
 
+  const toAmount = (value) => {
+    if (value === null || value === undefined || value === "") return 0;
+    const num = Number(String(value).replace(/,/g, ""));
+    return Number.isFinite(num) ? num : 0;
+  };
+
   // 受注情報の抽出 (内定承諾 or 入社 or 入社後辞退)
   const orderRows = progress
     .map((item, index) => ({ ...item, originalIndex: index }))
@@ -5458,12 +5717,15 @@ function renderMoneySection(candidate) {
     const feeAmount = resolveMoneyValue(row, ["feeAmount", "fee_amount"]);
     const orderDate = resolveMoneyValue(row, ["orderDate", "order_date"]);
     const orderReported = resolveMoneyValue(row, ["orderReported", "order_reported"]);
+    const refundAmount = resolveMoneyValue(row, ["refundAmount", "refund_amount"]);
+    const netAmount = toAmount(feeAmount) - toAmount(refundAmount);
+    const isRecognized = Boolean(orderDate);
 
     // 編集中かつ、まだ確定していない(編集中は常に編集可で良いか)
     const canEdit = editing;
 
     const feeCell = canEdit
-      ? renderTableInput(feeAmount, `selectionProgress.${idx}.feeAmount`, "number", "money", "number")
+      ? renderTableInput(formatMoneyInputToMan(feeAmount), `selectionProgress.${idx}.feeAmount`, "number", "money", "number")
       : `<span class="detail-value">${escapeHtml(formatMoneyToMan(feeAmount))}</span>`;
 
     const reportCell = canEdit
@@ -5475,11 +5737,16 @@ function renderMoneySection(candidate) {
       ? renderTableInput(orderDate, `selectionProgress.${idx}.orderDate`, "date", "money")
       : `<span class="detail-value">${escapeHtml(formatDateJP(orderDate))}</span>`;
 
+    const recognizedCell = renderBooleanPill(isRecognized, { trueLabel: "計上済", falseLabel: "未計上" });
+    const netCell = `<span class="detail-value">${escapeHtml(formatMoneyToMan(netAmount))}</span>`;
+
     return `
       <tr>
         <td><span class="detail-value">${escapeHtml(formatDisplayValue(row.companyName))}</span></td>
         <td>${feeCell}</td>
+        <td>${netCell}</td>
         <td>${orderDateCell}</td>
+        <td class="text-center">${recognizedCell}</td>
         <td class="text-center">${reportCell}</td>
       </tr>
     `;
@@ -5498,7 +5765,7 @@ function renderMoneySection(candidate) {
     const canEdit = editing;
 
     const amountCell = canEdit
-      ? renderTableInput(refundAmount, `selectionProgress.${idx}.refundAmount`, "number", "money", "number")
+      ? renderTableInput(formatMoneyInputToMan(refundAmount), `selectionProgress.${idx}.refundAmount`, "number", "money", "number")
       : `<span class="detail-value">${escapeHtml(formatMoneyToMan(refundAmount))}</span>`;
 
     const reportCell = canEdit
@@ -5523,22 +5790,89 @@ function renderMoneySection(candidate) {
 
   const orderBody = orderRows.length > 0
     ? orderRows.map(renderOrderRow).join("")
-    : `<tr><td colspan="4" class="detail-empty-row text-center py-3">受注対象の案件はありません。</td></tr>`;
+    : `<tr><td colspan="6" class="detail-empty-row text-center py-3">受注対象の案件はありません。</td></tr>`;
 
   const refundBody = refundRows.length > 0
     ? refundRows.map(renderRefundRow).join("")
     : `<tr><td colspan="6" class="detail-empty-row text-center py-3">返金・減額対象の案件はありません。</td></tr>`;
 
+  const summaryTotals = (() => {
+    let totalFee = 0;
+    let totalRefund = 0;
+    let recognizedFee = 0;
+    let recognizedRefund = 0;
+
+    progress.forEach((row) => {
+      const feeAmount = resolveMoneyValue(row, ["feeAmount", "fee_amount"]);
+      const refundAmount = resolveMoneyValue(row, ["refundAmount", "refund_amount"]);
+      const orderDate = resolveMoneyValue(row, ["orderDate", "order_date"]);
+      const withdrawDate = resolveMoneyValue(row, ["withdrawDate", "withdraw_date"]);
+
+      totalFee += toAmount(feeAmount);
+      totalRefund += toAmount(refundAmount);
+
+      if (orderDate) recognizedFee += toAmount(feeAmount);
+      if (withdrawDate) recognizedRefund += toAmount(refundAmount);
+    });
+
+    return {
+      totalFee,
+      totalRefund,
+      netTotal: totalFee - totalRefund,
+      recognizedNet: recognizedFee - recognizedRefund,
+    };
+  })();
+
+  const summaryFields = [
+    { label: "受注合計 (万円)", value: summaryTotals.totalFee, displayFormatter: formatMoneyToMan, span: 2, editable: false },
+    { label: "返金合計 (万円)", value: summaryTotals.totalRefund, displayFormatter: formatMoneyToMan, span: 2, editable: false },
+    { label: "収支 (万円)", value: summaryTotals.netTotal, displayFormatter: formatMoneyToMan, span: 2, editable: false },
+    { label: "計上済み収支 (万円)", value: summaryTotals.recognizedNet, displayFormatter: formatMoneyToMan, span: 2, editable: false },
+  ];
+
+  const summaryHtml = renderDetailGridFields(summaryFields, "money");
+  const hasMoneyRows = orderRows.length > 0 || refundRows.length > 0;
+  const orderConfirmed = hasMoneyRows
+    ? orderRows.some((row) => Boolean(resolveMoneyValue(row, ["orderReported", "order_reported"])))
+    : null;
+  const revenueConverted = hasMoneyRows
+    ? orderRows.some((row) => Boolean(resolveMoneyValue(row, ["orderDate", "order_date"])))
+    : null;
+  const advisorMissing = !candidate?.advisorUserId;
+  const advisorWarningHtml = advisorMissing
+    ? `<div class="money-warning">担当アドバイザーが設定されていないので、売り上げに計上されていません。</div>`
+    : "";
+  const statusHtml = `
+    <div class="money-status-row">
+      <div class="money-status-item">
+        <span class="money-status-label">受注確定</span>
+        ${renderBooleanPill(orderConfirmed, { trueLabel: "確定", falseLabel: "未確定" })}
+      </div>
+      <div class="money-status-item">
+        <span class="money-status-label">売上計上</span>
+        ${renderBooleanPill(revenueConverted, { trueLabel: "計上済", falseLabel: "未計上" })}
+      </div>
+    </div>
+  `;
+
   const orderTable = `
+    <div class="detail-table-wrapper mb-4">
+      <h5 class="font-bold mb-2 text-slate-700">候補者別収支サマリー</h5>
+      ${summaryHtml}
+      ${advisorWarningHtml}
+      ${statusHtml}
+    </div>
     <div class="detail-table-wrapper mb-6">
       <h5 class="font-bold mb-2 text-slate-700">入社承諾後（売上）</h5>
       <table class="detail-table">
         <thead>
           <tr>
-            <th class="w-1/4">企業名</th>
-            <th class="w-1/4">受注金額（税抜）</th>
-            <th class="w-1/4">受注日</th>
-            <th class="w-1/4 text-center">受注報告</th>
+            <th class="w-1/5">企業名</th>
+            <th class="w-1/5">受注金額（税抜）</th>
+            <th class="w-1/5">収支 (万円)</th>
+            <th class="w-1/5">受注日</th>
+            <th class="w-1/5 text-center">売上計上</th>
+            <th class="w-1/5 text-center">受注報告</th>
           </tr>
         </thead>
         <tbody>${orderBody}</tbody>
@@ -5553,7 +5887,7 @@ function renderMoneySection(candidate) {
         <thead>
           <tr>
             <th class="w-1/6">企業名</th>
-            <th class="w-1/6">返金・減額（税抜）</th>
+            <th class="w-1/6">返金・減額 (万円)</th>
             <th class="w-1/6">返金日</th>
             <th class="w-1/6">退職/辞退日</th>
             <th class="w-1/6">区分</th>
@@ -5576,7 +5910,7 @@ function renderMoneySection(candidate) {
 function renderAfterAcceptanceSection(candidate) {
   const data = candidate.afterAcceptance || {};
   const fields = [
-    { label: "受注金額（税抜）", value: data.amount, span: 3, displayFormatter: formatMoneyToMan },
+    { label: "受注金額 (万円)", value: data.amount, span: 3, displayFormatter: formatMoneyToMan },
     { label: "職種", value: data.jobCategory, span: 3 },
   ];
   const reportStatuses =
@@ -5614,7 +5948,7 @@ function renderRefundSection(candidate) {
     < div class="detail-table-wrapper" >
       <table class="detail-table">
         <thead>
-          <tr><th>企業名</th><th>退職日</th><th>返金・減額（税抜）</th><th>返金報告</th></tr>
+          <tr><th>企業名</th><th>退職日</th><th>返金・減額 (万円)</th><th>返金報告</th></tr>
         </thead>
         <tbody>
           <tr><td colspan="4" class="detail-empty-row text-center py-3">返金情報はありません。</td></tr>
@@ -5642,7 +5976,7 @@ function renderRefundSection(candidate) {
     < div class="detail-table-wrapper" >
       <table class="detail-table">
         <thead>
-          <tr><th>企業名</th><th>退職日</th><th>返金・減額（税抜）</th><th>返金報告</th></tr>
+          <tr><th>企業名</th><th>退職日</th><th>返金・減額 (万円)</th><th>返金報告</th></tr>
         </thead>
         <tbody>${bodyHtml}</tbody>
       </table>
@@ -5758,6 +6092,9 @@ function renderNextActionSection(candidate) {
             </div>
             <div class="text-sm text-slate-700">${escapeHtml(task.actionNote || '-')}</div>
             <div class="text-xs text-slate-400 mt-1">完了日時: ${escapeHtml(formatDateTimeJP(task.completedAt))}</div>
+            <div class="mt-2 flex items-center justify-end gap-2 border-t border-slate-100 pt-2">
+              <button type="button" class="text-xs px-2 py-1 bg-white border border-red-200 text-red-700 hover:bg-red-50 rounded" data-delete-task-id="${task.id}">削除</button>
+            </div>
           </div>
         `).join('')}
       </div>
@@ -6107,6 +6444,48 @@ function renderTableSelect(options, path, sectionKey, valueType) {
   return `<select class="detail-table-input" ${dataset}${valueTypeAttr}>${html}</select>`;
 }
 
+// =========================
+// クライアント検索 (Datalist連係)
+// =========================
+let clientSearchDebounceTimer = null;
+
+async function loadClientsByName(query) {
+  const q = String(query || "").trim();
+  if (!q || q.length < 1) return;
+
+  try {
+    const res = await fetch(`${CANDIDATES_API_BASE}/clients?name=${encodeURIComponent(q)}`);
+    if (!res.ok) throw new Error("Search failed");
+    const results = await res.json();
+
+    // 検索結果を clientList に合流 (重複排除)
+    if (Array.isArray(results)) {
+      results.forEach(newC => {
+        const idStr = String(newC.id || newC.ID);
+        const nameVal = newC.name || newC.companyName;
+        if (!nameVal) return;
+
+        const exists = clientList.some(oldC => String(oldC.id || oldC.ID) === idStr);
+        if (!exists) {
+          clientList.push({ id: idStr, name: nameVal });
+        }
+      });
+      refreshClientDatalist();
+    }
+  } catch (err) {
+    console.warn("Client search failed:", err);
+  }
+}
+
+function refreshClientDatalist() {
+  const datalist = document.getElementById("client-list");
+  if (!datalist) return;
+
+  // 名前でユニークにしてソート
+  const uniqueNames = Array.from(new Set(clientList.map(c => c.name))).filter(Boolean).sort();
+  datalist.innerHTML = uniqueNames.map(name => `<option value="${escapeHtml(name)}"></option>`).join("");
+}
+
 function formatInputValue(value, type) {
   if (!value) return "";
   if (type === "date") return String(value).slice(0, 10);
@@ -6239,9 +6618,21 @@ function handleCandidateDetailFieldChange(e) {
   if (valueType === "number") value = value === "" ? null : Number(value);
   if (valueType === "boolean") value = value === "true" || value === true;
 
+  const sectionKey = target.dataset.detailSection;
+  value = normalizeMoneyInputValue(value, fieldPath, sectionKey);
+
   // Date/Time handling if needed, but value is usually string
 
   updateCandidateDetailFieldValue(candidate, fieldPath, value);
+
+  // クライアント検索のトリガー
+  if (target.getAttribute("list") === "client-list" && e.type === "input") {
+    clearTimeout(clientSearchDebounceTimer);
+    const queryValue = String(value || "").trim();
+    clientSearchDebounceTimer = setTimeout(() => {
+      void loadClientsByName(queryValue);
+    }, 500);
+  }
 }
 
 function updateCandidateDetailFieldValue(candidate, path, value) {
