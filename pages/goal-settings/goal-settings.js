@@ -138,14 +138,19 @@ function initializeTabs() {
 }
 
 function applyRoleBasedTabs() {
-  const isAdvisor = hasRole('advisor');
+  // アドバイザー、管理者、または営業(sales)権限を持つユーザーに個人設定を表示
+  const isAllowed = hasRole(['advisor', 'admin', 'sales']);
   const personalTab = document.querySelector('[data-settings-tab="personal-settings"]');
-  if (personalTab && !isAdvisor) {
-    personalTab.style.display = 'none';
-    // Ensure we are not on the personal tab if hidden
-    const companyTab = document.querySelector('[data-settings-tab="company-settings"]');
-    if (companyTab) {
-      companyTab.click(); // Reset to company settings
+  if (personalTab) {
+    if (!isAllowed) {
+      personalTab.style.display = 'none';
+      // 会社設定タブに遷移させておく
+      const companyTab = document.querySelector('[data-settings-tab="company-settings"]');
+      if (companyTab) {
+        companyTab.click();
+      }
+    } else {
+      personalTab.style.display = ''; // 権限がある場合は確実に表示
     }
   }
 }

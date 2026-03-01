@@ -32,7 +32,7 @@ app.get("/api/clients", async (req, res) => {
     res.json(rows);
   } catch (error) {
     console.error("Failed to fetch clients", error);
-    res.status(500).json({ error: "企業一覧の取得に失敗しました。" });
+    res.status(500).json({ error: "企業一覧の取得に失敗しました、E });
   } finally {
     client.release();
   }
@@ -177,7 +177,7 @@ async function handleClientsKpi(req, res) {
     res.json({ items });
   } catch (error) {
     console.error("Failed to fetch clients KPI", error);
-    res.status(500).json({ error: "紹介先企業の取得に失敗しました。" });
+    res.status(500).json({ error: "紹介�E企業の取得に失敗しました、E });
   } finally {
     client.release();
   }
@@ -190,7 +190,7 @@ app.post("/api/clients", async (req, res) => {
   const payload = req.body || {};
   const name = normalizeOptionalText(payload.name || payload.companyName);
   if (!name) {
-    res.status(400).json({ error: "企業名が必要です。" });
+    res.status(400).json({ error: "企業名が忁E��です、E });
     return;
   }
 
@@ -256,7 +256,7 @@ app.post("/api/clients", async (req, res) => {
     res.status(201).json({ item: rows[0] });
   } catch (error) {
     console.error("Failed to create client", error);
-    res.status(500).json({ error: "企業の登録に失敗しました。" });
+    res.status(500).json({ error: "企業の登録に失敗しました、E });
   } finally {
     client.release();
   }
@@ -265,7 +265,7 @@ app.post("/api/clients", async (req, res) => {
 const deleteClientHandler = async (req, res) => {
   const id = req.params?.id || req.query?.id || req.body?.id;
   if (!id) {
-    res.status(400).json({ error: "IDが必要です。" });
+    res.status(400).json({ error: "IDが忁E��です、E });
     return;
   }
 
@@ -277,13 +277,13 @@ const deleteClientHandler = async (req, res) => {
     );
 
     if (rowCount === 0) {
-      res.status(404).json({ error: "指定された企業が見つかりません。" });
+      res.status(404).json({ error: "持E��された企業が見つかりません、E });
     } else {
-      res.json({ success: true, message: "企業を削除しました。" });
+      res.json({ success: true, message: "企業を削除しました、E });
     }
   } catch (error) {
     console.error("Failed to delete client", error);
-    res.status(500).json({ error: "企業の削除に失敗しました。" });
+    res.status(500).json({ error: "企業の削除に失敗しました、E });
   } finally {
     client.release();
   }
@@ -298,7 +298,7 @@ app.put("/api/clients", async (req, res) => {
   const payload = req.body || {};
   const id = payload.id;
   if (!id) {
-    res.status(400).json({ error: "企業IDが必要です。" });
+    res.status(400).json({ error: "企業IDが忁E��です、E });
     return;
   }
 
@@ -389,7 +389,7 @@ app.put("/api/clients", async (req, res) => {
   }
 
   if (updates.length === 0) {
-    res.status(400).json({ error: "更新内容がありません。" });
+    res.status(400).json({ error: "更新冁E��がありません、E });
     return;
   }
 
@@ -409,13 +409,13 @@ app.put("/api/clients", async (req, res) => {
       values
     );
     if (rows.length === 0) {
-      res.status(404).json({ error: "企業が見つかりません。" });
+      res.status(404).json({ error: "企業が見つかりません、E });
       return;
     }
     res.json({ item: rows[0] });
   } catch (error) {
     console.error("Failed to update client", error);
-    res.status(500).json({ error: "企業情報の更新に失敗しました。" });
+    res.status(500).json({ error: "企業惁E��の更新に失敗しました、E });
   } finally {
     client.release();
   }
@@ -425,7 +425,7 @@ app.put("/api/clients", async (req, res) => {
 app.get("/api/system-options", async (req, res) => {
   const key = req.query.key;
   if (!key) {
-    res.status(400).json({ error: "keyが必要です。" });
+    res.status(400).json({ error: "keyが忁E��です、E });
     return;
   }
 
@@ -442,7 +442,7 @@ app.get("/api/system-options", async (req, res) => {
     }
   } catch (error) {
     console.error("Failed to fetch system options", error);
-    res.status(500).json({ error: "設定の取得に失敗しました。" });
+    res.status(500).json({ error: "設定�E取得に失敗しました、E });
   } finally {
     client.release();
   }
@@ -454,7 +454,7 @@ app.put("/api/system-options", async (req, res) => {
   const options = payload.options;
 
   if (!key || !options) {
-    res.status(400).json({ error: "keyとoptionsが必要です。" });
+    res.status(400).json({ error: "keyとoptionsが忁E��です、E });
     return;
   }
 
@@ -473,7 +473,7 @@ app.put("/api/system-options", async (req, res) => {
     res.json({ item: rows[0].options });
   } catch (error) {
     console.error("Failed to update system options", error);
-    res.status(500).json({ error: "設定の更新に失敗しました。" });
+    res.status(500).json({ error: "設定�E更新に失敗しました、E });
   } finally {
     client.release();
   }
@@ -521,7 +521,7 @@ app.put("/api/system-options", async (req, res) => {
       ADD COLUMN IF NOT EXISTS fee_details TEXT,
       ADD COLUMN IF NOT EXISTS contract_note TEXT;
 
-    -- 学歴テーブル
+    -- 学歴チE�Eブル
     CREATE TABLE IF NOT EXISTS candidate_educations (
       id BIGSERIAL PRIMARY KEY,
       candidate_id BIGINT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
@@ -535,7 +535,7 @@ app.put("/api/system-options", async (req, res) => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
-    -- 職歴テーブル
+    -- 職歴チE�Eブル
     CREATE TABLE IF NOT EXISTS candidate_work_histories (
       id BIGSERIAL PRIMARY KEY,
       candidate_id BIGINT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
@@ -620,17 +620,17 @@ function getNestedValue(source, path) {
 
 function buildLegacyHearingMemo(hearing = {}) {
   const legacyFields = [
-    { key: "relocation", label: "転居" },
+    { key: "relocation", label: "転屁E },
     { key: "desiredArea", label: "希望エリア" },
     { key: "timing", label: "転職時期" },
     { key: "desiredJob", label: "希望職種" },
-    { key: "firstInterviewMemo", label: "初回面談メモ" },
-    { key: "currentIncome", label: "現年収" },
-    { key: "desiredIncome", label: "希望年収" },
-    { key: "reason", label: "転職理由・転職軸" },
+    { key: "firstInterviewMemo", label: "初回面諁E��モ" },
+    { key: "currentIncome", label: "現年叁E },
+    { key: "desiredIncome", label: "希望年叁E },
+    { key: "reason", label: "転職琁E��・転職軸" },
     { key: "interviewPreference", label: "面接希望日" },
-    { key: "recommendationText", label: "推薦文" },
-    { key: "otherSelections", label: "他社選考状況" },
+    { key: "recommendationText", label: "推薦斁E },
+    { key: "otherSelections", label: "他社選老E��況E },
   ];
   return legacyFields
     .map(({ key, label }) => (hearing[key] ? `${label}: ${hearing[key]}` : ""))
@@ -884,6 +884,7 @@ function mapCandidateUpdateColumns(payload = {}) {
     work_location: payload.workLocation ?? null,
     partner_name: payload.advisorName ?? null, // Map advisorName (frontend) to partner_name (db)
     cs_name: payload.csName ?? null,           // Map csName (frontend) to cs_name (db)
+    cs_status: payload.csStatus ?? payload.cs_status ?? null,
     caller_name: payload.callerName ?? null,
     introduction_chance: payload.introductionChance ?? null,
     phase: payload.phase ?? null,
@@ -896,7 +897,7 @@ function mapCandidateUpdateColumns(payload = {}) {
     email: payload.email ?? null,
     phone: payload.phone ?? null,
     email: payload.email ?? null,
-    birthday: normalizeDate(payload.birthday || payload.birthDate), // 修正: birthDateも受け付ける
+    birthday: normalizeDate(payload.birthday || payload.birthDate), // 修正: birthDateも受け付けめE
     age:
       payload.age === undefined || payload.age === null
         ? null
@@ -1172,10 +1173,12 @@ function mapCandidate(row, extras = {}) {
     companyName: row.company_name,
     jobName: row.job_name,
     workLocation: row.work_location ?? detail.workLocation,
-    advisorName: row.partner_name, // 担当アドバイザーは partner_name に保存されている
-    csName: row.cs_name, // 担当CSは cs_name に保存されている
+    advisorName: row.partner_name, // 拁E��アドバイザーは partner_name に保存されてぁE��
+    csName: row.cs_name, // �S��CS�� cs_name �ɕۑ�����Ă���
+    csStatus: row.cs_status ?? detail.csStatus ?? detail.cs_status ?? null,
+    cs_status: row.cs_status ?? detail.csStatus ?? detail.cs_status ?? null,
     callerName: row.caller_name,
-    partnerName: row.partner_name ?? detail.partnerName, // 後方互換性のため維持
+    partnerName: row.partner_name ?? detail.partnerName, // 後方互換性のため維持E
     introductionChance:
       row.introduction_chance ?? detail.introductionChance ?? "",
     phase: row.phase,
@@ -1467,7 +1470,7 @@ app.get("/api/candidates", async (req, res) => {
     });
   } catch (error) {
     console.error("Failed to fetch candidates", error);
-    res.status(500).json({ error: "候補者一覧の取得に失敗しました。" });
+    res.status(500).json({ error: "候補老E��覧の取得に失敗しました、E });
   } finally {
     client.release();
   }
@@ -1482,14 +1485,14 @@ app.get("/api/candidates/:id", async (req, res) => {
       [id]
     );
     if (rows.length === 0) {
-      res.status(404).json({ error: "候補者が見つかりません。" });
+      res.status(404).json({ error: "候補老E��見つかりません、E });
       return;
     }
     const relations = await fetchCandidateRelations(client, rows[0].id);
     res.json(mapCandidate(rows[0], relations));
   } catch (error) {
     console.error("Failed to fetch candidate detail", error);
-    res.status(500).json({ error: "候補者詳細の取得に失敗しました。" });
+    res.status(500).json({ error: "候補老E��細の取得に失敗しました、E });
   } finally {
     client.release();
   }
@@ -1525,7 +1528,7 @@ app.get("/api/settings/kintone", async (_req, res) => {
     });
   } catch (error) {
     console.error("Failed to load kintone settings", error);
-    res.status(500).json({ error: "kintone設定の取得に失敗しました。" });
+    res.status(500).json({ error: "kintone設定�E取得に失敗しました、E });
   } finally {
     client.release();
   }
@@ -1536,7 +1539,7 @@ app.put("/api/candidates/:id", async (req, res) => {
   try {
     const candidateId = Number(req.params.id);
     if (Number.isNaN(candidateId)) {
-      res.status(400).json({ error: "候補者IDが不正です。" });
+      res.status(400).json({ error: "候補老EDが不正です、E });
       return;
     }
     const payload = req.body || {};
@@ -1545,7 +1548,7 @@ app.put("/api/candidates/:id", async (req, res) => {
       [candidateId]
     );
     if (existingRows.length === 0) {
-      res.status(404).json({ error: "候補者が見つかりません。" });
+      res.status(404).json({ error: "候補老E��見つかりません、E });
       return;
     }
 
@@ -1575,7 +1578,7 @@ app.put("/api/candidates/:id", async (req, res) => {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Failed to update candidate", error);
-    res.status(500).json({ error: "候補者の更新に失敗しました。" });
+    res.status(500).json({ error: "候補老E�E更新に失敗しました、E });
   } finally {
     client.release();
   }
@@ -1584,7 +1587,7 @@ app.put("/api/candidates/:id", async (req, res) => {
 app.post("/api/settings/kintone/test", async (req, res) => {
   const { kintoneSubdomain, kintoneAppId, kintoneApiToken } = req.body || {};
   if (!kintoneSubdomain || !kintoneAppId || !kintoneApiToken) {
-    res.status(400).json({ error: "サブドメイン、アプリID、APIトークンを入力してください。" });
+    res.status(400).json({ error: "サブドメイン、アプリID、APIト�Eクンを�E力してください、E });
     return;
   }
 
@@ -1602,7 +1605,7 @@ app.post("/api/settings/kintone/test", async (req, res) => {
     if (!response.ok) {
       const text = await response.text();
       res.status(400).json({
-        error: `接続に失敗しました（${response.status}）`,
+        error: `接続に失敗しました�E�E{response.status}�E�`,
         details: text.slice(0, 500),
       });
       return;
@@ -1610,18 +1613,18 @@ app.post("/api/settings/kintone/test", async (req, res) => {
     const body = await response.json();
     res.json({
       success: true,
-      message: `接続に成功しました。（取得件数 ${body.records?.length ?? 0} 件）`,
+      message: `接続に成功しました。（取得件数 ${body.records?.length ?? 0} 件�E�`,
     });
   } catch (error) {
     console.error("Failed to test kintone connection", error);
-    res.status(500).json({ error: "接続テスト中にエラーが発生しました。" });
+    res.status(500).json({ error: "接続テスト中にエラーが発生しました、E });
   }
 });
 
 app.put("/api/settings/kintone", async (req, res) => {
   const { kintoneSubdomain, kintoneAppId, kintoneApiToken } = req.body || {};
   if (!kintoneSubdomain || !kintoneAppId) {
-    res.status(400).json({ error: "サブドメインとアプリIDは必須です。" });
+    res.status(400).json({ error: "サブドメインとアプリIDは忁E��です、E });
     return;
   }
 
@@ -1631,7 +1634,7 @@ app.put("/api/settings/kintone", async (req, res) => {
     const tokenToUse =
       kintoneApiToken?.trim() || existing?.kintone_api_token || "";
     if (!tokenToUse) {
-      res.status(400).json({ error: "APIトークンを入力してください。" });
+      res.status(400).json({ error: "APIト�Eクンを�E力してください、E });
       return;
     }
 
@@ -1650,7 +1653,7 @@ app.put("/api/settings/kintone", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error("Failed to save kintone settings", error);
-    res.status(500).json({ error: "kintone設定の保存に失敗しました。" });
+    res.status(500).json({ error: "kintone設定�E保存に失敗しました、E });
   } finally {
     client.release();
   }
@@ -1740,18 +1743,18 @@ app.put("/api/candidates/:id/work-histories", async (req, res) => {
   }
 });
 
-// ========== PDF生成 API ==========
+// ========== PDF生�E API ==========
 async function generatePdf(templateName, data) {
   const templatePath = path.join(__dirname, "server", "templates", `${templateName}.html`);
   let html = fs.readFileSync(templatePath, "utf-8");
 
-  // 単純なテンプレート置換
+  // 単純なチE��プレート置揁E
   Object.entries(data).forEach(([key, value]) => {
     const regex = new RegExp(`{{${key}}}`, "g");
     html = html.replace(regex, value ?? "");
   });
 
-  // 配列データ用のセクション処理
+  // 配�EチE�Eタ用のセクション処琁E
   const processArraySection = (sectionName, items) => {
     const sectionRegex = new RegExp(`{{#${sectionName}}}([\\s\\S]*?){{/${sectionName}}}`, "g");
     const emptyRegex = new RegExp(`{{\\^${sectionName}}}([\\s\\S]*?){{/${sectionName}}}`, "g");
@@ -1763,7 +1766,7 @@ async function generatePdf(templateName, data) {
           Object.entries(item).forEach(([k, v]) => {
             row = row.replace(new RegExp(`{{${k}}}`, "g"), v ?? "");
           });
-          // isCurrent フラグ処理
+          // isCurrent フラグ処琁E
           row = row.replace(/{{#isCurrent}}([\s\S]*?){{\/isCurrent}}/g, item.isCurrent ? "$1" : "");
           row = row.replace(/\{{\^isCurrent}}([\s\S]*?){{\/isCurrent}}/g, item.isCurrent ? "" : "$1");
           return row;
@@ -1795,7 +1798,7 @@ function formatDateJPForPdf(value) {
   if (!value) return "";
   const d = new Date(value);
   if (isNaN(d.getTime())) return "";
-  return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+  return `${d.getFullYear()}年${d.getMonth() + 1}朁E;
 }
 
 app.get("/api/candidates/:id/resume.pdf", async (req, res) => {
@@ -1804,7 +1807,7 @@ app.get("/api/candidates/:id/resume.pdf", async (req, res) => {
   try {
     const { rows: candidates } = await client.query("SELECT * FROM candidates WHERE id = $1", [id]);
     if (!candidates.length) {
-      res.status(404).json({ error: "候補者が見つかりません" });
+      res.status(404).json({ error: "候補老E��見つかりません" });
       return;
     }
     const c = candidates[0];
@@ -1851,7 +1854,7 @@ app.get("/api/candidates/:id/resume.pdf", async (req, res) => {
     res.send(pdfBuffer);
   } catch (error) {
     console.error("Failed to generate resume PDF", error);
-    res.status(500).json({ error: "履歴書PDFの生成に失敗しました" });
+    res.status(500).json({ error: "履歴書PDFの生�Eに失敗しました" });
   } finally {
     client.release();
   }
@@ -1863,7 +1866,7 @@ app.get("/api/candidates/:id/cv.pdf", async (req, res) => {
   try {
     const { rows: candidates } = await client.query("SELECT * FROM candidates WHERE id = $1", [id]);
     if (!candidates.length) {
-      res.status(404).json({ error: "候補者が見つかりません" });
+      res.status(404).json({ error: "候補老E��見つかりません" });
       return;
     }
     const c = candidates[0];
@@ -1900,23 +1903,23 @@ app.get("/api/candidates/:id/cv.pdf", async (req, res) => {
     res.send(pdfBuffer);
   } catch (error) {
     console.error("Failed to generate CV PDF", error);
-    res.status(500).json({ error: "職務経歴書PDFの生成に失敗しました" });
+    res.status(500).json({ error: "職務経歴書PDFの生�Eに失敗しました" });
   } finally {
     client.release();
   }
 });
 
-// ========== 設定 API ==========
+// ========== 設宁EAPI ==========
 app.get("/api/settings/screening-rules", (req, res) => {
-  // TODO: DBから取得するように実装
+  // TODO: DBから取得するよぁE��実裁E
   res.json([]);
 });
 
 app.get("/api/members", (req, res) => {
   res.json([
-    { id: 1, name: "管理者 太郎", email: "admin@example.com", role: "admin", is_admin: true },
-    { id: 30, name: "テスト一般", email: "test@example.com", role: "member", is_admin: false },
-    { id: 2, name: "営業 花子", email: "sales@example.com", role: "advisor", is_admin: false },
+    { id: 1, name: "管琁E��E太郁E, email: "admin@example.com", role: "admin", is_admin: true },
+    { id: 30, name: "チE��ト一般", email: "test@example.com", role: "member", is_admin: false },
+    { id: 2, name: "営業 花孁E, email: "sales@example.com", role: "advisor", is_admin: false },
   ]);
 });
 
@@ -1947,9 +1950,9 @@ app.get("/api/kpi/yield", (req, res) => {
 
   // Mock data for members
   const members = [
-    { id: 1, name: "管理者 太郎" },
-    { id: 30, name: "テスト一般" },
-    { id: 2, name: "営業 花子" }
+    { id: 1, name: "管琁E��E太郁E },
+    { id: 30, name: "チE��ト一般" },
+    { id: 2, name: "営業 花孁E }
   ];
 
   const items = members.map(m => {

@@ -529,7 +529,7 @@
     line-height: 1.6;
   }
 
-    /* CSステータス管理モーダル */
+  /* CSステータス管理モーダル */
   .teleapo-status-modal {
     position: fixed;
     top: 0;
@@ -581,8 +581,15 @@
   }
 
   @keyframes dropdown-slide-down {
-    from { opacity: 0; transform: translateY(-8px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .searchable-dropdown-item {
@@ -637,7 +644,9 @@
     margin-top: 4px !important;
   }
 
-  .hidden { display: none !important; }
+  .hidden {
+    display: none !important;
+  }
 </style>
 
 <section data-page="teleapo" id="teleapoPage" class="kpi-v2-wrapper">
@@ -666,7 +675,8 @@
       <div class="teleapo-filter-group" style="margin-left: auto;">
         <button type="button" class="teleapo-filter-btn" data-preset="today">今日</button>
         <button type="button" class="teleapo-filter-btn" data-preset="thisWeek">今週</button>
-        <button type="button" class="teleapo-filter-btn active" data-preset="thisMonth">今月</button>
+        <button type="button" class="teleapo-filter-btn" data-preset="thisMonth">今月</button>
+        <button type="button" class="teleapo-filter-btn active" data-preset="last30">直近一か月</button>
       </div>
       <p id="teleapoCompanyPeriodLabel" class="text-xs text-slate-500"></p>
     </div>
@@ -919,7 +929,7 @@
           <label>担当者</label>
           <input id="dialFormEmployee" type="text" readonly />
         </div>
-                <div class="teleapo-form-field">
+        <div class="teleapo-form-field">
           <label>候補者名</label>
           <div class="searchable-dropdown-container">
             <input id="dialFormCandidateSearch" type="search" placeholder="候補者名で検索" autocomplete="off" />
@@ -973,7 +983,7 @@
             <div id="dialFormAdvisorPlannedCards" class="teleapo-advisor-planned-cards"></div>
           </div>
         </div>
-                <div class="teleapo-form-field">
+        <div class="teleapo-form-field">
           <label>CSステータス</label>
           <div class="searchable-dropdown-container">
             <input type="text" id="dialFormCsStatusSearch" placeholder="ステータスを検索/選択..." autocomplete="off" />
@@ -1031,7 +1041,7 @@
           <label>担当者</label>
           <input id="smsFormEmployee" type="text" readonly />
         </div>
-                <div class="teleapo-form-field">
+        <div class="teleapo-form-field">
           <label>候補者名</label>
           <div class="searchable-dropdown-container">
             <input id="smsFormCandidateSearch" type="search" placeholder="候補者名で検索" autocomplete="off" />
@@ -1070,7 +1080,7 @@
             <div id="smsFormAdvisorPlannedCards" class="teleapo-advisor-planned-cards"></div>
           </div>
         </div>
-                <div class="teleapo-form-field">
+        <div class="teleapo-form-field">
           <label>CSステータス</label>
           <div class="searchable-dropdown-container">
             <input type="text" id="smsFormCsStatusSearch" placeholder="ステータスを検索/選択..." autocomplete="off" />

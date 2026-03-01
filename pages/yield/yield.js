@@ -1403,6 +1403,8 @@ const state = {
     return acc;
   }, {}),
   kpiTargets: {}, // New field
+  personalEvaluationTargets: null,
+  companyEvaluationTargets: null,
   kpi: {
     today: {},
     monthly: {},
@@ -1748,10 +1750,32 @@ function updateGoalStorage(storageKey, updates = {}) {
   return merged;
 }
 
-function seedMonthlyGoalsFromSettings() {
-  const target = goalSettingsService.getPersonalPeriodTarget(state.personalEvaluationPeriodId, getAdvisorName()) || {};
-  const mapped = mapTargetsToGoals(target);
+async function seedMonthlyGoalsFromSettings() {
+  const advisorName = getAdvisorName();
+  let baseTarget = goalSettingsService.getPersonalPeriodTarget(state.personalEvaluationPeriodId, advisorName);
+  if (!baseTarget && state.personalEvaluationPeriodId) {
+    baseTarget = await goalSettingsService.loadPersonalPeriodTarget(state.personalEvaluationPeriodId, advisorName);
+  }
+  if (!baseTarget) baseTarget = {};
+  const range = resolveEvaluationPeriodRange(state.personalEvaluationPeriodId, getCurrentMonthRange());
+  let resolvedTarget = baseTarget;
+  if (isMultiMonthRange(range.startDate, range.endDate)) {
+    const weighted = await resolveRangeTargetsByMonth({
+      startDate: range.startDate,
+      endDate: range.endDate,
+      scope: 'personal',
+      advisorName
+    });
+    if (weighted && Object.keys(weighted).length) {
+      resolvedTarget = { ...baseTarget, ...weighted };
+    }
+  }
+  state.personalEvaluationTargets = resolvedTarget;
+  const mapped = mapTargetsToGoals(resolvedTarget);
   updateGoalStorage(MONTHLY_GOAL_KEY, mapped);
+  if (state.kpi.monthly && Object.keys(state.kpi.monthly).length) {
+    renderPersonalSummary(state.kpi.monthly, state.kpi.monthly);
+  }
 }
 
 function seedTodayGoalsFromSettings() {
@@ -1770,9 +1794,9 @@ function seedTodayGoalsFromSettings() {
   updateGoalStorage(TODAY_GOAL_KEY, mapped);
 }
 
-function seedGoalDefaultsFromSettings() {
+async function seedGoalDefaultsFromSettings() {
   seedTodayGoalsFromSettings();
-  seedMonthlyGoalsFromSettings();
+  await seedMonthlyGoalsFromSettings();
 }
 
 function syncAccessRole() {
@@ -2454,10 +2478,9 @@ function renderPersonalSummary(rangeData, monthOverride) {
     usedFallback: useFallback
   };
   console.log('[yield] personal revenue summary', { monthOverride, rangeData, summary });
-  const periodTarget = goalSettingsService.getPersonalPeriodTarget(
-    state.personalEvaluationPeriodId,
-    getAdvisorName()
-  );
+  const periodTarget =
+    state.personalEvaluationTargets ||
+    goalSettingsService.getPersonalPeriodTarget(state.personalEvaluationPeriodId, getAdvisorName());
   if (periodTarget?.revenueTarget !== undefined) {
     summary.targetAmount = num(periodTarget.revenueTarget);
   }
@@ -2528,27 +2551,8 @@ function renderPersonalPeriodSection(data) {
 async function resolvePersonalRangeRevenueTarget(startDate, endDate) {
   if (!startDate || !endDate) return 0;
   const advisorName = getAdvisorName();
-  const periods = getOverlappingEvaluationPeriods(startDate, endDate);
-
-  if (periods.length) {
-    await Promise.all(
-      periods.map(period => goalSettingsService.loadPersonalPeriodTarget(period.id, advisorName))
-    );
-    const weightedTarget = periods.reduce((acc, period) => {
-      const target = num(goalSettingsService.getPersonalPeriodTarget(period.id, advisorName)?.revenueTarget);
-      if (target <= 0) return acc;
-      const periodDays = getRangeDaysInclusive(period.startDate, period.endDate);
-      const overlapDays = getRangeOverlapDaysInclusive(
-        startDate,
-        endDate,
-        period.startDate,
-        period.endDate
-      );
-      if (periodDays <= 0 || overlapDays <= 0) return acc;
-      return acc + target * (overlapDays / periodDays);
-    }, 0);
-    if (weightedTarget > 0) return Math.round(weightedTarget);
-  }
+  const weighted = await resolveRangeTargetsByMonth({ startDate, endDate, scope: 'personal', advisorName });
+  if (weighted?.revenueTarget > 0) return weighted.revenueTarget;
 
   if (!state.personalEvaluationPeriodId) return 0;
   const fallback =
@@ -2559,15 +2563,15 @@ async function resolvePersonalRangeRevenueTarget(startDate, endDate) {
 
 async function renderPersonalPeriodRevenueSummary(data = state.kpi.personalPeriod) {
   const current = num(data?.currentAmount ?? data?.revenue ?? data?.revenueAmount);
+  const range = state.ranges.personalPeriod || {};
+  const rangeTarget = await resolvePersonalRangeRevenueTarget(range.startDate, range.endDate);
   let targetAmount = num(data?.targetAmount ?? data?.revenueTarget ?? data?.target_amount ?? data?.revenue_target);
-  if (targetAmount <= 0) {
-    const range = state.ranges.personalPeriod || {};
-    targetAmount = await resolvePersonalRangeRevenueTarget(range.startDate, range.endDate);
+  if (rangeTarget > 0) {
+    targetAmount = rangeTarget;
   }
   const achv = targetAmount > 0 ? Math.round((current / targetAmount) * 100) : 0;
   setText('personalPeriodCurrent', `¥${current.toLocaleString()}`);
   setText('personalPeriodTarget', `¥${targetAmount.toLocaleString()}`);
-  const range = state.ranges.personalPeriod || {};
   bindRevenueDrilldownTarget('personalPeriodCurrent', {
     scope: 'personal',
     startDate: range.startDate,
@@ -2593,8 +2597,7 @@ function renderCompanyMonthly(data) {
   renderRates('companyMonthly', state.kpi.companyMonthly);
   renderRateDetails('companyMonthly', state.kpi.companyMonthly);
   renderDeltaBadges('companyMonthly', state.kpi.companyMonthly, {}, { includeRates: true });
-  renderCompanyTargets();
-  renderCompanyRateGoals();
+  void renderCompanyTargets();
 }
 
 function renderCompanyPeriod(data) {
@@ -2621,6 +2624,148 @@ function getRangeOverlapDaysInclusive(startA, endA, startB, endB) {
   return getRangeDaysInclusive(start, end);
 }
 
+function isMultiMonthRange(startDate, endDate) {
+  if (!startDate || !endDate) return false;
+  return String(startDate).slice(0, 7) !== String(endDate).slice(0, 7);
+}
+
+function listMonthPeriodsInRange(startDate, endDate) {
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
+  if (!start || !end || Number.isNaN(start) || Number.isNaN(end)) return [];
+  const periods = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  const last = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cursor <= last) {
+    const year = cursor.getFullYear();
+    const month = String(cursor.getMonth() + 1).padStart(2, '0');
+    const id = `${year}-${month}`;
+    const startOfMonth = new Date(year, cursor.getMonth(), 1);
+    const endOfMonth = new Date(year, cursor.getMonth() + 1, 0);
+    periods.push({
+      id,
+      startDate: isoDate(startOfMonth),
+      endDate: isoDate(endOfMonth)
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return periods;
+}
+
+function roundRangeTargetValue(value, targetKey) {
+  if (!Number.isFinite(value)) return 0;
+  const isRate = String(targetKey || '').toLowerCase().includes('rate');
+  return isRate ? Math.round(value * 10) / 10 : Math.round(value);
+}
+
+const RANGE_TARGET_KEYS = Array.from(
+  new Set([...Object.keys(TARGET_TO_DATA_KEY), 'revenueTarget'])
+);
+
+async function resolveRangeTargetsByMonth({ startDate, endDate, scope, advisorName } = {}) {
+  if (!startDate || !endDate) return {};
+  const monthPeriods = listMonthPeriodsInRange(startDate, endDate);
+  if (!monthPeriods.length) return {};
+
+  if (scope === 'company') {
+    await Promise.all(monthPeriods.map(period => goalSettingsService.loadCompanyPeriodTarget(period.id)));
+  } else if (scope === 'personal') {
+    await Promise.all(monthPeriods.map(period => goalSettingsService.loadPersonalPeriodTarget(period.id, advisorName)));
+  }
+
+  const sums = {};
+  const seen = new Set();
+  monthPeriods.forEach(period => {
+    const periodDays = getRangeDaysInclusive(period.startDate, period.endDate);
+    const overlapDays = getRangeOverlapDaysInclusive(
+      startDate,
+      endDate,
+      period.startDate,
+      period.endDate
+    );
+    if (periodDays <= 0 || overlapDays <= 0) return;
+    const ratio = overlapDays / periodDays;
+    const target =
+      scope === 'company'
+        ? goalSettingsService.getCompanyPeriodTarget(period.id)
+        : goalSettingsService.getPersonalPeriodTarget(period.id, advisorName);
+    if (!target) return;
+    RANGE_TARGET_KEYS.forEach(key => {
+      const raw = target[key];
+      if (raw === undefined || raw === null) return;
+      const value = num(raw);
+      if (!Number.isFinite(value)) return;
+      sums[key] = (sums[key] || 0) + value * ratio;
+      seen.add(key);
+    });
+  });
+
+  const result = {};
+  seen.forEach(key => {
+    result[key] = roundRangeTargetValue(sums[key] || 0, key);
+  });
+  return result;
+}
+
+async function resolvePersonalRangeTargetsForAdvisors(startDate, endDate, advisorIds = []) {
+  if (!startDate || !endDate) return new Map();
+  const ids = advisorIds.filter(id => Number.isFinite(id) && id > 0).map(id => String(id));
+  if (!ids.length) return new Map();
+  const monthPeriods = listMonthPeriodsInRange(startDate, endDate);
+  if (!monthPeriods.length) return new Map();
+
+  if (typeof goalSettingsService.loadPersonalPeriodTargetsBulk === 'function') {
+    await Promise.all(
+      monthPeriods.map(period => goalSettingsService.loadPersonalPeriodTargetsBulk(period.id, ids, { force: true }))
+    );
+  } else {
+    await Promise.all(
+      monthPeriods.flatMap(period => ids.map(id => goalSettingsService.loadPersonalPeriodTarget(period.id, id, { force: true })))
+    );
+  }
+
+  const sumsByAdvisor = new Map();
+  ids.forEach(id => {
+    sumsByAdvisor.set(id, { sums: {}, seen: new Set() });
+  });
+
+  monthPeriods.forEach(period => {
+    const periodDays = getRangeDaysInclusive(period.startDate, period.endDate);
+    const overlapDays = getRangeOverlapDaysInclusive(
+      startDate,
+      endDate,
+      period.startDate,
+      period.endDate
+    );
+    if (periodDays <= 0 || overlapDays <= 0) return;
+    const ratio = overlapDays / periodDays;
+    ids.forEach(id => {
+      const target = goalSettingsService.getPersonalPeriodTarget(period.id, id);
+      if (!target) return;
+      const entry = sumsByAdvisor.get(id);
+      if (!entry) return;
+      RANGE_TARGET_KEYS.forEach(key => {
+        const raw = target[key];
+        if (raw === undefined || raw === null) return;
+        const value = num(raw);
+        if (!Number.isFinite(value)) return;
+        entry.sums[key] = (entry.sums[key] || 0) + value * ratio;
+        entry.seen.add(key);
+      });
+    });
+  });
+
+  const result = new Map();
+  sumsByAdvisor.forEach((entry, id) => {
+    const payload = {};
+    entry.seen.forEach(key => {
+      payload[key] = roundRangeTargetValue(entry.sums[key] || 0, key);
+    });
+    result.set(id, payload);
+  });
+  return result;
+}
+
 function getOverlappingEvaluationPeriods(startDate, endDate) {
   const periods = Array.isArray(state.evaluationPeriods) && state.evaluationPeriods.length
     ? state.evaluationPeriods
@@ -2636,27 +2781,8 @@ function getOverlappingEvaluationPeriods(startDate, endDate) {
 
 async function resolveCompanyRangeRevenueTarget(startDate, endDate) {
   if (!startDate || !endDate) return 0;
-  const periods = getOverlappingEvaluationPeriods(startDate, endDate);
-
-  if (periods.length) {
-    await Promise.all(
-      periods.map(period => goalSettingsService.loadCompanyPeriodTarget(period.id))
-    );
-    const weightedTarget = periods.reduce((acc, period) => {
-      const target = num(goalSettingsService.getCompanyPeriodTarget(period.id)?.revenueTarget);
-      if (target <= 0) return acc;
-      const periodDays = getRangeDaysInclusive(period.startDate, period.endDate);
-      const overlapDays = getRangeOverlapDaysInclusive(
-        startDate,
-        endDate,
-        period.startDate,
-        period.endDate
-      );
-      if (periodDays <= 0 || overlapDays <= 0) return acc;
-      return acc + target * (overlapDays / periodDays);
-    }, 0);
-    if (weightedTarget > 0) return Math.round(weightedTarget);
-  }
+  const weighted = await resolveRangeTargetsByMonth({ startDate, endDate, scope: 'company' });
+  if (weighted?.revenueTarget > 0) return weighted.revenueTarget;
 
   if (!state.companyEvaluationPeriodId) return 0;
   const fallback =
@@ -2667,15 +2793,15 @@ async function resolveCompanyRangeRevenueTarget(startDate, endDate) {
 
 async function renderCompanyPeriodRevenueSummary(data = state.kpi.companyPeriod) {
   const current = num(data?.currentAmount ?? data?.revenue ?? data?.revenueAmount);
+  const range = state.ranges.companyPeriod || {};
+  const rangeTarget = await resolveCompanyRangeRevenueTarget(range.startDate, range.endDate);
   let targetAmount = num(data?.targetAmount ?? data?.revenueTarget ?? data?.target_amount ?? data?.revenue_target);
-  if (targetAmount <= 0) {
-    const range = state.ranges.companyPeriod || {};
-    targetAmount = await resolveCompanyRangeRevenueTarget(range.startDate, range.endDate);
+  if (rangeTarget > 0) {
+    targetAmount = rangeTarget;
   }
   const achv = targetAmount > 0 ? Math.round((current / targetAmount) * 100) : 0;
   setText('companyPeriodCurrent', `¥${current.toLocaleString()}`);
   setText('companyPeriodTarget', `¥${targetAmount.toLocaleString()}`);
-  const range = state.ranges.companyPeriod || {};
   bindRevenueDrilldownTarget('companyPeriodCurrent', {
     scope: 'company',
     startDate: range.startDate,
@@ -2691,12 +2817,35 @@ async function renderCompanyPeriodRevenueSummary(data = state.kpi.companyPeriod)
   }
 }
 
-function renderCompanyTargets() {
-  const target = state.companyEvaluationPeriodId
-    ? goalSettingsService.getCompanyPeriodTarget(state.companyEvaluationPeriodId) || {}
-    : {};
+async function loadCompanyEvaluationTargets() {
+  let baseTarget = state.companyEvaluationPeriodId
+    ? goalSettingsService.getCompanyPeriodTarget(state.companyEvaluationPeriodId)
+    : null;
+  if (!baseTarget && state.companyEvaluationPeriodId) {
+    baseTarget = await goalSettingsService.loadCompanyPeriodTarget(state.companyEvaluationPeriodId);
+  }
+  if (!baseTarget) baseTarget = {};
+  const range = resolveEvaluationPeriodRange(state.companyEvaluationPeriodId, getCurrentMonthRange());
+  let resolvedTarget = baseTarget;
+  if (isMultiMonthRange(range.startDate, range.endDate)) {
+    const weighted = await resolveRangeTargetsByMonth({
+      startDate: range.startDate,
+      endDate: range.endDate,
+      scope: 'company'
+    });
+    if (weighted && Object.keys(weighted).length) {
+      resolvedTarget = { ...baseTarget, ...weighted };
+    }
+  }
+  state.companyEvaluationTargets = resolvedTarget;
+  return resolvedTarget;
+}
+
+async function renderCompanyTargets() {
+  const target = await loadCompanyEvaluationTargets();
   renderCompanyRevenueSummary(target);
   renderCompanyGoalCards(target, state.kpi.companyMonthly);
+  renderCompanyRateGoals(target);
 }
 
 function renderCompanyRevenueSummary(target = {}) {
@@ -2743,11 +2892,13 @@ function renderCompanyGoalCards(target = {}, actuals = {}) {
   });
 }
 
-function renderCompanyRateGoals() {
+function renderCompanyRateGoals(targetOverride = null) {
   const targets = state.kpiTargets || {};
-  const companyTarget = state.companyEvaluationPeriodId
-    ? goalSettingsService.getCompanyPeriodTarget(state.companyEvaluationPeriodId) || {}
-    : {};
+  const companyTarget = targetOverride ||
+    state.companyEvaluationTargets ||
+    (state.companyEvaluationPeriodId
+      ? goalSettingsService.getCompanyPeriodTarget(state.companyEvaluationPeriodId) || {}
+      : {});
   const rateKeys = [
     'proposalRate', 'recommendationRate', 'interviewScheduleRate',
     'interviewHeldRate', 'offerRate', 'acceptRate', 'hireRate'
@@ -3139,9 +3290,16 @@ async function loadCompanyTermEmployeeKpi() {
     await goalSettingsService.loadPersonalPeriodTargetsBulk(periodId, advisorIds, { force: true });
   }
 
+  const rangeTargetsByAdvisor = isMultiMonthRange(period.startDate, period.endDate)
+    ? await resolvePersonalRangeTargetsForAdvisors(period.startDate, period.endDate, advisorIds)
+    : null;
+
   state.companyTerm.rows = filteredRows.map(row => {
     const advisorKey = row.advisorUserId || row.name;
-    const target = goalSettingsService.getPersonalPeriodTarget(periodId, advisorKey) || {};
+    const target =
+      rangeTargetsByAdvisor?.get(String(row.advisorUserId)) ||
+      goalSettingsService.getPersonalPeriodTarget(periodId, advisorKey) ||
+      {};
     const goalOrNull = key => {
       const raw = target[key];
       return raw === undefined || raw === null ? null : num(raw);
@@ -6520,7 +6678,7 @@ function loadEvaluationPeriods() {
   if (!hasPersonalMs && (todayPeriodId || first)) state.personalMsPeriodId = todayPeriodId || first?.id || '';
   ensureCompanyDailyEmployeeId();
   renderEvaluationSelectors();
-  applyPersonalEvaluationPeriod(false);
+  void applyPersonalEvaluationPeriod(false);
 }
 
 function renderEvaluationSelectors() {
@@ -6601,15 +6759,15 @@ function initializeCompanyDailyEmployeeSelect() {
   }
 }
 
-function handlePersonalPeriodChange(event) {
+async function handlePersonalPeriodChange(event) {
   state.personalEvaluationPeriodId = event.target.value || '';
-  applyPersonalEvaluationPeriod(true);
+  await applyPersonalEvaluationPeriod(true);
 }
 
 async function handleCompanyPeriodChange(event) {
   state.companyEvaluationPeriodId = event.target.value || '';
   await goalSettingsService.loadCompanyPeriodTarget(state.companyEvaluationPeriodId);
-  renderCompanyTargets();
+  await renderCompanyTargets();
   void renderCompanyPeriodRevenueSummary(state.kpi.companyPeriod);
   loadCompanySummaryKPI();
 }
@@ -6667,9 +6825,9 @@ function syncPersonalRangeToEvaluationPeriod() {
   state.ranges.personalPeriod = { startDate: period.startDate, endDate: period.endDate };
 }
 
-function applyPersonalEvaluationPeriod(shouldReload = true) {
+async function applyPersonalEvaluationPeriod(shouldReload = true) {
   state.personalDisplayMode = 'monthly';
-  seedGoalDefaultsFromSettings();
+  await seedGoalDefaultsFromSettings();
   initGoalInputs('today');
   initGoalInputs('monthly');
   refreshAchievements('today');

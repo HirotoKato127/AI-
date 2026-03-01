@@ -293,6 +293,11 @@ function scheduleCandidateDetailRefresh() {
   if (candidateDetailRefreshTimer) return;
   candidateDetailRefreshTimer = window.setTimeout(() => {
     candidateDetailRefreshTimer = null;
+    const active = document.activeElement;
+    if (active?.classList?.contains('teleapo-cs-status-select')) {
+      scheduleCandidateDetailRefresh();
+      return;
+    }
     renderLogTable();
     renderCsTaskTable(teleapoCsTaskCandidates);
   }, 200);
@@ -4443,11 +4448,7 @@ function renderLogTable() {
       : targetText;
 
     // CSステータス解決
-    let csStatusRaw = "";
-    if (targetCandidateId && candidateDetailCache.has(Number(targetCandidateId))) {
-      const cached = candidateDetailCache.get(Number(targetCandidateId));
-      if (cached && cached.csStatus) csStatusRaw = cached.csStatus;
-    }
+    const csStatusRaw = targetCandidateId ? resolveCandidateCsStatus(targetCandidateId) : "";
     const csStatusOptions = ["", ...buildTeleapoCsStatusOptions()];
     const csStatusCell = targetCandidateId ? `
       <select class="teleapo-cs-status-select teleapo-filter-input" data-candidate-id="${escapeHtml(String(targetCandidateId))}" style="padding: 2px 4px; font-size: 0.875rem; min-width: 6rem; width: 100%;">
@@ -5147,19 +5148,16 @@ function clearCompanyRangePresetSelection() {
 
 function initDateInputs() {
   const buttons = getCompanyPresetButtons();
-  // 全ボタン非アクティブ化（デフォルトは全期間）
-  buttons.forEach(btn => setTeleapoButtonActive(btn, false));
+  const defaultPreset = 'last30';
 
-  // プリセットなし
-  teleapoActivePreset = null;
+  // デフォルトは直近一か月
+  teleapoActivePreset = defaultPreset;
+  setRangePreset(defaultPreset);
 
-  // 日付フィールドクリア
-  ['teleapoLogRangeStart', 'teleapoLogRangeEnd', 'teleapoCompanyRangeStart', 'teleapoCompanyRangeEnd'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
+  const defaultBtn = buttons.find(btn => btn.dataset.preset === defaultPreset);
+  syncTeleapoButtonGroup(buttons, defaultBtn);
 
-  // 初期表示ラベル更新（全期間）
+  // 初期表示ラベル更新（直近一か月）
   refreshForRangeChange();
 }
 
@@ -5385,10 +5383,14 @@ function initLogTableActions() {
   tbody.addEventListener('change', async (event) => {
     if (!event.target.matches('.teleapo-cs-status-select')) return;
     const select = event.target;
-    const candidateId = select.dataset.candidateId;
+    const candidateId = toPositiveInt(select.dataset.candidateId);
     const newStatus = select.value;
 
-    if (!candidateId) return;
+    if (!candidateId) {
+      window.alert("候補者IDが特定できないため、CSステータスを更新できません。候補者を選択して再度お試しください。");
+      select.value = "";
+      return;
+    }
 
     const oldStatusObj = teleapoLogData.find(l => String(l.candidateId) === String(candidateId));
     const oldStatus = normalizeCsStatusOption(oldStatusObj ? (oldStatusObj.csStatus ?? oldStatusObj.cs_status ?? "") : "");
@@ -5416,6 +5418,7 @@ function initLogTableActions() {
       });
 
       rebuildCsTaskCandidates();
+      renderLogTable();
     } catch (err) {
       console.error("Failed to update CS status", err);
       select.style.backgroundColor = '#fee2e2';
@@ -5480,10 +5483,14 @@ function initCsTaskTableActions() {
   tbody.addEventListener('change', async (event) => {
     if (!event.target.matches('.teleapo-cs-status-select')) return;
     const select = event.target;
-    const candidateId = select.dataset.candidateId;
+    const candidateId = toPositiveInt(select.dataset.candidateId);
     const newStatus = select.value;
 
-    if (!candidateId) return;
+    if (!candidateId) {
+      window.alert("候補者IDが特定できないため、CSステータスを更新できません。候補者を選択して再度お試しください。");
+      select.value = "";
+      return;
+    }
     const idNum = Number(candidateId);
 
     const oldStatusObj = teleapoCsTaskCandidates?.find(c => Number(c.candidateId) === idNum);
@@ -5730,7 +5737,7 @@ async function fetchTeleapoApi() {
   const url = new URL(TELEAPO_LOGS_URL);
   params.forEach((value, key) => url.searchParams.append(key, value));
 
-  const res = await fetch(url.toString(), { headers: buildApiHeaders() });
+  const res = await fetch(url.toString(), { headers: buildApiHeaders(), cache: "no-store" });
   if (!res.ok) throw new Error(`Teleapo API HTTP ${res.status}`);
   return res.json();
 }
@@ -7194,6 +7201,7 @@ async function updateCandidateCsStatus(candidateId, csStatus) {
   const body = {
     detailMode: true,
     csStatus: status,
+    cs_status: status,
     updatedAt: new Date().toISOString()
   };
 

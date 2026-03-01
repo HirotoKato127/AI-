@@ -160,6 +160,7 @@ function initializeAdFilters() {
   const metricSelect = document.getElementById('adMetricSelect');
   const metricTitle = document.getElementById('adMetricTitle');
   const graphMetricSelect = document.getElementById('adGraphMetricSelect');
+  const calcModeSelect = document.getElementById('adCalcModeSelect');
 
   mediaFilter?.addEventListener('change', handleMediaFilter);
   exportBtn?.addEventListener('click', handleExportCSV);
@@ -174,10 +175,11 @@ function initializeAdFilters() {
     if (calcModeSelect) calcModeSelect.value = 'base';
     adState.calcMode = 'base';
     selectedMediaFilter = null;
-    loadAdPerformanceData();
+
+    // Default to last 1 month on reset
+    applyAdRangePreset('last1month');
   });
 
-  const calcModeSelect = document.getElementById('adCalcModeSelect');
   calcModeSelect?.addEventListener('change', handleCalcModeChange);
 
   metricSelect?.addEventListener('change', (e) => {
@@ -204,9 +206,75 @@ function initializeAdFilters() {
   }
 
   ['adStartDate', 'adEndDate'].forEach(id => {
-    document.getElementById(id)?.addEventListener('change', () => loadAdPerformanceData());
+    document.getElementById(id)?.addEventListener('change', () => {
+      clearAdPresetHighlight();
+      loadAdPerformanceData();
+    });
   });
 
+  // Preset Buttons
+  document.querySelectorAll('.ad-preset-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const preset = e.currentTarget.dataset.preset;
+      applyAdRangePreset(preset);
+    });
+  });
+}
+
+function applyAdRangePreset(preset) {
+  const startEl = document.getElementById('adStartDate');
+  const endEl = document.getElementById('adEndDate');
+  if (!startEl || !endEl) return;
+
+  const now = new Date();
+  let startYm, endYm;
+
+  const getMonthStr = (date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  };
+
+  endYm = getMonthStr(now);
+
+  switch (preset) {
+    case 'thisMonth':
+      startYm = endYm;
+      break;
+    case 'last1month':
+      const last1 = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      startYm = getMonthStr(last1);
+      break;
+    case 'last3month':
+      const last3 = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      startYm = getMonthStr(last3);
+      break;
+    case 'last6month':
+      const last6 = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      startYm = getMonthStr(last6);
+      break;
+    default:
+      startYm = endYm;
+  }
+
+  startEl.value = startYm;
+  endYm = getMonthStr(now); // Force end to today's month for these presets
+  endEl.value = endYm;
+
+  updateAdPresetHighlight(preset);
+  loadAdPerformanceData();
+}
+
+function updateAdPresetHighlight(preset) {
+  document.querySelectorAll('.ad-preset-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.preset === preset);
+  });
+}
+
+function clearAdPresetHighlight() {
+  document.querySelectorAll('.ad-preset-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
 }
 
 function handleCalcModeChange(e) {
@@ -473,12 +541,15 @@ async function loadAdPerformanceData() {
   let startYm = (startEl?.value || '').trim();
   let endYm = (endEl?.value || '').trim();
   const nowYm = ymFromDate(new Date());
+  const now = new Date();
   const isAutoRange = !startYm && !endYm;
   if (isAutoRange) {
-    startYm = nowYm;
+    const last1 = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    startYm = ymFromDate(last1);
     endYm = nowYm;
     if (startEl) startEl.value = startYm;
     if (endEl) endEl.value = endYm;
+    updateAdPresetHighlight('last1month');
   }
   const requestStart = startYm || '2000-01';
   const requestEnd = endYm || nowYm;

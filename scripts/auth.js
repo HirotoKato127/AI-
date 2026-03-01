@@ -12,7 +12,7 @@ export function getSession() {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    
+
     const s = JSON.parse(raw);
     if (s.exp && Date.now() > s.exp) {
       localStorage.removeItem(KEY);
@@ -42,17 +42,17 @@ export function hasRole(role) {
   const s = getSession();
   if (!s) return false;
 
-  const sessionRoles = Array.isArray(s.roles) && s.roles.length
+  const sessionRoles = (Array.isArray(s.roles) && s.roles.length
     ? s.roles
-    : (s.role ? [s.role] : []);
+    : (s.role ? [s.role] : []))
+    .map(r => String(r || '').toLowerCase());
 
   if (!sessionRoles.length) return false;
 
-  if (Array.isArray(role)) {
-    return role.some(r => sessionRoles.includes(r));
-  }
+  const targetRoles = Array.isArray(role) ? role : [role];
+  const normalizedTargets = targetRoles.map(r => String(r || '').toLowerCase());
 
-  return sessionRoles.includes(role);
+  return normalizedTargets.some(r => sessionRoles.includes(r));
 }
 
 export function applyRoleGates(root = document) {

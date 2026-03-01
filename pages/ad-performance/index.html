@@ -119,6 +119,32 @@
     background: #e2e8f0;
   }
 
+  /* Preset Range Buttons */
+  .ad-preset-btn {
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    background: #ffffff;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .ad-preset-btn:hover {
+    background: #f8fafc;
+    color: #0077c7;
+    border-color: #0077c7;
+  }
+
+  .ad-preset-btn.active {
+    background: #0077c7;
+    color: white;
+    border-color: #0077c7;
+  }
+
   /* ===== KPI Cards - ボーダーなし、背景で区別 ===== */
   .ad-kpi-grid {
     display: grid;
@@ -450,6 +476,12 @@
       <input id="adStartDate" type="month" class="ad-filter-input" style="width: 140px;" />
       <span style="color: #94a3b8; font-size: 13px;">〜</span>
       <input id="adEndDate" type="month" class="ad-filter-input" style="width: 140px;" />
+      <div class="ad-filter-group" style="margin-left: 8px;">
+        <button type="button" class="ad-preset-btn" data-preset="thisMonth">今月</button>
+        <button type="button" class="ad-preset-btn active" data-preset="last1month">直近１か月</button>
+        <button type="button" class="ad-preset-btn" data-preset="last3month">直近３か月</button>
+        <button type="button" class="ad-preset-btn" data-preset="last6month">直近半年</button>
+      </div>
     </div>
     <div class="ad-filter-group" style="margin-left: auto;">
       <button id="adResetFilter" class="ad-filter-btn">リセット</button>

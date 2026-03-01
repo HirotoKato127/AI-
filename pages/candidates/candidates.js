@@ -209,6 +209,33 @@ function normalizeCsStatusOption(value) {
   return text;
 }
 
+const MAIL_TRIGGER_STATUSES_RAW = [
+  "34歳以下メール",
+  "34歳以下メール(tech)",
+  "35歳以上メール",
+  "外国籍メール"
+];
+const normalizeMailTriggerStatus = (value) =>
+  normalizeCsStatusOption(value)
+    .replace(/[\s\u3000]/g, "")
+    .replace(/（/g, "(")
+    .replace(/）/g, ")");
+const MAIL_TRIGGER_STATUSES = MAIL_TRIGGER_STATUSES_RAW.map(normalizeMailTriggerStatus);
+
+function isMailTriggerCsStatus(value) {
+  const normalized = normalizeMailTriggerStatus(value);
+  if (!normalized) return false;
+  return MAIL_TRIGGER_STATUSES.includes(normalized);
+}
+
+function shouldConfirmCsStatusMailSend(newStatus, oldStatus) {
+  const normalizedNew = normalizeMailTriggerStatus(newStatus);
+  if (!normalizedNew) return false;
+  if (!MAIL_TRIGGER_STATUSES.includes(normalizedNew)) return false;
+  const normalizedOld = normalizeMailTriggerStatus(oldStatus);
+  return normalizedNew !== normalizedOld;
+}
+
 // CSステータス同期用の定数 (teleapo.js と共通)
 const CANDIDATES_CS_STATUS_STORAGE_KEY = 'candidates_custom_cs_statuses';
 const CANDIDATES_CS_STATUS_DELETED_KEY = 'candidates_deleted_default_cs_statuses';
@@ -1358,9 +1385,9 @@ function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
 
   if (!input || !dropdown) return;
 
-  const showDropdown = () => {
+  const showDropdown = (showAll = false) => {
     const options = getOptionsFn();
-    const query = input.value.trim().toLowerCase();
+    const query = showAll ? "" : input.value.trim().toLowerCase();
 
     // フィルタリング
     const filtered = options.filter(opt => {
@@ -1378,8 +1405,10 @@ function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
       dropdown.innerHTML = filtered.map(opt => {
         const value = typeof opt === "string" ? opt : opt.value;
         const label = typeof opt === "string" ? opt : opt.label;
+        const disabled = typeof opt === "object" && opt.disabled ? "true" : "false";
+        const disabledClass = disabled === "true" ? " is-disabled" : "";
         const isActive = hiddenSelect && String(hiddenSelect.value) === String(value) ? "is-active" : "";
-        return `<div class="searchable-dropdown-item ${isActive}" data-value="${escapeHtmlAttr(String(value))}">${escapeHtml(label)}</div>`;
+        return `<div class="searchable-dropdown-item ${isActive}${disabledClass}" data-value="${escapeHtmlAttr(String(value))}" data-disabled="${disabled}">${escapeHtml(label)}</div>`;
       }).join("");
     }
 
@@ -1393,13 +1422,17 @@ function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
     }, 200);
   };
 
-  input.addEventListener("focus", showDropdown);
-  input.addEventListener("input", showDropdown);
+  input.addEventListener("focus", () => {
+    const showAll = input.dataset.showAllOnFocus === "true";
+    showDropdown(showAll);
+  });
+  input.addEventListener("input", () => showDropdown(false));
   input.addEventListener("blur", hideDropdown);
 
   dropdown.addEventListener("click", (e) => {
     const item = e.target.closest(".searchable-dropdown-item");
     if (!item) return;
+    if (item.dataset.disabled === "true") return;
 
     const value = item.dataset.value;
     const label = item.textContent;
@@ -1441,6 +1474,22 @@ function initializeSelectionCompanyDropdowns(candidate) {
     if (!dropdownId || !input.id) return;
     setupSearchableDropdown(input.id, dropdownId, null, optionsFn);
   });
+}
+
+function initializeDetailCsStatusDropdowns(candidate) {
+  const container = getCandidateDetailContainer();
+  if (!container || !candidate) return;
+  const input = container.querySelector(".detail-cs-status-search");
+  const dropdown = container.querySelector(".detail-cs-status-dropdown-list");
+  const select = container.querySelector('select[data-detail-field="csStatus"], select[data-detail-field="cs_status"]');
+  if (!input || !dropdown || !select || !input.id || !dropdown.id || !select.id) return;
+
+  const optionsFn = () => buildCsStatusDropdownOptions(select.value);
+  setupSearchableDropdown(input.id, dropdown.id, select.id, optionsFn);
+  const normalized = normalizeCsStatusOption(select.value);
+  const label = resolveCsStatusDisplayLabel(normalized);
+  input.value = label || "";
+  input.placeholder = label ? "" : "未設定";
 }
 
 async function loadFilterMasters() {
@@ -2625,6 +2674,7 @@ function renderCandidatesTable(list) {
   }
 
   tableBody.innerHTML = list.map((candidate) => buildTableRow(candidate)).join("");
+  initializeInlineCsStatusDropdowns();
   highlightSelectedRow();
 }
 
@@ -2654,6 +2704,32 @@ function buildTableRow(candidate) {
       ${renderNextActionCell(candidate)}
     </tr>
   `;
+}
+
+function syncCsStatusDropdownInput(container) {
+  if (!container) return;
+  const select = container.querySelector("[data-cs-status-select-edit]");
+  const input = container.querySelector(".candidate-cs-status-search");
+  if (!select || !input) return;
+  const normalized = normalizeCsStatusOption(select.value);
+  const displayLabel = resolveCsStatusDisplayLabel(normalized);
+  input.value = displayLabel || "";
+  input.placeholder = displayLabel ? "" : "未設定";
+}
+
+function initializeInlineCsStatusDropdowns() {
+  syncCsStatusManageStateFromStorage();
+  const containers = document.querySelectorAll(".candidate-cs-status-dropdown");
+  containers.forEach((container) => {
+    const input = container.querySelector(".candidate-cs-status-search");
+    const dropdown = container.querySelector(".searchable-dropdown-list");
+    const select = container.querySelector("[data-cs-status-select-edit]");
+    if (!input || !dropdown || !select || !input.id || !dropdown.id || !select.id) return;
+
+    const optionsFn = () => buildCsStatusDropdownOptions(select.value);
+    setupSearchableDropdown(input.id, dropdown.id, select.id, optionsFn);
+    syncCsStatusDropdownInput(container);
+  });
 }
 
 function renderCandidateNameCell(candidate) {
@@ -2772,6 +2848,57 @@ function buildCsStatusOptionsHtml(selectedValue = "") {
       return `<option value="${escapeHtmlAttr(value)}" ${selected} ${disabled}>${escapeHtml(label)}</option>`;
     })
     .join("");
+}
+
+function resolveCsStatusDisplayLabel(value) {
+  const normalized = normalizeCsStatusOption(value);
+  if (!normalized) return "";
+  if (deletedDefaultCsStatuses.has(normalized)) return `${normalized} (削除済み)`;
+  return normalized;
+}
+
+function buildCsStatusDropdownOptions(selectedValue = "") {
+  return buildCsStatusOptions(selectedValue).map((option) => ({
+    value: option?.value ?? "",
+    label: option?.label ?? "",
+    disabled: Boolean(option?.disabled),
+  }));
+}
+
+function renderCsStatusSearchCell(candidate) {
+  const candidateId = String(candidate?.id ?? "");
+  const normalized = normalizeCsStatusOption(candidate?.csStatus ?? candidate?.cs_status ?? "");
+  const displayLabel = resolveCsStatusDisplayLabel(normalized);
+  const inputValue = displayLabel || "";
+  const placeholder = displayLabel ? "" : "未設定";
+  const inputId = `candidateCsStatusInput-${candidateId}`;
+  const dropdownId = `candidateCsStatusDropdown-${candidateId}`;
+  const selectId = `candidateCsStatusSelect-${candidateId}`;
+
+  return `
+    <td class="candidate-cs-status-cell">
+      <div class="searchable-dropdown-container candidate-cs-status-dropdown" data-stop-row-click data-cs-status-container>
+        <input
+          type="text"
+          id="${escapeHtmlAttr(inputId)}"
+          class="table-inline-input candidate-cs-status-search"
+          placeholder="${escapeHtmlAttr(placeholder)}"
+          value="${escapeHtmlAttr(inputValue)}"
+          data-show-all-on-focus="true"
+          autocomplete="off"
+        >
+        <div class="searchable-dropdown-list hidden" id="${escapeHtmlAttr(dropdownId)}"></div>
+        <select
+          id="${escapeHtmlAttr(selectId)}"
+          class="candidate-cs-status-select-hidden"
+          data-field="csStatus"
+          data-cs-status-select-edit
+        >
+          ${buildCsStatusOptionsHtml(normalized)}
+        </select>
+      </div>
+    </td>
+  `;
 }
 
 function renderCsStatusDisplayCell(candidate) {
@@ -2901,9 +3028,7 @@ async function handleInlineCsStatusSave(button) {
 
   const statusValue = normalizeCsStatusOption(select.value);
   const oldStatus = candidate.csStatus;
-  const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
-
-  if (statusValue !== oldStatus && MAIL_TRIGGER_STATUSES.includes(statusValue)) {
+  if (shouldConfirmCsStatusMailSend(statusValue, oldStatus)) {
     if (!window.confirm(`CSステータスを「${statusValue}」に変更すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
       select.value = oldStatus || "";
       return;
@@ -2933,10 +3058,8 @@ async function handleInlineCsStatusSave(button) {
 function renderTextCell(candidate, field, options = {}) {
   const raw = candidate[field] ?? "";
 
-  // CSステータスは候補者管理では編集不可（架電管理画面のステータスを表示のみ）
   if (field === "csStatus" || field === "cs_status") {
-    const display = normalizeCsStatusOption(raw) || "-";
-    return `<td class="candidate-cs-status-cell"><span class="candidate-cs-status-value">${escapeHtml(display)}</span></td>`;
+    return renderCsStatusSearchCell(candidate);
   }
 
   if (!candidatesEditMode || options.readOnly) {
@@ -3085,6 +3208,10 @@ function refreshAllCsStatusSelects() {
     select.innerHTML = buildCsStatusOptionsHtml(currentValue);
   });
 
+  // テーブル内のCSステータス検索入力も同期
+  const containers = document.querySelectorAll(".candidate-cs-status-dropdown");
+  containers.forEach((container) => syncCsStatusDropdownInput(container));
+
   // 詳細パネル内のCSステータスselectも更新
   const detailSelects = document.querySelectorAll(
     'select[data-detail-field="csStatus"], select[data-detail-field="cs_status"]'
@@ -3093,6 +3220,18 @@ function refreshAllCsStatusSelects() {
     const currentValue = select.value ?? "";
     select.innerHTML = buildCsStatusOptionsHtml(currentValue);
     if (currentValue) select.value = currentValue;
+  });
+
+  // 詳細パネル内のCSステータス検索入力も同期
+  const detailContainers = document.querySelectorAll("[data-detail-cs-status-container]");
+  detailContainers.forEach((container) => {
+    const select = container.querySelector('select[data-detail-field="csStatus"], select[data-detail-field="cs_status"]');
+    const input = container.querySelector(".detail-cs-status-search");
+    if (!select || !input) return;
+    const normalized = normalizeCsStatusOption(select.value);
+    const label = resolveCsStatusDisplayLabel(normalized);
+    input.value = label || "";
+    input.placeholder = label ? "" : "未設定";
   });
 
   // フィルタープルダウンも更新
@@ -3169,11 +3308,11 @@ function handleInlineEdit(event) {
 
     const normalized = normalizeCsStatusOption(control.value);
     const oldStatus = candidate.csStatus ?? candidate.cs_status ?? "";
-    const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
-
-    if (normalized !== oldStatus && MAIL_TRIGGER_STATUSES.includes(normalized)) {
+    if (shouldConfirmCsStatusMailSend(normalized, oldStatus)) {
       if (!window.confirm(`CSステータスを「${normalized}」に変更すると、候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
         control.value = oldStatus || "";
+        const container = control.closest(".candidate-cs-status-dropdown");
+        if (container) syncCsStatusDropdownInput(container);
         return;
       }
     }
@@ -3336,6 +3475,7 @@ function handleTableTouchEnd(_event) {
 
 async function handleTableClick(event) {
   if (event.target.closest("[data-field]")) return;
+  if (event.target.closest("[data-stop-row-click]")) return;
 
   const row = event.target.closest("tr[data-id]");
   if (!row) return;
@@ -3617,6 +3757,7 @@ function renderCandidateDetail(candidate, { preserveEditState = false } = {}) {
   initializeDetailContentListeners();
   initializeDetailTabs(activeTabKey); // タブリスナー初期化
   initializeSelectionCompanyDropdowns(candidate);
+  initializeDetailCsStatusDropdowns(candidate);
 }
 
 // タブナビゲーションの初期化
@@ -4346,7 +4487,7 @@ function formatMoneyToMan(value) {
     const num = Number(cleaned);
     if (!Number.isFinite(num)) return null;
     if (hasMan) return Math.round(num);
-    if (num >= 10000) return Math.floor(num / 10000);
+    if (Math.abs(num) >= 10000) return Math.trunc(num / 10000);
     return Math.round(num);
   };
 
@@ -5010,10 +5151,19 @@ function handleDetailFieldChange(event) {
   }
   if (fieldPath === "csStatus" || fieldPath === "cs_status") {
     const normalized = normalizeCsStatusOption(value);
-    const MAIL_TRIGGER_STATUSES = ["34歳以下メール(tech)", "35歳以上メール", "外国籍メール"];
-    if (normalized !== oldCsStatus && MAIL_TRIGGER_STATUSES.includes(normalized)) {
+    if (shouldConfirmCsStatusMailSend(normalized, oldCsStatus)) {
       if (!window.confirm(`「${normalized}」に変更すると、保存時に候補者へ自動メールが送信されます。\n本当によろしいですか？`)) {
         target.value = oldCsStatus || "";
+        const container = target.closest("[data-detail-cs-status-container]");
+        if (container) {
+          const input = container.querySelector(".detail-cs-status-search");
+          const select = container.querySelector('select[data-detail-field="csStatus"], select[data-detail-field="cs_status"]');
+          if (select && input) {
+            const resetLabel = resolveCsStatusDisplayLabel(select.value);
+            input.value = resetLabel || "";
+            input.placeholder = resetLabel ? "" : "未設定";
+          }
+        }
         return;
       }
     }
@@ -6323,8 +6473,37 @@ function renderCsSection(candidate) {
   const hasConnected = Boolean(csSummary.hasConnected ?? candidate.phoneConnected);
   const callCount = csSummary.callCount ?? candidate.callCount ?? 0;
   const lastConnectedAt = candidate.callDate ?? csSummary.lastConnectedAt ?? null;
-  const csStatusDisplay = normalizeCsStatusOption(candidate.csStatus ?? candidate.cs_status ?? "") || "-";
   const editing = detailEditState.cs;
+  const csStatusValue = normalizeCsStatusOption(candidate.csStatus ?? candidate.cs_status ?? "");
+  const csStatusDisplay = resolveCsStatusDisplayLabel(csStatusValue) || "-";
+  const csStatusInputId = `detailCsStatusInput-${candidate.id ?? "unknown"}`;
+  const csStatusDropdownId = `detailCsStatusDropdown-${candidate.id ?? "unknown"}`;
+  const csStatusSelectId = `detailCsStatusSelect-${candidate.id ?? "unknown"}`;
+  const csStatusPlaceholder = csStatusValue ? "" : "未設定";
+  const csStatusHtml = editing
+    ? `
+      <div class="searchable-dropdown-container detail-cs-status-dropdown" data-detail-cs-status-container>
+        <input
+          type="text"
+          id="${escapeHtmlAttr(csStatusInputId)}"
+          class="detail-inline-input detail-cs-status-search"
+          placeholder="${escapeHtmlAttr(csStatusPlaceholder)}"
+          value="${escapeHtmlAttr(csStatusDisplay === "-" ? "" : csStatusDisplay)}"
+          data-show-all-on-focus="true"
+          autocomplete="off"
+        >
+        <div class="searchable-dropdown-list hidden detail-cs-status-dropdown-list" id="${escapeHtmlAttr(csStatusDropdownId)}"></div>
+        <select
+          id="${escapeHtmlAttr(csStatusSelectId)}"
+          class="detail-select detail-cs-status-select-hidden"
+          data-detail-field="csStatus"
+          data-detail-section="cs"
+        >
+          ${buildCsStatusOptionsHtml(csStatusValue)}
+        </select>
+      </div>
+    `
+    : `<span class="cs-status-chip${csStatusDisplay === "-" ? " is-empty" : ""}">${escapeHtml(csStatusDisplay)}</span>`;
 
   // 設定日の自動解決: 架電ログから「設定」を含む最新のものを優先する
   let scheduleConfirmedAt = candidate.scheduleConfirmedAt;
@@ -6338,7 +6517,7 @@ function renderCsSection(candidate) {
   }
 
   const items = [
-    { label: "CSステータス", html: `<span class="cs-status-chip${csStatusDisplay === "-" ? " is-empty" : ""}">${escapeHtml(csStatusDisplay)}</span>` },
+    { label: "CSステータス", html: csStatusHtml },
     { label: "架電回数", value: Number(callCount) > 0 ? `${callCount} 回` : "-" },
     { label: "通電", html: renderBooleanPill(hasConnected, { trueLabel: "通電済", falseLabel: "未通電" }) },
     { label: "通電日", value: formatDateJP(lastConnectedAt) },

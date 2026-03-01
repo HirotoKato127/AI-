@@ -9,6 +9,13 @@ const ROLE_OPTIONS = [
   { value: 'caller', label: 'CS' },
   { value: 'marketing', label: 'マーケ' }
 ];
+const ROLE_VALUE_SET = new Set(ROLE_OPTIONS.map((opt) => opt.value));
+const ROLE_ALIASES = {
+  admin: 'advisor',
+  cs: 'caller',
+  csr: 'caller',
+  sales: 'advisor'
+};
 const TABLE_COLSPAN = 6;
 const CREATE_REQUESTS_TABLE_COLSPAN = 7;
 const DELETE_REQUESTS_TABLE_COLSPAN = 6;
@@ -241,11 +248,37 @@ function normalizeMembers(result) {
     id: member.id ?? member.user_id ?? member.userId ?? member.member_id ?? member.memberId ?? member.uid ?? '',
     name: member.name || member.fullName || member.full_name || member.user_name || '',
     email: member.email || member.mail || member.user_email || '',
-    role: member.role || member.member_role || member.user_role || member.department || '',
-    isAdmin: Boolean(member.isAdmin ?? member.is_admin ?? member.admin ?? member.is_admin_flag),
+    role: (() => {
+      if (member.role || member.member_role || member.user_role || member.department) {
+        return member.role || member.member_role || member.user_role || member.department || '';
+      }
+      const roles = Array.isArray(member.roles)
+        ? member.roles
+        : (Array.isArray(member.role) ? member.role : []);
+      if (!roles.length) return '';
+      const normalizedRoles = roles.map((role) => String(role || '').trim()).filter(Boolean);
+      return normalizedRoles.find((role) => role.toLowerCase() !== 'admin') || normalizedRoles[0] || '';
+    })(),
+    isAdmin: (() => {
+      const direct = member.isAdmin ?? member.is_admin ?? member.admin ?? member.is_admin_flag;
+      if (direct !== undefined) return Boolean(direct);
+      const roles = Array.isArray(member.roles)
+        ? member.roles
+        : (Array.isArray(member.role) ? member.role : []);
+      return roles.some((role) => String(role || '').toLowerCase() === 'admin');
+    })(),
     createdAt: member.createdAt || member.created_at || member.created || '',
     updatedAt: member.updatedAt || member.updated_at || member.updated || ''
   }));
+}
+
+function normalizeRoleValue(rawRole, isAdminFlag = false) {
+  const value = String(rawRole || '').trim().toLowerCase();
+  if (!value) return ROLE_OPTIONS[0]?.value || '';
+  if (ROLE_VALUE_SET.has(value)) return value;
+  const mapped = ROLE_ALIASES[value];
+  if (mapped && ROLE_VALUE_SET.has(mapped)) return mapped;
+  return isAdminFlag ? (ROLE_OPTIONS[0]?.value || '') : value;
 }
 
 function isDeleteRequest(request) {
@@ -588,8 +621,9 @@ function openMemberModal(mode, member = null) {
   passwordInput.required = !isEdit;
   adminInput.checked = Boolean(member?.isAdmin);
 
-  populateRoleOptions(roleInput, member?.role);
-  roleInput.value = member?.role || ROLE_OPTIONS[0]?.value || '';
+  const normalizedRole = normalizeRoleValue(member?.role, member?.isAdmin);
+  populateRoleOptions(roleInput, normalizedRole);
+  roleInput.value = normalizedRole || ROLE_OPTIONS[0]?.value || '';
   roleInput.disabled = canEditSelf;
   adminInput.disabled = canEditSelf;
 
@@ -651,13 +685,13 @@ async function handleMemberSubmit(event) {
   if (mode === 'create' || (mode === 'edit' && (isAdmin || isSelfEdit))) {
     payload.email = email;
   }
-  payload.role = roleInput.value;
+  payload.role = normalizeRoleValue(roleInput.value, adminInput.checked);
   payload.isAdmin = adminInput.checked;
   if (password) {
     payload.password = password;
   }
-  if (!payload.role) {
-    setFormError('役割を選択してください。');
+  if (!payload.role || !ROLE_VALUE_SET.has(payload.role)) {
+    setFormError('役割は「アドバイザー / CS / マーケ」から選択してください。');
     return;
   }
 
@@ -733,6 +767,9 @@ async function createMember(payload) {
   if (payload?.isAdmin !== undefined && body.is_admin === undefined) {
     body.is_admin = payload.isAdmin;
   }
+  if (!body.roles && body.role) {
+    body.roles = [body.role];
+  }
   return membersRequest(MEMBERS_LIST_PATH, {
     method: 'POST',
     body: JSON.stringify(body)
@@ -742,14 +779,34 @@ async function createMember(payload) {
 async function updateMember(id, payload) {
   if (!id) throw new Error('IDが見つかりません。');
   const encodedId = encodeURIComponent(String(id));
-  const body = { ...payload, id };
+  const body = {
+    ...payload,
+    id,
+    memberId: id,
+    member_id: id,
+    userId: id,
+    user_id: id
+  };
   if (payload?.isAdmin !== undefined && body.is_admin === undefined) {
     body.is_admin = payload.isAdmin;
   }
-  return membersRequest(`${MEMBERS_LIST_PATH}?id=${encodedId}`, {
-    method: 'PUT',
-    body: JSON.stringify(body)
-  });
+  if (!body.roles && body.role) {
+    body.roles = [body.role];
+  }
+  const tryUpdate = (path) =>
+    membersRequest(path, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+
+  try {
+    return await tryUpdate(`${MEMBERS_LIST_PATH}?id=${encodedId}`);
+  } catch (error) {
+    if (error?.status === 404 || error?.status === 405) {
+      return await tryUpdate(`${MEMBERS_LIST_PATH}/${encodedId}`);
+    }
+    throw error;
+  }
 }
 
 async function deleteMember(id) {
@@ -774,7 +831,7 @@ async function membersRequest(path, options) {
   if (options?.body) headers['Content-Type'] = 'application/json';
   if (session?.token) headers.Authorization = `Bearer ${session.token}`;
 
-  const response = await fetch(membersApi(path), { ...options, headers });
+  const response = await fetch(membersApi(path), { cache: 'no-store', ...options, headers });
   const payload = await readJson(response);
   if (!response.ok) {
     const error = new Error(payload?.error || `HTTP ${response.status}`);

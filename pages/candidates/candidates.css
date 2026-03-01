@@ -522,6 +522,22 @@
   min-width: 170px;
 }
 
+.candidate-cs-status-dropdown {
+  width: 100%;
+}
+
+.candidate-cs-status-select-hidden {
+  display: none;
+}
+
+.detail-cs-status-dropdown {
+  width: 100%;
+}
+
+.detail-cs-status-select-hidden {
+  display: none;
+}
+
 .candidate-cs-status-trigger {
   width: 100%;
   border: 1px solid #c7d2fe;
@@ -2911,6 +2927,17 @@ body.has-modal-open {
   background: #eff6ff;
   color: var(--app-primary);
   font-weight: 600;
+}
+
+.searchable-dropdown-item.is-disabled {
+  color: #94a3b8;
+  background: #f8fafc;
+  cursor: not-allowed;
+}
+
+.searchable-dropdown-item.is-disabled:hover {
+  background: #f8fafc;
+  color: #94a3b8;
 }
 
 .searchable-dropdown-empty {
