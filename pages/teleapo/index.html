@@ -529,33 +529,226 @@
     line-height: 1.6;
   }
 
-  /* CSステータス管理モーダル */
+  /* CSステータス管理モーダル - 刷新されたプレミアムデザイン */
   .teleapo-status-modal {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(15, 23, 42, 0.6);
+    /* より深い色のオーバーレイ */
+    backdrop-filter: blur(4px);
+    /* 背景をぼかす */
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 9999;
+    opacity: 1;
+    transition: opacity 0.2s ease;
   }
 
   .teleapo-status-modal.hidden {
     display: none;
+    opacity: 0;
   }
 
   .teleapo-status-panel {
-    background: white;
-    border-radius: 12px;
-    width: 90%;
-    max-width: 400px;
-    max-height: 80vh;
+    background: #ffffff;
+    border-radius: 16px;
+    width: 95%;
+    max-width: 440px;
+    max-height: 85vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    box-shadow:
+      0 20px 25px -5px rgba(0, 0, 0, 0.1),
+      0 10px 10px -5px rgba(0, 0, 0, 0.04),
+      0 0 0 1px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    animation: modal-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  @keyframes modal-pop {
+    from {
+      transform: scale(0.95) translateY(10px);
+      opacity: 0;
+    }
+
+    to {
+      transform: scale(1) translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .teleapo-status-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #ffffff;
+  }
+
+  .teleapo-status-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0;
+  }
+
+  .teleapo-status-close {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: none;
+    background: #f8fafc;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .teleapo-status-close:hover {
+    background: #fee2e2;
+    color: #ef4444;
+  }
+
+  .teleapo-status-body {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .teleapo-status-input-group {
+    display: flex;
+    gap: 8px;
+    position: sticky;
+    top: 0;
+    background: #ffffff;
+    z-index: 10;
+    padding-bottom: 4px;
+  }
+
+  .teleapo-status-input {
+    flex: 1;
+    padding: 10px 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 14px;
+    transition: all 0.2s;
+    background: #fcfcfd;
+  }
+
+  .teleapo-status-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    background: #ffffff;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+  }
+
+  .teleapo-status-add-btn {
+    padding: 10px 20px;
+    background: #2563eb;
+    color: #ffffff;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .teleapo-status-add-btn:hover {
+    background: #1d4ed8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+  }
+
+  .teleapo-status-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: #ffffff;
+    border: 1px solid #f1f5f9;
+    border-radius: 10px;
+    transition: all 0.2s;
+  }
+
+  .teleapo-status-item:hover {
+    border-color: #e2e8f0;
+    background: #f8fafc;
+    transform: translateX(2px);
+  }
+
+  .teleapo-status-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: #334155;
+  }
+
+  .teleapo-status-delete-btn {
+    padding: 6px 12px;
+    color: #94a3b8;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .teleapo-status-delete-btn:hover {
+    color: #ef4444;
+    background: #fef2f2;
+  }
+
+  .teleapo-status-restore-btn {
+    padding: 6px 12px;
+    color: #3b82f6;
+    background: #eff6ff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .teleapo-status-restore-btn:hover {
+    background: #dbeafe;
+    transform: translateY(-1px);
+  }
+
+  .teleapo-status-deleted-label {
+    font-size: 14px;
+    color: #94a3b8;
+    text-decoration: line-through;
+  }
+
+  .teleapo-status-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    color: #94a3b8;
+    margin: 12px 0 8px 4px;
+  }
+
+  .teleapo-status-footer {
+    padding: 16px 24px;
+    border-top: 1px solid #f1f5f9;
+    display: flex;
+    justify-content: flex-end;
+    background: #fcfcfd;
   }
 
   /* 検索機能付きドロップダウンの基盤 */
@@ -1269,28 +1462,33 @@
     </div>
   </div>
 
-  <!-- CSステータス管理モーダル -->
+  <!-- CSステータス管理モーダル - 刷新されたプレミアムデザイン -->
   <div id="teleapoCsStatusModal" class="teleapo-status-modal hidden">
     <div class="teleapo-status-panel">
       <div class="teleapo-status-header">
         <h3 class="teleapo-status-title">CSステータス管理</h3>
-        <button type="button" onclick="closeTeleapoCsStatusManager()"
-          class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+        <button type="button" onclick="closeTeleapoCsStatusManager()" class="teleapo-status-close" aria-label="閉じる">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
       </div>
       <div class="teleapo-status-body">
         <div class="teleapo-status-input-group">
-          <input type="text" id="newCsStatusInput" class="teleapo-status-input" placeholder="新しいステータス名">
+          <input type="text" id="newCsStatusInput" class="teleapo-status-input" placeholder="新しいステータス名を入力...">
           <button type="button"
             onclick="addTeleapoCsStatus(document.getElementById('newCsStatusInput').value); document.getElementById('newCsStatusInput').value='';"
             class="teleapo-status-add-btn">追加</button>
         </div>
-        <div id="teleapoCsStatusManagerList" class="flex flex-col gap-1">
-          <!-- ここにステータス一覧が描画される -->
+        <div id="teleapoCsStatusManagerList" class="flex flex-col gap-2">
+          <!-- JSで動的に生成 -->
         </div>
       </div>
-      <div class="p-4 border-t border-slate-100 flex justify-end">
+      <div class="teleapo-status-footer">
         <button type="button" onclick="closeTeleapoCsStatusManager()"
-          class="px-4 py-2 bg-slate-100 text-slate-600 rounded-md text-sm font-medium hover:bg-slate-200">閉じる</button>
+          class="px-5 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors">完了</button>
       </div>
     </div>
   </div>

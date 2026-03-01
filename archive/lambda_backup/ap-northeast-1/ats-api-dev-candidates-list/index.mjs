@@ -335,6 +335,7 @@ export const handler = async (event) => {
   const name = String(qs.name || "").trim();
   const source = String(qs.source || "").trim();
   const company = String(qs.company || "").trim();
+  const csStatus = String(qs.csStatus || qs.cs_status || "").trim();
   const advisor = String(qs.advisor || "").trim();
   const valid = toBoolOrNull(qs.valid);
   const phase = String(qs.phase || "").trim();
@@ -470,6 +471,11 @@ export const handler = async (event) => {
     if (company) {
       params.push(company);
       conditions.push(`LOWER(COALESCE(ca_latest.client_name, c.apply_company_name, c.company_name, '')) = LOWER($${params.length})`);
+    }
+
+    if (csStatus) {
+      params.push(csStatus);
+      conditions.push(`LOWER(COALESCE(c.cs_status, '')) = LOWER($${params.length})`);
     }
 
     // Keep query compatibility; resolved values are recalculated below and synchronized back to DB.

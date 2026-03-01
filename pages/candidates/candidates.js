@@ -1384,6 +1384,17 @@ function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
   const hiddenSelect = hiddenId ? document.getElementById(hiddenId) : null;
 
   if (!input || !dropdown) return;
+  const usePortal = dropdown.dataset.dropdownPortal === "true";
+
+  const positionDropdown = () => {
+    if (!usePortal) return;
+    const rect = input.getBoundingClientRect();
+    dropdown.style.position = "fixed";
+    dropdown.style.top = `${rect.bottom + 4}px`;
+    dropdown.style.left = `${rect.left}px`;
+    dropdown.style.width = `${rect.width}px`;
+    dropdown.style.zIndex = "2000";
+  };
 
   const showDropdown = (showAll = false) => {
     const options = getOptionsFn();
@@ -1412,6 +1423,7 @@ function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
       }).join("");
     }
 
+    positionDropdown();
     dropdown.classList.remove("hidden");
   };
 
@@ -1419,6 +1431,13 @@ function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
     // クリックイベントが先に発火するように少し遅延させる
     setTimeout(() => {
       dropdown.classList.add("hidden");
+      if (usePortal) {
+        dropdown.style.position = "";
+        dropdown.style.top = "";
+        dropdown.style.left = "";
+        dropdown.style.width = "";
+        dropdown.style.zIndex = "";
+      }
     }, 200);
   };
 
@@ -1441,10 +1460,10 @@ function setupSearchableDropdown(inputId, dropdownId, hiddenId, getOptionsFn) {
     if (hiddenSelect) {
       hiddenSelect.value = value;
       // 既存の change イベントを手動で発火
-      hiddenSelect.dispatchEvent(new Event("change"));
+      hiddenSelect.dispatchEvent(new Event("change", { bubbles: true }));
     } else {
       // hiddenSelectがない場合はinput自体のイベントを発火
-      input.dispatchEvent(new Event("input"));
+      input.dispatchEvent(new Event("input", { bubbles: true }));
     }
     dropdown.classList.add("hidden");
   });
@@ -2887,7 +2906,7 @@ function renderCsStatusSearchCell(candidate) {
           data-show-all-on-focus="true"
           autocomplete="off"
         >
-        <div class="searchable-dropdown-list hidden" id="${escapeHtmlAttr(dropdownId)}"></div>
+        <div class="searchable-dropdown-list hidden" id="${escapeHtmlAttr(dropdownId)}" data-dropdown-portal="true"></div>
         <select
           id="${escapeHtmlAttr(selectId)}"
           class="candidate-cs-status-select-hidden"
@@ -4070,7 +4089,23 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
       const sectionKey = input.dataset.detailSection;
       value = normalizeMoneyInputValue(value, path, sectionKey);
 
+      if (["advisorUserId", "csUserId", "partnerUserId"].includes(path) && value === "") {
+        value = null;
+      }
+
       updateCandidateFieldValue(candidate, path, value);
+
+      if (path === "advisorUserId") {
+        candidate.advisorName = resolveUserName(candidate.advisorUserId);
+        candidate.partnerName = candidate.advisorName;
+      }
+      if (path === "csUserId") {
+        candidate.csName = resolveUserName(candidate.csUserId);
+        candidate.partnerUserId = candidate.csUserId;
+      }
+      if (path === "partnerUserId") {
+        candidate.partnerName = resolveUserName(candidate.partnerUserId);
+      }
 
       // 特殊フィールドの同期
       if (path === "nextActionDate") {
@@ -4180,14 +4215,12 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
     };
 
   // ★ Lambdaが必須とするフラグ
-  if (includeDetail) {
+  if (includeDetail || payload.csStatus) {
     payload.detailMode = true;
-    payload.selection_progress = candidate.selectionProgress;
   }
 
-  // ★ Lambdaが必須とするフラグを確実にセット
   if (includeDetail) {
-    payload.detailMode = true;
+    payload.selection_progress = candidate.selectionProgress;
     const deletedIds = pendingDeletedSelectionIds[currentDetailCandidateId];
     if (Array.isArray(deletedIds) && deletedIds.length > 0) {
       payload.deletedSelectionProgressIds = deletedIds;
@@ -5128,6 +5161,10 @@ function handleDetailFieldChange(event) {
   const sectionKey = target.dataset.detailSection;
   value = normalizeMoneyInputValue(value, fieldPath, sectionKey);
 
+  if (["advisorUserId", "csUserId", "partnerUserId"].includes(fieldPath) && value === "") {
+    value = null;
+  }
+
   updateCandidateFieldValue(candidate, fieldPath, value);
 
   if (fieldPath === "attendanceConfirmed") {
@@ -5159,17 +5196,21 @@ function handleDetailFieldChange(event) {
           const input = container.querySelector(".detail-cs-status-search");
           const select = container.querySelector('select[data-detail-field="csStatus"], select[data-detail-field="cs_status"]');
           if (select && input) {
-            const resetLabel = resolveCsStatusDisplayLabel(select.value);
-            input.value = resetLabel || "";
-            input.placeholder = resetLabel ? "" : "未設定";
+            const label = resolveCsStatusDisplayLabel(oldCsStatus);
+            input.value = label || "";
+            input.placeholder = label ? "" : "未設定";
           }
         }
         return;
       }
     }
+    // 確実に両方のキーに値をセットする
     candidate.csStatus = normalized;
     candidate.cs_status = normalized;
     rememberCsStatusOption(normalized);
+
+    // CSステータス変更時は即時保存をスケジュールする
+    scheduleDetailAutoSave(candidate);
   }
   if (fieldPath === "contactPreferredTime") {
     const normalized = normalizeContactPreferredTime(value);

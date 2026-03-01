@@ -1306,6 +1306,7 @@ app.get("/api/candidates", async (req, res) => {
       advisor,
       name,
       company,
+      csStatus,
       valid,
       sort = "desc",
       limit = DEFAULT_LIMIT,
@@ -1365,6 +1366,11 @@ app.get("/api/candidates", async (req, res) => {
     if (company) {
       values.push(`%${company.toLowerCase()}%`);
       whereClauses.push(`LOWER(company_name) LIKE $${values.length}`);
+    }
+
+    if (csStatus) {
+      values.push(String(csStatus).toLowerCase());
+      whereClauses.push(`LOWER(COALESCE(cs_status, '')) = $${values.length}`);
     }
 
     if (valid === "true" || valid === "false") {

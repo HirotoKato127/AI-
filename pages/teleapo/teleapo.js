@@ -1573,9 +1573,9 @@ function renderTeleapoCsStatusManager() {
   // 現在有効なステータス
   options.forEach(status => {
     html += `
-      <div class="flex items-center justify-between p-2 hover:bg-slate-50 border-b border-slate-100 last:border-0">
-        <span class="text-sm text-slate-700">${escapeHtml(status)}</span>
-        <button type="button" onclick="deleteTeleapoCsStatus('${escapeHtml(status)}')" class="text-xs text-rose-500 hover:text-rose-700 font-semibold px-2 py-1">
+      <div class="teleapo-status-item">
+        <span class="teleapo-status-label">${escapeHtml(status)}</span>
+        <button type="button" onclick="deleteTeleapoCsStatus('${escapeHtml(status)}')" class="teleapo-status-delete-btn">
           削除
         </button>
       </div>
@@ -1584,12 +1584,12 @@ function renderTeleapoCsStatusManager() {
 
   // 非表示中のデフォルトステータス
   if (deletedDefaults.length > 0) {
-    html += `<div class="mt-4 pt-2 border-t border-slate-200"><p class="text-[11px] font-bold text-slate-400 mb-1">削除済みのデフォルト項目</p></div>`;
+    html += `<div class="mt-6"><p class="teleapo-status-section-title">非表示中のデフォルト</p></div>`;
     deletedDefaults.forEach(status => {
       html += `
-        <div class="flex items-center justify-between p-2 opacity-60">
-          <span class="text-sm text-slate-500 line-through">${escapeHtml(status)}</span>
-          <button type="button" onclick="restoreTeleapoCsStatus('${escapeHtml(status)}')" class="text-xs text-indigo-500 hover:text-indigo-700 font-semibold px-2 py-1">
+        <div class="teleapo-status-item opacity-60">
+          <span class="teleapo-status-deleted-label">${escapeHtml(status)}</span>
+          <button type="button" onclick="restoreTeleapoCsStatus('${escapeHtml(status)}')" class="teleapo-status-restore-btn">
             復元
           </button>
         </div>
@@ -1597,7 +1597,7 @@ function renderTeleapoCsStatusManager() {
     });
   }
 
-  listEl.innerHTML = html || '<p class="text-center py-4 text-slate-400 text-sm">ステータスがありません</p>';
+  listEl.innerHTML = html || '<div class="text-center py-8 text-slate-400 text-sm">登録されているステータスはありません</div>';
 }
 
 function syncDialFormAdvisorSelection({ candidateId, candidateName, preserveCurrent = false } = {}) {

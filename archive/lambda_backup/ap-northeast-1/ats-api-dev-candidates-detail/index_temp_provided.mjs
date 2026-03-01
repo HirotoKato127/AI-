@@ -469,8 +469,8 @@ export const handler = async (event) => {
             UPDATE candidates SET
               updated_at = NOW(),
               is_effective_application = COALESCE($2, is_effective_application),
-              advisor_user_id = COALESCE($3, advisor_user_id),
-              partner_user_id = COALESCE($4, partner_user_id),
+              advisor_user_id = $3,
+              partner_user_id = $4,
               first_schedule_fixed_at = COALESCE($5, first_schedule_fixed_at),
               first_contact_planned_at = COALESCE($6, first_contact_planned_at),
               first_contact_at = COALESCE($7, first_contact_at),
