@@ -874,6 +874,10 @@ function mapCandidateUpdateColumns(payload = {}) {
   const csChecklist = payload.csChecklist || {};
   const reportFlags = mapReportStatusFlags(afterAcceptance.reportStatuses || []);
   const csFlags = mapCsChecklistToColumns(csChecklist);
+  const firstInterviewDate =
+    normalizeDate(payload.firstInterviewDate) ??
+    normalizeDate(payload.firstInterviewAt) ??
+    normalizeDate(payload.interviewDate);
 
   return {
     candidate_code: payload.candidateCode ?? null,
@@ -929,7 +933,8 @@ function mapCandidateUpdateColumns(payload = {}) {
     attendance_confirmed: payload.attendanceConfirmed ?? false,
     next_action_date:
       normalizeDate(actionInfo.nextActionDate) ??
-      normalizeDate(payload.nextActionDate),
+      normalizeDate(payload.nextActionDate) ??
+      firstInterviewDate,
     next_action_content:
       actionInfo.nextActionContent ?? payload.nextActionContent ?? null,
     final_result: actionInfo.finalResult ?? payload.finalResult ?? null,

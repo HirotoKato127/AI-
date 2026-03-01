@@ -1,0 +1,74 @@
+﻿@page { size: A4; margin: 18mm 18mm 20mm 18mm; }
+html, body {
+  font-family: "Noto Sans JP", "Yu Gothic UI", "Meiryo", "Hiragino Kaku Gothic ProN", sans-serif;
+  font-size: 10pt;
+  line-height: 1.85;
+  color: #1f2937;
+}
+body { max-width: 100%; }
+
+h1, h2, h3, h4 {
+  font-family: "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif;
+  line-height: 1.4;
+  color: #111827;
+  page-break-after: avoid;
+}
+
+h1 {
+  font-size: 20pt;
+  border-bottom: 2px solid #d1d5db;
+  padding-bottom: 4mm;
+  margin-top: 0;
+  margin-bottom: 10mm;
+}
+
+h2 {
+  font-size: 15pt;
+  margin-top: 10mm;
+  margin-bottom: 5mm;
+  border-left: 4px solid #9ca3af;
+  padding-left: 3mm;
+}
+
+h3 {
+  font-size: 12pt;
+  margin-top: 7mm;
+  margin-bottom: 3mm;
+}
+
+p, li { orphans: 3; widows: 3; }
+p { margin: 0 0 4.5mm 0; }
+ul, ol { margin-top: 1.5mm; margin-bottom: 4mm; padding-left: 6mm; }
+
+code {
+  font-family: "Consolas", "Meiryo", monospace;
+  background: #f3f4f6;
+  padding: 0 0.2em;
+  border-radius: 3px;
+}
+
+pre {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 3mm;
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 4mm 0;
+  font-size: 9.5pt;
+}
+
+th, td {
+  border: 1px solid #d1d5db;
+  padding: 2.5mm;
+  vertical-align: top;
+}
+
+th { background: #f9fafb; font-weight: 700; }
+blockquote { border-left: 4px solid #d1d5db; margin-left: 0; padding-left: 3mm; color: #374151; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d1d5db; margin: 8mm 0; }

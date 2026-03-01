@@ -7070,6 +7070,10 @@ async function updateCandidateFirstInterview(candidateId, interviewDate, advisor
     phase: '一次面談設定',
     updatedAt: new Date().toISOString()
   };
+  const interviewDateOnly = formatDateInputValue(interviewDate);
+  if (interviewDateOnly) {
+    body.nextActionDate = interviewDateOnly;
+  }
   const advisorId = toPositiveInt(advisorUserId);
   if (advisorId) {
     body.advisorUserId = advisorId;
