@@ -1,39 +1,38 @@
 # DBスキーマ（最新版）
 
-生成日時: 2026-02-07 15:50:54 JST
-参照先: server/.env の DATABASE_URL（host: localhost）
+生成日時: 2026-03-02 14:25:03 JST
+参照先: .env の DATABASE_URL
 スキーマ: public
 
-テーブル数: 31
+テーブル数: 32
 
-## テーブル一覧
-
-### ad_detail
-用途: 広告媒体の契約・費用詳細を保持。
+## ad_details
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
-| id | bigint | NO | nextval('ad_detail_id_seq'::regclass) |
-| media_name | text | YES |  |
+| id | integer | NO | nextval('ad_details_id_seq'::regclass) |
+| media_name | character varying(255) | NO |  |
 | contract_start_date | date | YES |  |
 | contract_end_date | date | YES |  |
-| contract_amount | integer | YES |  |
-| amount_period | text | YES |  |
+| contract_amount | integer | YES | 0 |
+| amount_period | character varying(50) | YES |  |
 | contract_method | text | YES |  |
 | renewal_terms | text | YES |  |
 | memo | text | YES |  |
-| created_at | timestamp with time zone | NO | now() |
-| updated_at | timestamp with time zone | NO | now() |
+| created_at | timestamp with time zone | YES | now() |
+| updated_at | timestamp with time zone | YES | now() |
 
 主キー: id
 
 インデックス:
-- ad_detail_pkey: CREATE UNIQUE INDEX ad_detail_pkey ON public.ad_detail USING btree (id)
+- ad_details_media_name_key: CREATE UNIQUE INDEX ad_details_media_name_key ON public.ad_details USING btree (media_name)
+- ad_details_pkey: CREATE UNIQUE INDEX ad_details_pkey ON public.ad_details USING btree (id)
+- idx_ad_details_media_name: CREATE INDEX idx_ad_details_media_name ON public.ad_details USING btree (media_name)
+- uq_ad_details_media_name: CREATE UNIQUE INDEX uq_ad_details_media_name ON public.ad_details USING btree (media_name)
 
 ---
 
-### ats_settings
-用途: ATS外部連携設定（Kintone等）を保持。
+## ats_settings
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
@@ -51,70 +50,22 @@
 
 ---
 
-### candidate_app_profile
-用途: 候補者プロフィール拡張（国籍・日本語レベル等）を保持。
-
-| カラム | 型 | NULL許可 | デフォルト |
-| --- | --- | --- | --- |
-| id | bigint | NO | nextval('candidate_app_profile_id_seq1'::regclass) |
-| candidate_id | bigint | NO |  |
-| nationality | character varying(255) | YES |  |
-| japanese_level | character varying(255) | YES |  |
-| address_pref | character varying(255) | YES |  |
-| address_city | character varying(255) | YES |  |
-| address_detail | character varying(255) | YES |  |
-| final_education | character varying(255) | YES |  |
-| work_experience | text | YES |  |
-| interview_memo_formatted | text | YES |  |
-| current_income | character varying(255) | YES |  |
-| desired_income | character varying(255) | YES |  |
-| job_search_status | text | YES |  |
-| desired_job_type | text | YES |  |
-| desired_work_location | text | YES |  |
-| reason_for_change | text | YES |  |
-| strengths | text | YES |  |
-| personality | text | YES |  |
-| job_change_axis | text | YES |  |
-| job_change_timing | text | YES |  |
-| recommendation_text | text | YES |  |
-| other_selection_status | text | YES |  |
-| desired_interview_dates | text | YES |  |
-| future_vision | text | YES |  |
-| mandatory_interview_items | text | YES |  |
-| shared_interview_date | text | YES |  |
-| carrier_summary_sheet_url | text | YES |  |
-| resume_url | text | YES |  |
-| created_at | timestamp with time zone | NO | now() |
-| updated_at | timestamp with time zone | NO | now() |
-
-主キー: id
-
-外部キー:
-- candidate_app_profile_candidate_id_fkey1: candidate_id -> candidates.id
-
-インデックス:
-- candidate_app_profile_candidate_id_key1: CREATE UNIQUE INDEX candidate_app_profile_candidate_id_key1 ON public.candidate_app_profile USING btree (candidate_id)
-- candidate_app_profile_pkey1: CREATE UNIQUE INDEX candidate_app_profile_pkey1 ON public.candidate_app_profile USING btree (id)
-
----
-
-### candidate_app_profile_deprecated
-用途: 旧プロフィール構造の退避テーブル。互換維持のため残置。
+## candidate_app_profile_deprecated
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('candidate_app_profile_id_seq'::regclass) |
 | candidate_id | bigint | NO |  |
-| nationality | character varying(255) | YES |  |
-| japanese_level | character varying(255) | YES |  |
-| address_pref | character varying(255) | YES |  |
-| address_city | character varying(255) | YES |  |
-| address_detail | character varying(255) | YES |  |
-| final_education | character varying(255) | YES |  |
+| nationality | character varying | YES |  |
+| japanese_level | character varying | YES |  |
+| address_pref | character varying | YES |  |
+| address_city | character varying | YES |  |
+| address_detail | character varying | YES |  |
+| final_education | character varying | YES |  |
 | work_experience | text | YES |  |
 | interview_memo_formatted | text | YES |  |
-| current_income | character varying(255) | YES |  |
-| desired_income | character varying(255) | YES |  |
+| current_income | character varying | YES |  |
+| desired_income | character varying | YES |  |
 | job_search_status | text | YES |  |
 | desired_job_type | text | YES |  |
 | desired_work_location | text | YES |  |
@@ -136,49 +87,66 @@
 
 主キー: id
 
-外部キー:
-- candidate_app_profile_candidate_id_fkey: candidate_id -> candidates.id
-
 インデックス:
 - candidate_app_profile_candidate_id_key: CREATE UNIQUE INDEX candidate_app_profile_candidate_id_key ON public.candidate_app_profile_deprecated USING btree (candidate_id)
-- candidate_app_profile_pkey: CREATE UNIQUE INDEX candidate_app_profile_pkey ON public.candidate_app_profile_deprecated USING btree (id)
+- candidate_app_profile_deprecated_pkey: CREATE UNIQUE INDEX candidate_app_profile_deprecated_pkey ON public.candidate_app_profile_deprecated USING btree (id)
 
 ---
 
-### candidate_applications
-用途: 候補者ごとの応募/選考プロセス（企業別）を保持。
+## candidate_applications
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('candidate_applications_id_seq'::regclass) |
 | candidate_id | bigint | NO |  |
 | client_id | bigint | NO |  |
-| job_title | character varying(255) | YES |  |
-| work_mode | character varying(255) | YES |  |
-| fee_rate | character varying(255) | YES |  |
-| selection_status | character varying(255) | YES |  |
-| recommendation_at | timestamp with time zone | YES |  |
+| kintone_sub_id | text | YES |  |
+| job_title | text | YES |  |
+| apply_route | text | YES |  |
+| recommended_at | timestamp with time zone | YES |  |
 | first_interview_set_at | timestamp with time zone | YES |  |
 | first_interview_at | timestamp with time zone | YES |  |
 | second_interview_set_at | timestamp with time zone | YES |  |
 | second_interview_at | timestamp with time zone | YES |  |
-| final_interview_set_at | timestamp with time zone | YES |  |
-| final_interview_at | timestamp with time zone | YES |  |
-| offer_at | timestamp with time zone | YES |  |
-| offer_accepted_at | timestamp with time zone | YES |  |
-| joined_at | timestamp with time zone | YES |  |
+| offer_date | timestamp with time zone | YES |  |
+| close_expected_at | timestamp with time zone | YES |  |
+| offer_accept_date | timestamp with time zone | YES |  |
+| join_date | timestamp with time zone | YES |  |
+| pre_join_withdraw_date | timestamp with time zone | YES |  |
+| post_join_quit_date | timestamp with time zone | YES |  |
+| stage_current | text | YES |  |
+| is_quit_30 | boolean | YES |  |
+| created_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
+| updated_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
+| selection_note | text | YES |  |
+| pre_join_withdraw_reason | text | YES |  |
+| post_join_quit_reason | text | YES |  |
+| recommendation_text | text | YES |  |
+| final_interview_set_at | date | YES |  |
+| final_interview_at | date | YES |  |
+| offer_at | date | YES |  |
+| offer_accepted_at | date | YES |  |
+| joined_at | date | YES |  |
+| declined_after_offer_at | date | YES |  |
+| declined_after_offer_reason | text | YES |  |
+| early_turnover_at | date | YES |  |
+| early_turnover_reason | text | YES |  |
+| closing_forecast_at | date | YES |  |
+| fee | integer | YES |  |
+| note | text | YES |  |
+| proposal_date | timestamp with time zone | YES |  |
+| work_mode | character varying | YES |  |
+| fee_rate | character varying | YES |  |
+| selection_status | character varying | YES |  |
+| recommendation_at | timestamp with time zone | YES |  |
 | pre_join_decline_at | timestamp with time zone | YES |  |
 | post_join_quit_at | timestamp with time zone | YES |  |
-| selection_note | text | YES |  |
-| created_at | timestamp with time zone | NO | now() |
-| updated_at | timestamp with time zone | NO | now() |
-| kintone_sub_id | text | YES |  |
-| is_quit_30 | boolean | YES |  |
-| proposal_date | timestamp with time zone | YES |  |
 | closing_plan_date | date | YES |  |
 | fee_amount | text | YES |  |
 | declined_reason | text | YES |  |
-| early_turnover_reason | text | YES |  |
+| refund_amount | integer | YES |  |
+| order_reported | boolean | YES | false |
+| refund_reported | boolean | YES | false |
 
 主キー: id
 
@@ -191,8 +159,7 @@
 
 ---
 
-### candidate_educations
-用途: 候補者の学歴履歴を保持。
+## candidate_educations
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
@@ -209,27 +176,23 @@
 
 主キー: id
 
-外部キー:
-- candidate_educations_candidate_id_fkey: candidate_id -> candidates.id
-
 インデックス:
 - candidate_educations_pkey: CREATE UNIQUE INDEX candidate_educations_pkey ON public.candidate_educations USING btree (id)
 
 ---
 
-### candidate_tasks
-用途: 候補者ごとの次回アクション・タスクを保持。
+## candidate_tasks
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
-| id | bigint | NO | nextval('candidate_tasks_id_seq'::regclass) |
-| candidate_id | bigint | YES |  |
+| id | integer | NO | nextval('candidate_tasks_id_seq'::regclass) |
+| candidate_id | integer | NO |  |
 | action_date | date | YES |  |
 | action_note | text | YES |  |
-| is_completed | boolean | YES |  |
-| completed_at | timestamp with time zone | YES |  |
-| created_at | timestamp with time zone | NO | now() |
-| updated_at | timestamp with time zone | NO | now() |
+| is_completed | boolean | YES | false |
+| completed_at | timestamp without time zone | YES |  |
+| created_at | timestamp without time zone | YES | now() |
+| updated_at | timestamp without time zone | YES | now() |
 
 主キー: id
 
@@ -238,11 +201,11 @@
 
 インデックス:
 - candidate_tasks_pkey: CREATE UNIQUE INDEX candidate_tasks_pkey ON public.candidate_tasks USING btree (id)
+- idx_candidate_tasks_candidate_id: CREATE INDEX idx_candidate_tasks_candidate_id ON public.candidate_tasks USING btree (candidate_id)
 
 ---
 
-### candidate_work_histories
-用途: 候補者の職歴履歴を保持。
+## candidate_work_histories
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
@@ -261,23 +224,71 @@
 
 主キー: id
 
-外部キー:
-- candidate_work_histories_candidate_id_fkey: candidate_id -> candidates.id
-
 インデックス:
 - candidate_work_histories_pkey: CREATE UNIQUE INDEX candidate_work_histories_pkey ON public.candidate_work_histories USING btree (id)
 
 ---
 
-### candidates
-用途: 候補者の基本情報・進捗・Kintone同期情報を保持する中核テーブル。
+## candidates
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('candidates_id_seq'::regclass) |
+| kintone_app_id | integer | YES |  |
 | kintone_record_id | integer | YES |  |
 | candidate_code | text | YES |  |
-| candidate_name | text | NO |  |
+| advisor_user_id | bigint | YES |  |
+| partner_user_id | bigint | YES |  |
+| name | text | NO |  |
+| name_kana | text | YES |  |
+| gender | text | YES |  |
+| birth_date | date | YES |  |
+| age | integer | YES |  |
+| final_education | text | YES |  |
+| phone | text | YES |  |
+| email | text | YES |  |
+| postal_code | text | YES |  |
+| address_pref | text | YES |  |
+| address_city | text | YES |  |
+| address_detail | text | YES |  |
+| employment_status | text | YES |  |
+| current_income | text | YES |  |
+| desired_income | text | YES |  |
+| first_interview_note | text | YES |  |
+| career_motivation | text | YES |  |
+| desired_location | text | YES |  |
+| memo | text | YES |  |
+| new_status | text | YES |  |
+| first_schedule_fixed_at | timestamp with time zone | YES |  |
+| first_contact_planned_at | timestamp with time zone | YES |  |
+| first_contact_at | timestamp with time zone | YES |  |
+| first_interview_attended | boolean | YES |  |
+| is_effective_application | boolean | YES |  |
+| created_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
+| updated_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
+| sms_sent_flag | boolean | YES |  |
+| is_connected | boolean | YES |  |
+| first_call_at | timestamp without time zone | YES |  |
+| skills | text | YES |  |
+| personality | text | YES |  |
+| work_experience | text | YES |  |
+| contact_preferred_time | text | YES |  |
+| mandatory_interview_items | text | YES |  |
+| apply_company_name | text | YES |  |
+| apply_job_name | text | YES |  |
+| apply_route_text | text | YES |  |
+| application_note | text | YES |  |
+| desired_job_type | text | YES |  |
+| career_reason | text | YES |  |
+| transfer_timing | text | YES |  |
+| other_selection_status | text | YES |  |
+| interview_preferred_date | text | YES |  |
+| recommendation_text | text | YES |  |
+| nationality | character varying(100) | YES |  |
+| japanese_level | character varying(10) | YES |  |
+| next_action_date | date | YES |  |
+| next_action_note | text | YES |  |
+| candidate_name | text | YES |  |
 | candidate_kana | text | YES |  |
 | company_name | text | YES |  |
 | job_name | text | YES |  |
@@ -292,145 +303,114 @@
 | candidate_updated_at | timestamp with time zone | YES |  |
 | media_registered_at | date | YES |  |
 | source | text | YES |  |
-| phone | text | YES |  |
-| email | text | YES |  |
 | birthday | date | YES |  |
-| age | integer | YES |  |
-| gender | text | YES |  |
 | education | text | YES |  |
-| postal_code | text | YES |  |
 | address | text | YES |  |
 | city | text | YES |  |
 | contact_time | text | YES |  |
 | remarks | text | YES |  |
-| memo | text | YES |  |
 | memo_detail | text | YES |  |
 | hearing_memo | text | YES |  |
 | resume_status | text | YES |  |
 | meeting_video_url | text | YES |  |
 | resume_for_send | text | YES |  |
 | work_history_for_send | text | YES |  |
-| employment_status | text | YES |  |
-| first_contact_planned_at | date | YES |  |
-| first_contact_at | date | YES |  |
 | call_date | date | YES |  |
 | schedule_confirmed_at | date | YES |  |
 | recommendation_date | date | YES |  |
-| valid_application | boolean | YES | false |
-| phone_connected | boolean | YES | false |
-| sms_sent | boolean | YES | false |
-| sms_confirmed | boolean | YES | false |
-| attendance_confirmed | boolean | YES | false |
-| next_action_date | date | YES |  |
+| valid_application | boolean | YES |  |
+| phone_connected | boolean | YES |  |
+| sms_sent | boolean | YES |  |
+| sms_confirmed | boolean | YES |  |
+| attendance_confirmed | boolean | YES |  |
 | final_result | text | YES |  |
 | order_amount | text | YES |  |
 | after_acceptance_job_type | text | YES |  |
-| line_reported | boolean | YES | false |
-| personal_sheet_reflected | boolean | YES | false |
-| invoice_sent | boolean | YES | false |
-| cs_valid_confirmed | boolean | YES | false |
-| cs_connect_confirmed | boolean | YES | false |
+| line_reported | boolean | YES |  |
+| personal_sheet_reflected | boolean | YES |  |
+| invoice_sent | boolean | YES |  |
+| cs_valid_confirmed | boolean | YES |  |
+| cs_connect_confirmed | boolean | YES |  |
 | refund_retirement_date | date | YES |  |
 | refund_amount | text | YES |  |
 | refund_report | text | YES |  |
-| cs_call_attempt1 | boolean | YES | false |
-| cs_call_attempt2 | boolean | YES | false |
-| cs_call_attempt3 | boolean | YES | false |
-| cs_call_attempt4 | boolean | YES | false |
-| cs_call_attempt5 | boolean | YES | false |
-| cs_call_attempt6 | boolean | YES | false |
-| cs_call_attempt7 | boolean | YES | false |
-| cs_call_attempt8 | boolean | YES | false |
-| cs_call_attempt9 | boolean | YES | false |
-| cs_call_attempt10 | boolean | YES | false |
-| detail | jsonb | YES | '{}'::jsonb |
+| cs_call_attempt1 | boolean | YES |  |
+| cs_call_attempt2 | boolean | YES |  |
+| cs_call_attempt3 | boolean | YES |  |
+| cs_call_attempt4 | boolean | YES |  |
+| cs_call_attempt5 | boolean | YES |  |
+| cs_call_attempt6 | boolean | YES |  |
+| cs_call_attempt7 | boolean | YES |  |
+| cs_call_attempt8 | boolean | YES |  |
+| cs_call_attempt9 | boolean | YES |  |
+| cs_call_attempt10 | boolean | YES |  |
+| detail | jsonb | YES |  |
 | kintone_updated_time | timestamp with time zone | YES |  |
-| created_at | timestamp with time zone | NO | now() |
-| updated_at | timestamp with time zone | NO | now() |
 | cs_user_id | uuid | YES |  |
-| partner_user_id | uuid | YES |  |
-| nationality | text | YES |  |
-| japanese_level | text | YES |  |
 | final_education_detail | text | YES |  |
-| work_experience | text | YES |  |
-| current_income | text | YES |  |
-| desired_income | text | YES |  |
 | job_search_status | text | YES |  |
-| desired_job_type | text | YES |  |
 | desired_work_location | text | YES |  |
 | reason_for_change | text | YES |  |
 | strengths | text | YES |  |
-| personality | text | YES |  |
 | job_change_axis | text | YES |  |
 | job_change_timing | text | YES |  |
 | future_vision | text | YES |  |
-| recommendation_text | text | YES |  |
-| other_selection_status | text | YES |  |
 | desired_interview_dates | text | YES |  |
-| mandatory_interview_items | text | YES |  |
 | shared_interview_date | text | YES |  |
 | carrier_summary_sheet_url | text | YES |  |
 | resume_url | text | YES |  |
-| first_interview_note | text | YES |  |
-| career_motivation | text | YES |  |
-| new_status | text | YES |  |
-| first_schedule_fixed_at | timestamp with time zone | YES |  |
-| first_interview_attended | boolean | YES |  |
-| is_connected | boolean | YES |  |
-| first_call_at | timestamp with time zone | YES |  |
-| skills | text | YES |  |
-| application_note | text | YES |  |
 | next_action_content | text | YES |  |
 | cs_name | text | YES |  |
+| cs_status | text | YES |  |
+| hearing_free_memo | text | YES |  |
+| has_chronic_disease | boolean | YES |  |
+| chronic_disease_detail | text | YES |  |
+| relocation_possible | boolean | YES |  |
+| relocation_impossible_reason | text | YES |  |
+| personal_concerns | text | YES |  |
+| cs_status_notify_sent_at | timestamp with time zone | YES |  |
 
 主キー: id
 
 外部キー:
-- candidates_cs_user_id_fkey: cs_user_id -> users.id
+- candidates_advisor_user_id_fkey: advisor_user_id -> users.id
 - candidates_partner_user_id_fkey: partner_user_id -> users.id
 
 インデックス:
+- candidates_candidate_code_key: CREATE UNIQUE INDEX candidates_candidate_code_key ON public.candidates USING btree (candidate_code)
 - candidates_kintone_record_id_key: CREATE UNIQUE INDEX candidates_kintone_record_id_key ON public.candidates USING btree (kintone_record_id)
 - candidates_pkey: CREATE UNIQUE INDEX candidates_pkey ON public.candidates USING btree (id)
-- idx_cand_advisor: CREATE INDEX idx_cand_advisor ON public.candidates USING btree (advisor_name)
-- idx_cand_cs_user: CREATE INDEX idx_cand_cs_user ON public.candidates USING btree (cs_user_id)
-- idx_cand_detail_gin: CREATE INDEX idx_cand_detail_gin ON public.candidates USING gin (detail)
-- idx_cand_partner_user: CREATE INDEX idx_cand_partner_user ON public.candidates USING btree (partner_user_id)
-- idx_cand_phase: CREATE INDEX idx_cand_phase ON public.candidates USING btree (phase)
-- idx_cand_registered: CREATE INDEX idx_cand_registered ON public.candidates USING btree (registered_date)
-- idx_cand_source: CREATE INDEX idx_cand_source ON public.candidates USING btree (source)
 
 ---
 
-### clients
-用途: 紹介先企業マスタ（契約・要件・担当連絡先）を保持。
+## clients
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('clients_id_seq'::regclass) |
-| name | character varying(255) | NO |  |
-| industry | character varying(255) | YES |  |
-| location | character varying(255) | YES |  |
-| employees_count | integer | YES |  |
-| created_at | timestamp with time zone | NO | now() |
-| updated_at | timestamp with time zone | NO | now() |
-| salary_range | text | YES |  |
+| name | text | NO |  |
+| industry | text | YES |  |
+| location | text | YES |  |
+| created_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
+| updated_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
 | job_categories | text | YES |  |
-| planned_hires_count | integer | YES |  |
+| planned_hires_count | integer | YES | 0 |
+| salary_range | text | YES |  |
+| must_qualifications | text | YES |  |
+| nice_qualifications | text | YES |  |
+| desired_locations | text | YES |  |
+| personality_traits | text | YES |  |
+| required_experience | text | YES |  |
+| selection_note | text | YES |  |
+| warranty_period | integer | YES | 90 |
+| contact_name | text | YES |  |
+| contact_email | text | YES |  |
+| fee_details | text | YES |  |
+| contract_note | text | YES |  |
+| employees_count | integer | YES |  |
 | fee_amount | integer | YES |  |
 | salary_min | integer | YES |  |
 | salary_max | integer | YES |  |
-| must_qualifications | text[] | YES |  |
-| nice_qualifications | text[] | YES |  |
-| desired_locations | text[] | YES |  |
-| personality_traits | text[] | YES |  |
-| required_experience | text[] | YES |  |
-| selection_note | text | YES |  |
-| contact_name | text | YES |  |
-| contact_email | text | YES |  |
-| warranty_period | text | YES |  |
-| fee_details | text | YES |  |
-| contract_note | text | YES |  |
 
 主キー: id
 
@@ -439,37 +419,33 @@
 
 ---
 
-### goal_daily_targets
-用途: 日次目標値を保持。
+## goal_daily_targets
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('goal_daily_targets_id_seq'::regclass) |
-| advisor_user_id | uuid | YES |  |
-| period_id | text | YES |  |
-| target_date | date | YES |  |
-| targets | jsonb | YES |  |
+| advisor_user_id | integer | NO |  |
+| period_id | text | NO |  |
+| target_date | date | NO |  |
+| targets | jsonb | NO | '{}'::jsonb |
 | created_at | timestamp with time zone | NO | now() |
 | updated_at | timestamp with time zone | NO | now() |
 
 主キー: id
 
-外部キー:
-- goal_daily_targets_advisor_user_id_fkey: advisor_user_id -> users.id
-
 インデックス:
+- goal_daily_targets_advisor_user_id_period_id_target_date_key: CREATE UNIQUE INDEX goal_daily_targets_advisor_user_id_period_id_target_date_key ON public.goal_daily_targets USING btree (advisor_user_id, period_id, target_date)
 - goal_daily_targets_pkey: CREATE UNIQUE INDEX goal_daily_targets_pkey ON public.goal_daily_targets USING btree (id)
 
 ---
 
-### goal_settings
-用途: 目標設定の期間・対象設定を保持。
+## goal_settings
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | smallint | NO | 1 |
-| evaluation_rule_type | text | YES |  |
-| evaluation_rule_options | jsonb | YES |  |
+| evaluation_rule_type | text | NO |  |
+| evaluation_rule_options | jsonb | NO | '{}'::jsonb |
 | updated_at | timestamp with time zone | NO | now() |
 
 主キー: id
@@ -479,36 +455,33 @@
 
 ---
 
-### goal_targets
-用途: 目標値（期間単位）を保持。
+## goal_targets
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('goal_targets_id_seq'::regclass) |
-| scope | text | YES |  |
-| advisor_user_id | uuid | YES |  |
-| period_id | text | YES |  |
-| targets | jsonb | YES |  |
+| scope | text | NO |  |
+| advisor_user_id | integer | YES |  |
+| period_id | text | NO |  |
+| targets | jsonb | NO | '{}'::jsonb |
 | created_at | timestamp with time zone | NO | now() |
 | updated_at | timestamp with time zone | NO | now() |
 
 主キー: id
 
-外部キー:
-- goal_targets_advisor_user_id_fkey: advisor_user_id -> users.id
-
 インデックス:
+- goal_targets_company_unique: CREATE UNIQUE INDEX goal_targets_company_unique ON public.goal_targets USING btree (scope, period_id) WHERE (scope = 'company'::text)
+- goal_targets_personal_unique: CREATE UNIQUE INDEX goal_targets_personal_unique ON public.goal_targets USING btree (advisor_user_id, period_id) WHERE (scope = 'personal'::text)
 - goal_targets_pkey: CREATE UNIQUE INDEX goal_targets_pkey ON public.goal_targets USING btree (id)
 
 ---
 
-### kintone_sync_cursors
-用途: Kintone同期カーソル（最終同期位置）を保持。
+## kintone_sync_cursors
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('kintone_sync_cursors_id_seq'::regclass) |
-| system_name | character varying(255) | NO |  |
+| system_name | character varying | NO |  |
 | last_kintone_record_id_synced | integer | YES |  |
 | last_sync_started_at | timestamp with time zone | YES |  |
 | last_sync_finished_at | timestamp with time zone | YES |  |
@@ -521,13 +494,12 @@
 
 ---
 
-### kintone_sync_runs
-用途: Kintone同期ジョブの実行履歴を保持。
+## kintone_sync_runs
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('kintone_sync_runs_id_seq'::regclass) |
-| system_name | character varying(255) | NO |  |
+| system_name | character varying | NO |  |
 | started_at | timestamp with time zone | YES |  |
 | finished_at | timestamp with time zone | YES |  |
 | inserted_count | integer | YES |  |
@@ -544,27 +516,26 @@
 
 ---
 
-### kpi_targets
-用途: KPI目標値設定を保持。
+## kpi_targets
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
-| id | bigint | NO | nextval('kpi_targets_id_seq'::regclass) |
-| target_month | text | YES |  |
-| metric_key | text | YES |  |
-| target_value | integer | YES |  |
-| created_at | timestamp with time zone | NO | now() |
-| updated_at | timestamp with time zone | NO | now() |
+| id | integer | NO | nextval('kpi_targets_id_seq'::regclass) |
+| target_month | character varying(7) | NO |  |
+| metric_key | character varying(50) | NO |  |
+| target_value | numeric | YES |  |
+| created_at | timestamp without time zone | YES | now() |
+| updated_at | timestamp without time zone | YES | now() |
 
 主キー: id
 
 インデックス:
 - kpi_targets_pkey: CREATE UNIQUE INDEX kpi_targets_pkey ON public.kpi_targets USING btree (id)
+- kpi_targets_target_month_metric_key_key: CREATE UNIQUE INDEX kpi_targets_target_month_metric_key_key ON public.kpi_targets USING btree (target_month, metric_key)
 
 ---
 
-### meeting_plans
-用途: 面接回次ごとの予定・出席結果を保持。
+## meeting_plans
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
@@ -578,30 +549,28 @@
 
 主キー: id
 
-外部キー:
-- meeting_plans_candidate_id_fkey: candidate_id -> candidates.id
-
 インデックス:
 - idx_meeting_plans_candidate: CREATE INDEX idx_meeting_plans_candidate ON public.meeting_plans USING btree (candidate_id)
 - meeting_plans_pkey: CREATE UNIQUE INDEX meeting_plans_pkey ON public.meeting_plans USING btree (id)
 
 ---
 
-### member_requests
-用途: メンバー申請/依頼データを保持。
+## member_requests
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('member_requests_id_seq'::regclass) |
-| name | text | YES |  |
-| email | text | YES |  |
-| role | text | YES |  |
-| password_hash | text | YES |  |
-| is_admin | boolean | YES |  |
-| status | text | YES |  |
+| name | text | NO |  |
+| email | text | NO |  |
+| role | text | NO |  |
+| password_hash | text | NO |  |
+| is_admin | boolean | YES | false |
+| status | text | YES | 'pending'::text |
+| created_at | timestamp with time zone | YES | now() |
+| updated_at | timestamp with time zone | YES | now() |
 | approval_token | text | YES |  |
-| created_at | timestamp with time zone | NO | now() |
-| updated_at | timestamp with time zone | NO | now() |
+| request_type | text | YES | 'create'::text |
+| target_user_id | bigint | YES |  |
 
 主キー: id
 
@@ -610,86 +579,84 @@
 
 ---
 
-### ms_daily_targets
-用途: MS向け日次目標値を保持。
+## ms_daily_targets
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('ms_daily_targets_id_seq'::regclass) |
-| scope | text | YES |  |
-| department_key | text | YES |  |
-| metric_key | text | YES |  |
-| advisor_user_id | uuid | YES |  |
-| period_id | text | YES |  |
-| target_date | date | YES |  |
-| target_value | numeric | YES |  |
-
-主キー: id
-
-外部キー:
-- ms_daily_targets_advisor_user_id_fkey: advisor_user_id -> users.id
-
-インデックス:
-- ms_daily_targets_pkey: CREATE UNIQUE INDEX ms_daily_targets_pkey ON public.ms_daily_targets USING btree (id)
-
----
-
-### ms_period_targets
-用途: MS向け期間目標値を保持。
-
-| カラム | 型 | NULL許可 | デフォルト |
-| --- | --- | --- | --- |
-| id | bigint | NO | nextval('ms_period_targets_id_seq'::regclass) |
-| scope | text | YES |  |
-| department_key | text | YES |  |
-| metric_key | text | YES |  |
-| advisor_user_id | uuid | YES |  |
-| period_id | text | YES |  |
-| target_total | numeric | YES |  |
-
-主キー: id
-
-外部キー:
-- ms_period_targets_advisor_user_id_fkey: advisor_user_id -> users.id
-
-インデックス:
-- ms_period_targets_pkey: CREATE UNIQUE INDEX ms_period_targets_pkey ON public.ms_period_targets USING btree (id)
-
-### ms_period_setting
-
-用途: 指標ごとのMSの対象月および集計期間（開始日・終了日）を保持。
-
-| カラム | 型 | NULL許可 | デフォルト |
-| --- | --- | --- | --- |
-| id | bigint | NO | nextval('ms_period_setting_id_seq'::regclass) |
-| target_month | text | YES |  |
-| metric_key | text | YES |  |
-| start_date | date | YES |  |
-| end_date | date | YES |  |
+| scope | text | NO |  |
+| department_key | text | NO |  |
+| metric_key | text | NO |  |
+| advisor_user_id | bigint | YES |  |
+| period_id | text | NO |  |
+| target_date | date | NO |  |
+| target_value | numeric | NO | 0 |
 | created_at | timestamp with time zone | NO | now() |
 | updated_at | timestamp with time zone | NO | now() |
 
 主キー: id
 
 インデックス:
-
-- ms_period_setting_pkey: CREATE UNIQUE INDEX ms_period_setting_pkey ON public.ms_period_setting USING btree (id)
+- ms_daily_targets_period_idx: CREATE INDEX ms_daily_targets_period_idx ON public.ms_daily_targets USING btree (period_id, department_key, metric_key)
+- ms_daily_targets_pkey: CREATE UNIQUE INDEX ms_daily_targets_pkey ON public.ms_daily_targets USING btree (id)
+- ms_daily_targets_uq: CREATE UNIQUE INDEX ms_daily_targets_uq ON public.ms_daily_targets USING btree (scope, department_key, metric_key, period_id, target_date, COALESCE(advisor_user_id, (0)::bigint))
 
 ---
 
-### placements
-用途: 成約/返金関連の実績情報を保持。
+## ms_period_settings
+
+| カラム | 型 | NULL許可 | デフォルト |
+| --- | --- | --- | --- |
+| id | integer | NO | nextval('ms_period_settings_id_seq'::regclass) |
+| target_month | character varying(7) | NO |  |
+| metric_key | character varying(64) | NO |  |
+| start_date | date | NO |  |
+| end_date | date | NO |  |
+| created_at | timestamp with time zone | YES | now() |
+| updated_at | timestamp with time zone | YES | now() |
+
+主キー: id
+
+インデックス:
+- ms_period_settings_pkey: CREATE UNIQUE INDEX ms_period_settings_pkey ON public.ms_period_settings USING btree (id)
+- ms_period_settings_target_month_metric_key_key: CREATE UNIQUE INDEX ms_period_settings_target_month_metric_key_key ON public.ms_period_settings USING btree (target_month, metric_key)
+
+---
+
+## ms_period_targets
+
+| カラム | 型 | NULL許可 | デフォルト |
+| --- | --- | --- | --- |
+| id | bigint | NO | nextval('ms_period_targets_id_seq'::regclass) |
+| scope | text | NO |  |
+| department_key | text | NO |  |
+| metric_key | text | NO |  |
+| advisor_user_id | bigint | YES |  |
+| period_id | text | NO |  |
+| target_total | numeric | NO | 0 |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+
+主キー: id
+
+インデックス:
+- ms_period_targets_pkey: CREATE UNIQUE INDEX ms_period_targets_pkey ON public.ms_period_targets USING btree (id)
+- ms_period_targets_uq: CREATE UNIQUE INDEX ms_period_targets_uq ON public.ms_period_targets USING btree (scope, department_key, metric_key, period_id, COALESCE(advisor_user_id, (0)::bigint))
+
+---
+
+## placements
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('placements_id_seq'::regclass) |
 | candidate_application_id | bigint | NO |  |
-| fee_amount | numeric | YES |  |
-| refund_amount | numeric | YES |  |
+| fee_amount | integer | YES |  |
+| refund_amount | integer | YES |  |
+| created_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
+| updated_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
 | order_reported | boolean | YES | false |
 | refund_reported | boolean | YES | false |
-| created_at | timestamp with time zone | NO | now() |
-| updated_at | timestamp with time zone | NO | now() |
 | order_date | date | YES |  |
 | withdraw_date | date | YES |  |
 
@@ -699,12 +666,12 @@
 - placements_candidate_application_id_fkey: candidate_application_id -> candidate_applications.id
 
 インデックス:
+- placements_candidate_application_id_key: CREATE UNIQUE INDEX placements_candidate_application_id_key ON public.placements USING btree (candidate_application_id)
 - placements_pkey: CREATE UNIQUE INDEX placements_pkey ON public.placements USING btree (id)
 
 ---
 
-### resume_documents
-用途: 候補者に紐づく提出書類メタ情報を保持。
+## resume_documents
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
@@ -717,26 +684,22 @@
 
 主キー: id
 
-外部キー:
-- resume_documents_candidate_id_fkey: candidate_id -> candidates.id
-
 インデックス:
 - idx_resume_docs_candidate: CREATE INDEX idx_resume_docs_candidate ON public.resume_documents USING btree (candidate_id)
 - resume_documents_pkey: CREATE UNIQUE INDEX resume_documents_pkey ON public.resume_documents USING btree (id)
 
 ---
 
-### screening_rules
-用途: 有効応募判定ルール（年齢/国籍/JLPT）を保持。
+## screening_rules
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
-| id | bigint | NO | nextval('screening_rules_id_seq'::regclass) |
-| min_age | integer | YES |  |
-| max_age | integer | YES |  |
-| allowed_jlpt_levels | text[] | YES |  |
-| target_nationalities | text | YES |  |
-| updated_at | timestamp with time zone | NO | now() |
+| id | integer | NO | nextval('screening_rules_id_seq'::regclass) |
+| min_age | integer | YES | 18 |
+| max_age | integer | YES | 60 |
+| allowed_jlpt_levels | text[] | YES | '{N1,N2}'::text[] |
+| updated_at | timestamp with time zone | YES | now() |
+| target_nationalities | text | YES | '日本'::text |
 
 主キー: id
 
@@ -745,8 +708,7 @@
 
 ---
 
-### selection_progress
-用途: 選考進捗の時系列（企業名・日付・状態）を保持。
+## selection_progress
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
@@ -770,17 +732,13 @@
 
 主キー: id
 
-外部キー:
-- selection_progress_candidate_id_fkey: candidate_id -> candidates.id
-
 インデックス:
 - idx_selection_progress_candidate: CREATE INDEX idx_selection_progress_candidate ON public.selection_progress USING btree (candidate_id)
 - selection_progress_pkey: CREATE UNIQUE INDEX selection_progress_pkey ON public.selection_progress USING btree (id)
 
 ---
 
-### stamp_reads
-用途: スタンプ既読情報を保持。
+## stamp_reads
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
@@ -792,16 +750,12 @@
 
 主キー: id
 
-外部キー:
-- stamp_reads_stamp_id_fkey: stamp_id -> stamps.id
-
 インデックス:
 - stamp_reads_pkey: CREATE UNIQUE INDEX stamp_reads_pkey ON public.stamp_reads USING btree (id)
 
 ---
 
-### stamps
-用途: スタンプ/メッセージ送信データを保持。
+## stamps
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
@@ -819,13 +773,12 @@
 
 ---
 
-### sync_state
-用途: データ同期元ごとの最終同期時刻を保持。
+## sync_state
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | source | text | NO |  |
-| last_synced_at | timestamp with time zone | NO | '2000-01-01 09:00:00+09'::timestamp with time zone |
+| last_synced_at | timestamp with time zone | NO | '2000-01-01 00:00:00+00'::timestamp with time zone |
 
 主キー: source
 
@@ -834,62 +787,76 @@
 
 ---
 
-### teleapo
-用途: テレアポ活動ログを保持。
+## system_options
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
-| id | bigint | NO | nextval('teleapo_id_seq'::regclass) |
-| candidate_id | bigint | YES |  |
-| call_no | integer | YES |  |
-| called_at | timestamp with time zone | YES |  |
+| option_key | character varying(100) | NO |  |
+| options | jsonb | NO | '{"custom": [], "deleted": []}'::jsonb |
+| updated_at | timestamp with time zone | NO | now() |
+
+主キー: option_key
+
+インデックス:
+- system_options_pkey: CREATE UNIQUE INDEX system_options_pkey ON public.system_options USING btree (option_key)
+
+---
+
+## teleapo
+
+| カラム | 型 | NULL許可 | デフォルト |
+| --- | --- | --- | --- |
+| id | bigint | NO | nextval('teleapo_logs_id_seq'::regclass) |
+| candidate_id | bigint | NO |  |
+| call_no | integer | NO |  |
+| called_at | timestamp with time zone | NO |  |
 | route | text | YES |  |
 | result | text | YES |  |
-| caller_user_id | uuid | YES |  |
+| created_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
+| caller_user_id | bigint | YES |  |
 | memo | text | YES |  |
-| created_at | timestamp with time zone | NO | now() |
 
 主キー: id
 
 外部キー:
-- teleapo_caller_user_id_fkey: caller_user_id -> users.id
-- teleapo_candidate_id_fkey: candidate_id -> candidates.id
+- fk_teleapo_logs_caller_user: caller_user_id -> users.id
+- teleapo_logs_candidate_id_fkey: candidate_id -> candidates.id
 
 インデックス:
-- teleapo_pkey: CREATE UNIQUE INDEX teleapo_pkey ON public.teleapo USING btree (id)
+- idx_teleapo_logs_caller_called_at: CREATE INDEX idx_teleapo_logs_caller_called_at ON public.teleapo USING btree (caller_user_id, called_at DESC)
+- idx_teleapo_logs_candidate_called_at: CREATE INDEX idx_teleapo_logs_candidate_called_at ON public.teleapo USING btree (candidate_id, called_at DESC)
+- teleapo_logs_pkey: CREATE UNIQUE INDEX teleapo_logs_pkey ON public.teleapo USING btree (id)
 
 ---
 
-### user_important_metrics
-用途: ユーザー別の重要指標設定/集計用データを保持。
+## user_important_metrics
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('user_important_metrics_id_seq'::regclass) |
-| user_id | uuid | YES |  |
-| department_key | text | YES |  |
-| metric_key | text | YES |  |
+| user_id | bigint | NO |  |
+| department_key | text | NO |  |
+| metric_key | text | NO |  |
+| created_at | timestamp with time zone | NO | now() |
 | updated_at | timestamp with time zone | NO | now() |
 
 主キー: id
 
-外部キー:
-- user_important_metrics_user_id_fkey: user_id -> users.id
-
 インデックス:
+- user_important_metrics_dept_idx: CREATE INDEX user_important_metrics_dept_idx ON public.user_important_metrics USING btree (department_key)
 - user_important_metrics_pkey: CREATE UNIQUE INDEX user_important_metrics_pkey ON public.user_important_metrics USING btree (id)
+- user_important_metrics_uq: CREATE UNIQUE INDEX user_important_metrics_uq ON public.user_important_metrics USING btree (user_id, department_key)
 
 ---
 
-### user_profiles
-用途: ユーザーの所属・役職・期間などのプロファイルを保持。
+## user_profiles
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
 | id | bigint | NO | nextval('user_profiles_id_seq'::regclass) |
 | user_id | uuid | NO |  |
-| department | character varying(255) | YES |  |
-| position | character varying(255) | YES |  |
+| department | character varying | YES |  |
+| position | character varying | YES |  |
 | period_start_date | date | YES |  |
 | period_end_date | date | YES |  |
 | created_by | bigint | YES |  |
@@ -899,33 +866,30 @@
 
 主キー: id
 
-外部キー:
-- user_profiles_user_id_fkey: user_id -> users.id
-
 インデックス:
 - user_profiles_pkey: CREATE UNIQUE INDEX user_profiles_pkey ON public.user_profiles USING btree (id)
 
 ---
 
-### users
-用途: ユーザーアカウント情報を保持。
+## users
 
 | カラム | 型 | NULL許可 | デフォルト |
 | --- | --- | --- | --- |
-| id | uuid | NO | uuid_generate_v4() |
-| email | character varying(255) | NO |  |
-| name | character varying(255) | YES |  |
+| id | bigint | NO | nextval('users_id_seq'::regclass) |
+| name | text | NO |  |
+| email | text | NO |  |
+| role | text | NO |  |
+| created_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
+| updated_at | timestamp with time zone | NO | CURRENT_TIMESTAMP |
+| password_hash | text | YES |  |
+| is_admin | boolean | NO | false |
 | email_verified_at | timestamp with time zone | YES |  |
 | image | text | YES |  |
-| created_at | timestamp with time zone | NO | now() |
-| updated_at | timestamp with time zone | NO | now() |
-| role | text | YES |  |
-| password_hash | text | YES |  |
-| is_admin | boolean | YES | false |
 
 主キー: id
 
 インデックス:
+- users_email_key: CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)
 - users_pkey: CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)
 
 ---
