@@ -18,6 +18,8 @@ const KPI_YIELD_TREND_PATH = '/yield/trend';
 const KPI_YIELD_BREAKDOWN_PATH = '/yield/breakdown';
 const KPI_YIELD_CANDIDATES_PATH = '/yield/candidates';
 const KPI_TARGETS_PATH = '/kpi-targets';
+const JOB_CATEGORIES_PATH = '/job-categories';
+const JOB_CATEGORIES_API_URL = `${YIELD_API_BASE}${JOB_CATEGORIES_PATH}`;
 const DEFAULT_ADVISOR_USER_ID = 30;
 const DEFAULT_CALC_MODE = 'cohort';
 const DEFAULT_RATE_CALC_MODE = 'base';
@@ -93,6 +95,120 @@ async function saveKpiTargetsToApi(period, targets) {
 
 let membersCache = [];
 let membersPromise = null;
+let dashboardJobCategoryMaster = [];
+
+function normalizeJobCategoryLevel(raw) {
+  return String(raw || '').toLowerCase() === 'sub' ? 'sub' : 'major';
+}
+
+function normalizeJobCategoryMasterTree(rawCategories = []) {
+  if (!Array.isArray(rawCategories)) return [];
+  const majorMap = new Map();
+  for (const rawCategory of rawCategories) {
+    const major = String(
+      rawCategory?.major ??
+      rawCategory?.majorCategory ??
+      rawCategory?.major_category ??
+      ''
+    ).trim();
+    if (!major) continue;
+
+    const rawSubs = Array.isArray(rawCategory?.subs)
+      ? rawCategory.subs
+      : Array.isArray(rawCategory?.subCategories)
+        ? rawCategory.subCategories
+        : [];
+
+    if (!majorMap.has(major)) majorMap.set(major, new Map());
+    const subMap = majorMap.get(major);
+
+    for (const rawSub of rawSubs) {
+      const id = Number(rawSub?.id ?? rawSub?.jobCategoryId ?? rawSub?.job_category_id);
+      const name = String(
+        rawSub?.name ??
+        rawSub?.subCategory ??
+        rawSub?.sub_category ??
+        ''
+      ).trim();
+      if (!Number.isFinite(id) || !name) continue;
+      if (!subMap.has(id)) subMap.set(id, { id, name });
+    }
+  }
+  return Array.from(majorMap.entries()).map(([major, subMap]) => ({
+    major,
+    subs: Array.from(subMap.values()).sort((a, b) => Number(a.id) - Number(b.id))
+  }));
+}
+
+async function loadDashboardJobCategoryMaster() {
+  if (dashboardJobCategoryMaster.length > 0) return dashboardJobCategoryMaster;
+  try {
+    const res = await fetch(JOB_CATEGORIES_API_URL, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store'
+    });
+    if (!res.ok) {
+      console.warn('[yield] failed to load job category master', res.status);
+      return dashboardJobCategoryMaster;
+    }
+    const json = await res.json();
+    dashboardJobCategoryMaster = normalizeJobCategoryMasterTree(json?.categories || []);
+  } catch (error) {
+    console.warn('[yield] failed to load job category master', error);
+  }
+  return dashboardJobCategoryMaster;
+}
+
+function resolveJobCategoryMajorLookup() {
+  const majorSet = new Set();
+  const subToMajor = new Map();
+  for (const category of dashboardJobCategoryMaster) {
+    const major = String(category?.major || '').trim();
+    if (!major) continue;
+    majorSet.add(major);
+    for (const sub of (category?.subs || [])) {
+      const name = String(sub?.name || '').trim();
+      if (!name) continue;
+      subToMajor.set(name, major);
+    }
+  }
+  return { majorSet, subToMajor };
+}
+
+function resolveMajorLabelFromRaw(rawLabel, lookup) {
+  const label = String(rawLabel || '').trim();
+  if (!label) return 'その他';
+  if (lookup.majorSet.has(label)) return label;
+  if (lookup.subToMajor.has(label)) return lookup.subToMajor.get(label);
+  const parts = label.split(/[、,，／/・|＞>→]/).map((part) => part.trim()).filter(Boolean);
+  for (const part of parts) {
+    if (lookup.subToMajor.has(part)) return lookup.subToMajor.get(part);
+    if (lookup.majorSet.has(part)) return part;
+  }
+  return label;
+}
+
+function convertJobDatasetToMajor(dataset) {
+  if (!dataset || !Array.isArray(dataset.labels) || !Array.isArray(dataset.data)) return dataset;
+  const lookup = resolveJobCategoryMajorLookup();
+  const buckets = new Map();
+  dataset.labels.forEach((rawLabel, index) => {
+    const count = Number(dataset.data[index] || 0);
+    const major = resolveMajorLabelFromRaw(rawLabel, lookup);
+    buckets.set(major, (buckets.get(major) || 0) + count);
+  });
+  const sorted = Array.from(buckets.entries()).sort((a, b) => b[1] - a[1]);
+  return {
+    labels: sorted.map(([label]) => label),
+    data: sorted.map(([, count]) => count)
+  };
+}
+
+function resolveJobCategoryDatasetByLevel(scope, dataset) {
+  const level = normalizeJobCategoryLevel(state?.dashboard?.[scope]?.jobCategoryLevel);
+  if (level === 'sub') return dataset;
+  return convertJobDatasetToMajor(dataset);
+}
 
 function normalizeMembers(payload) {
   const raw = Array.isArray(payload)
@@ -152,7 +268,8 @@ function normalizeAdvisorId(value) {
 }
 
 function isAdvisorRole(role) {
-  return String(role || '').toLowerCase().includes('advisor');
+  const r = String(role || '').toLowerCase();
+  return r.includes('advisor') || r === 'ra';
 }
 
 // 驛ｨ髢蛻･謖・ｨ吝ｮ夂ｾｩ
@@ -201,7 +318,8 @@ function mapRoleToDepartment(role) {
   // Sales
   if (
     r.includes('advisor') ||
-    r.includes('sales')
+    r.includes('sales') ||
+    r === 'ra'
   ) return 'sales';
 
   return '';
@@ -1504,6 +1622,7 @@ const state = {
       trendMode: 'month',
       year: DASHBOARD_YEARS[0],
       month: new Date().getMonth() + 1,
+      jobCategoryLevel: 'major',
       charts: {},
       trendData: null,
       breakdown: null
@@ -1512,6 +1631,7 @@ const state = {
       trendMode: 'month',
       year: DASHBOARD_YEARS[0],
       month: new Date().getMonth() + 1,
+      jobCategoryLevel: 'major',
       charts: {},
       trendData: null,
       breakdown: null
@@ -2064,7 +2184,7 @@ export async function mount(root) {
   if (typeof document !== 'undefined') {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = './pages/yield/yield.css?v=20260228_02';
+    link.href = `./pages/yield/yield.css?v=${YIELD_UI_VERSION}`;
     document.head.appendChild(link);
   }
 }
@@ -6906,6 +7026,7 @@ async function initializeDashboardSection() {
   const panels = Array.from(document.querySelectorAll('.dashboard-panel[data-dashboard-scope]'));
   const scopes = Array.from(new Set(panels.map(panel => panel.dataset.dashboardScope).filter(scope => scope && state.dashboard[scope])));
   if (!scopes.length) return;
+  await loadDashboardJobCategoryMaster();
 
   ensureChartJs()
     .then(() => {
@@ -7075,6 +7196,18 @@ function setupDashboardControls(scope) {
     state.dashboard[scope].month = selectedMonth;
     if (state.dashboard[scope].trendMode === 'month') reloadDashboardData(scope);
   });
+
+  const jobCategoryLevelSelect = document.getElementById(`${scope}JobCategoryLevelSelect`);
+  if (jobCategoryLevelSelect) {
+    jobCategoryLevelSelect.value = normalizeJobCategoryLevel(state.dashboard[scope].jobCategoryLevel);
+    if (jobCategoryLevelSelect.dataset.bound !== 'true') {
+      jobCategoryLevelSelect.addEventListener('change', () => {
+        state.dashboard[scope].jobCategoryLevel = normalizeJobCategoryLevel(jobCategoryLevelSelect.value);
+        renderCategoryChart({ scope, chartId: `${scope}JobChart`, datasetKey: 'jobCategories', type: 'bar' });
+      });
+      jobCategoryLevelSelect.dataset.bound = 'true';
+    }
+  }
   updateTrendSelectState(scope);
 }
 
@@ -7150,7 +7283,10 @@ function renderCategoryChart({ scope, chartId, datasetKey, type }) {
   if (!canvas || !window.Chart) return;
 
   const breakdown = state.dashboard[scope]?.breakdown;
-  const dataset = breakdown?.[datasetKey];
+  const rawDataset = breakdown?.[datasetKey];
+  const dataset = datasetKey === 'jobCategories'
+    ? resolveJobCategoryDatasetByLevel(scope, rawDataset)
+    : rawDataset;
   const chartWrap = canvas.closest('.dashboard-chart');
   const existingEmpty = chartWrap?.querySelector('.dashboard-chart-empty');
   const setEmptyState = (isEmpty) => {
@@ -7498,7 +7634,7 @@ function renderAdvisorMsTable() {
       targetDepts = MS_DEPARTMENTS.filter(d => d.key === 'marketing' || d.key === 'revenue');
     } else if (roleLower.includes('cs') || roleLower.includes('カスタマー')) {
       targetDepts = MS_DEPARTMENTS.filter(d => d.key === 'cs' || d.key === 'revenue');
-    } else if (roleLower.includes('sales') || roleLower.includes('営業') || roleLower.includes('advisor') || roleLower.includes('アドバイザー')) {
+    } else if (roleLower.includes('sales') || roleLower.includes('営業') || roleLower.includes('advisor') || roleLower.includes('アドバイザー') || roleLower === 'ra') {
       targetDepts = MS_DEPARTMENTS.filter(d => d.key === 'sales' || d.key === 'revenue');
     }
   }
@@ -7665,4 +7801,3 @@ function renderAdvisorMsTable() {
     });
   });
 }
-

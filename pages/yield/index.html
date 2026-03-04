@@ -524,6 +524,13 @@
                   <p class="dashboard-card-title">職種別構成</p>
                   <p class="dashboard-card-subtext">担当候補者の内訳</p>
                 </div>
+                <label class="dashboard-card-inline-select" for="personalJobCategoryLevelSelect">
+                  <span>区分</span>
+                  <select id="personalJobCategoryLevelSelect">
+                    <option value="major" selected>大分類</option>
+                    <option value="sub">小分類</option>
+                  </select>
+                </label>
               </div>
               <div class="dashboard-chart" style="height: 220px;">
                 <canvas id="personalJobChart" aria-label="個人職種別推移グラフ"></canvas>
@@ -1153,6 +1160,13 @@
                   <p class="dashboard-card-title">職種別構成（全社）</p>
                   <p class="dashboard-card-subtext">全社員の担当実績</p>
                 </div>
+                <label class="dashboard-card-inline-select" for="companyJobCategoryLevelSelect">
+                  <span>区分</span>
+                  <select id="companyJobCategoryLevelSelect">
+                    <option value="major" selected>大分類</option>
+                    <option value="sub">小分類</option>
+                  </select>
+                </label>
               </div>
               <div class="dashboard-chart" style="height: 220px;">
                 <canvas id="companyJobChart" aria-label="社内職種別"></canvas>

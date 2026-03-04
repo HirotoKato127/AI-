@@ -748,7 +748,8 @@ function isAdvisorMemberRole(roleValue) {
     role.includes("advisor") ||
     role.includes("sales") ||
     role.includes("アドバイザー") ||
-    role.includes("営業")
+    role.includes("営業") ||
+    role === "ra"
   );
 }
 
@@ -972,6 +973,7 @@ function renderAdvisorPlannedDisplayForForm(context, { loading = false, error = 
   const resultValue = document.getElementById(context.resultElementId)?.value;
   const needsInterview = shouldRequireInterview(resultValue);
   panel.classList.toggle("hidden", !needsInterview);
+  panel.hidden = !needsInterview;
   if (!needsInterview) return;
 
   const hasOptions = Array.isArray(dialFormAdvisorOptions) && dialFormAdvisorOptions.length > 0;
@@ -1001,7 +1003,7 @@ function renderAdvisorPlannedDisplayForForm(context, { loading = false, error = 
   if (selected) {
     infoParts.push(`選択中: ${selected.name}`);
   } else {
-    infoParts.push("一覧から担当アドバイザーを選択してください。");
+    infoParts.push("必要に応じて担当アドバイザーを選択してください。");
   }
   if (errors.length) {
     infoParts.push(errors.join(" / "));
@@ -1280,6 +1282,38 @@ function findTeleapoCandidate({ candidateId, candidateName } = {}) {
       return normalizeNameKey(rawName) === nameKey;
     }) || null
   );
+}
+
+function pickFirstPositiveInt(...values) {
+  for (const value of values) {
+    const parsed = toPositiveInt(value);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function resolveCandidateAssignmentIds(candidateId, candidateName = "") {
+  const idNum = toPositiveInt(candidateId);
+  const cached = idNum ? candidateDetailCache.get(idNum) : null;
+  const master = findTeleapoCandidate({ candidateId: idNum, candidateName });
+  return {
+    advisorUserId: pickFirstPositiveInt(
+      cached?.advisorUserId,
+      cached?.advisor_user_id,
+      master?.advisorUserId,
+      master?.advisor_user_id
+    ),
+    csUserId: pickFirstPositiveInt(
+      cached?.partnerUserId,
+      cached?.partner_user_id,
+      cached?.csUserId,
+      cached?.cs_user_id,
+      master?.partnerUserId,
+      master?.partner_user_id,
+      master?.csUserId,
+      master?.cs_user_id
+    )
+  };
 }
 
 function refreshDialFormAdvisorSelect(candidates = teleapoCandidateMaster) {
@@ -3061,12 +3095,13 @@ const RESULT_LABELS = {
   connect: '通電',
   reply: '返信',
   set: '設定',
+  unset: '未設定',
   show: '着座',
   callback: 'コールバック',
   no_answer: '不在',
   sms_sent: 'SMS送信'
 };
-const TELEAPO_RESULT_FILTER_BASE_ORDER = ['通電', '返信', '不在', '設定', '着座', 'コールバック', 'SMS送信'];
+const TELEAPO_RESULT_FILTER_BASE_ORDER = ['通電', '返信', '不在', '設定', '未設定', '着座', 'コールバック', 'SMS送信'];
 const TELEAPO_LOGS_PER_PAGE = 30;
 const TELEAPO_LOG_PAGINATION_MAX_BUTTONS = 7;
 
@@ -3094,6 +3129,7 @@ function resolveResultFilterLabel(log) {
   const flags = classifyTeleapoResult(log);
   if (flags.code === 'show') return '着座';
   if (flags.code === 'set') return '設定';
+  if (flags.code === 'unset') return '未設定';
   if (flags.code === 'connect') return '通電';
   if (flags.code === 'reply') return '返信';
   if (flags.code === 'callback') return 'コールバック';
@@ -3185,6 +3221,36 @@ function resolveDialFormEmployeeName() {
   return dialFormCurrentUser.name || "";
 }
 
+function collectSessionRoles() {
+  const session = getSession() || {};
+  const roles = [];
+  if (Array.isArray(session.roles)) roles.push(...session.roles);
+  roles.push(session.role, session.user?.role, session.user?.departmentRole, session.user?.department_role);
+  return roles
+    .map((value) => String(value || "").trim())
+    .filter((value) => value);
+}
+
+function isCallerRole(roleValue) {
+  const roleText = String(roleValue || "").trim();
+  if (!roleText) return false;
+  const lower = roleText.toLowerCase();
+  return (
+    lower.includes("caller") ||
+    lower.includes("cs") ||
+    lower.includes("partner") ||
+    roleText.includes("テレアポ") ||
+    roleText.includes("架電") ||
+    roleText.includes("カスタマーサクセス")
+  );
+}
+
+function shouldAutoAssignCandidateCsOwner() {
+  const roles = collectSessionRoles();
+  if (!roles.length) return true;
+  return roles.some((role) => isCallerRole(role));
+}
+
 function resolveDialFormCallerUserId(employeeName) {
   if (Number.isFinite(dialFormCurrentUser.userId) && dialFormCurrentUser.userId > 0) {
     return dialFormCurrentUser.userId;
@@ -3262,6 +3328,7 @@ function parseDateTime(dateTimeStr) {
 function normalizeResultCode(raw) {
   const t = (raw || '').toString().toLowerCase();
   if (t.includes('show') || t.includes('着座')) return 'show';
+  if (t.includes('unset') || t.includes('not_set') || t.includes('未設定')) return 'unset';
   if (t.includes('set') || t.includes('設定') || t.includes('アポ') || t.includes('面談')) return 'set';
   if (t.includes('reply') || t.includes('返信')) return 'reply';
   if (t.includes('callback') || t.includes('コールバック') || t.includes('折返') || t.includes('折り返')) return 'callback';
@@ -3422,15 +3489,18 @@ function mergePendingLogs(baseLogs) {
 
 function classifyTeleapoResult(log) {
   const code = normalizeResultCode(log.resultCode || log.result);
+  const route = normalizeRoute(log.route);
   const attendanceConfirmed = resolveAttendanceConfirmed(log);
   const interviewDate = resolveCandidateInterviewDate(log);
   const isShow = code === 'show' || (code === 'set' && attendanceConfirmed);
   const meetingLabel = interviewDate
     ? `面談(${formatShortMonthDay(interviewDate)})`
     : '面談';
-  const flowLabels = (code === 'set' || code === 'show')
-    ? ['通電', meetingLabel].concat(isShow ? ['着座'] : [])
-    : null;
+  let flowLabels = null;
+  if (code === 'set' || code === 'show') {
+    flowLabels = route === ROUTE_TEL ? ['通電', meetingLabel] : [meetingLabel];
+    if (isShow) flowLabels.push('着座');
+  }
   const displayLabel = flowLabels
     ? flowLabels.join('→')
     : (RESULT_LABELS[code] || log.result || '');
@@ -4425,8 +4495,7 @@ function renderLogTable() {
               : flags.code === 'callback' ? 'bg-amber-100 text-amber-700'
                 : 'bg-slate-100 text-slate-700';
 
-    const attemptLabel = row.callAttempt ? `（${row.callAttempt}回目）` : '';
-    const routeLabel = row.route === ROUTE_OTHER ? 'その他' : `架電${attemptLabel}`;
+    const routeLabel = row.route === ROUTE_OTHER ? 'Spir' : '架電';
 
     // ★ 相手（候補者名）をクリックで候補者詳細へ
     const targetLabel = row.target || '';
@@ -5772,6 +5841,19 @@ function registerCandidateToMaps(c) {
     age,
     contactPreferredTime: normalizeContactPreferredTime(contactPreferredTime),
     contactPreferredTimeFetched: Boolean(contactPreferredTime),
+    advisorUserId: toPositiveInt(c.advisorUserId ?? c.advisor_user_id),
+    partnerUserId: toPositiveInt(
+      c.partnerUserId ??
+      c.partner_user_id ??
+      c.csUserId ??
+      c.cs_user_id
+    ),
+    csUserId: toPositiveInt(
+      c.csUserId ??
+      c.cs_user_id ??
+      c.partnerUserId ??
+      c.partner_user_id
+    ),
     attendanceConfirmed: normalizeAttendanceValue(
       c.attendanceConfirmed ?? c.first_interview_attended ?? c.attendance_confirmed ?? c.firstInterviewAttended
     ),
@@ -6212,7 +6294,7 @@ function routeLabelFromLogRoute(logRoute) {
   if (!logRoute) return "電話";
   const t = `${logRoute}`.toLowerCase();
   if (t.includes("sms")) return "SMS";
-  if (t.includes("other") || t.includes("mail") || t.includes("line")) return "spir";
+  if (t.includes("other") || t.includes("mail") || t.includes("line")) return "Spir";
   return "電話";
 }
 
@@ -6374,7 +6456,25 @@ function prefillDialFormFromCandidate(candidateId, candidateName) {
 }
 
 function shouldRequireInterview(resultValue) {
-  return normalizeResultCode(resultValue) === "set";
+  const raw = String(resultValue ?? "").trim();
+  const compact = raw.replace(/[\s\u3000]/g, "").toLowerCase();
+  if (!compact) return false;
+
+  if (compact === "未設定" || compact === "unset" || compact === "notset" || compact === "not_set") {
+    return false;
+  }
+  if (compact === "設定" || compact === "set") {
+    return true;
+  }
+
+  const code = normalizeResultCode(raw);
+  if (code === "unset") return false;
+  if (code === "set") {
+    // 文字揺れで「未 設定」のような値が来た場合も面談必須にしない
+    if (/未[\s\u3000]*設定/.test(raw)) return false;
+    return true;
+  }
+  return false;
 }
 
 function updateInterviewFieldVisibility(resultValue) {
@@ -6383,6 +6483,7 @@ function updateInterviewFieldVisibility(resultValue) {
   const interviewInput = document.getElementById("dialFormInterviewAt");
   if (interviewField && interviewInput) {
     interviewField.classList.toggle("hidden", !shouldShow);
+    interviewField.hidden = !shouldShow;
     interviewInput.required = shouldShow;
     if (!shouldShow) interviewInput.value = "";
   }
@@ -6391,8 +6492,8 @@ function updateInterviewFieldVisibility(resultValue) {
   const advisorSelect = document.getElementById("dialFormAdvisorUserId");
   if (advisorField && advisorSelect) {
     advisorField.classList.toggle("hidden", !shouldShow);
-    const hasOptions = Array.isArray(dialFormAdvisorOptions) && dialFormAdvisorOptions.length > 0;
-    advisorSelect.required = shouldShow && hasOptions;
+    advisorField.hidden = !shouldShow;
+    advisorSelect.required = false;
     if (!shouldShow) {
       advisorSelect.value = "";
     } else {
@@ -6413,6 +6514,7 @@ function updateSmsFormInterviewFieldVisibility(resultValue) {
   const interviewInput = document.getElementById("smsFormInterviewAt");
   if (interviewField && interviewInput) {
     interviewField.classList.toggle("hidden", !shouldShow);
+    interviewField.hidden = !shouldShow;
     interviewInput.required = shouldShow;
     if (!shouldShow) interviewInput.value = "";
   }
@@ -6421,8 +6523,8 @@ function updateSmsFormInterviewFieldVisibility(resultValue) {
   const advisorSelect = document.getElementById("smsFormAdvisorUserId");
   if (advisorField && advisorSelect) {
     advisorField.classList.toggle("hidden", !shouldShow);
-    const hasOptions = Array.isArray(dialFormAdvisorOptions) && dialFormAdvisorOptions.length > 0;
-    advisorSelect.required = shouldShow && hasOptions;
+    advisorField.hidden = !shouldShow;
+    advisorSelect.required = false;
     if (!shouldShow) {
       advisorSelect.value = "";
     } else {
@@ -6641,15 +6743,6 @@ function bindDialForm() {
       if (msg) msg.textContent = "初回面談日時の登録には候補者を一覧から選択してください";
       return;
     }
-    if (needsInterview) {
-      const advisorSelect = document.getElementById("dialFormAdvisorUserId");
-      const hasAdvisorOptions = Array.isArray(dialFormAdvisorOptions) && dialFormAdvisorOptions.length > 0;
-      if (advisorSelect && hasAdvisorOptions && !advisorUserIdValue) {
-        if (msg) msg.textContent = "アポ結果が設定の場合は担当アドバイザーを選択してください";
-        return;
-      }
-    }
-
     // ---- 既存のステータスチェック ----
     const csStatus = document.getElementById("dialFormCsStatus")?.value;
     if (csStatus) {
@@ -6721,11 +6814,15 @@ function bindDialForm() {
       applyFilters();
       const postSaveWarnings = [];
       if (candidateIdValue) {
-        try {
-          await updateCandidateCsOwner(candidateIdValue, callerUserId);
-        } catch (err) {
-          postSaveWarnings.push("担当CSの保存に失敗しました");
-          console.error("candidate cs update error:", err);
+        const assignmentIds = resolveCandidateAssignmentIds(candidateIdValue, candidateName);
+        const canAssignCsOwner = shouldAutoAssignCandidateCsOwner();
+        if (canAssignCsOwner && callerUserId && assignmentIds.csUserId !== callerUserId) {
+          try {
+            await updateCandidateCsOwner(candidateIdValue, callerUserId);
+          } catch (err) {
+            postSaveWarnings.push("担当CSの保存に失敗しました");
+            console.error("candidate cs update error:", err);
+          }
         }
 
         // CSステータス更新
@@ -6904,14 +7001,6 @@ function bindSmsForm() {
       if (msg) msg.textContent = "面談設定日の登録には候補者を一覧から選択してください";
       return;
     }
-    if (needsInterview) {
-      const hasAdvisorOptions = Array.isArray(dialFormAdvisorOptions) && dialFormAdvisorOptions.length > 0;
-      if (hasAdvisorOptions && !advisorUserIdValue) {
-        if (msg) msg.textContent = "アポ結果が設定の場合は担当アドバイザーを選択してください";
-        return;
-      }
-    }
-
     // ---- 既存のステータスチェック ----
     const csStatus = document.getElementById("smsFormCsStatus")?.value;
     if (csStatus) {
@@ -6980,11 +7069,15 @@ function bindSmsForm() {
 
       const postSaveWarnings = [];
       if (candidateIdValue) {
-        try {
-          await updateCandidateCsOwner(candidateIdValue, callerUserId);
-        } catch (err) {
-          postSaveWarnings.push("担当CSの保存に失敗しました");
-          console.error("candidate cs update error:", err);
+        const assignmentIds = resolveCandidateAssignmentIds(candidateIdValue, candidateName);
+        const canAssignCsOwner = shouldAutoAssignCandidateCsOwner();
+        if (canAssignCsOwner && callerUserId && assignmentIds.csUserId !== callerUserId) {
+          try {
+            await updateCandidateCsOwner(candidateIdValue, callerUserId);
+          } catch (err) {
+            postSaveWarnings.push("担当CSの保存に失敗しました");
+            console.error("candidate cs update error:", err);
+          }
         }
 
         // CSステータス更新
@@ -7074,9 +7167,18 @@ async function updateCandidateFirstInterview(candidateId, interviewDate, advisor
   if (interviewDateOnly) {
     body.nextActionDate = interviewDateOnly;
   }
-  const advisorId = toPositiveInt(advisorUserId);
+  const assignmentIds = resolveCandidateAssignmentIds(idNum);
+  const advisorId = toPositiveInt(advisorUserId) || assignmentIds.advisorUserId;
   if (advisorId) {
     body.advisorUserId = advisorId;
+    body.advisor_user_id = advisorId;
+  }
+  const csOwnerId = assignmentIds.csUserId;
+  if (csOwnerId) {
+    body.partnerUserId = csOwnerId;
+    body.partner_user_id = csOwnerId;
+    body.csUserId = csOwnerId;
+    body.cs_user_id = csOwnerId;
   }
 
   const res = await fetch(url, {
@@ -7140,9 +7242,17 @@ async function updateCandidateCsOwner(candidateId, csUserId) {
 
   const body = {
     detailMode: true,
+    partnerUserId: csId,
+    partner_user_id: csId,
     csUserId: csId,
+    cs_user_id: csId,
     updatedAt: new Date().toISOString()
   };
+  const assignmentIds = resolveCandidateAssignmentIds(idNum);
+  if (assignmentIds.advisorUserId) {
+    body.advisorUserId = assignmentIds.advisorUserId;
+    body.advisor_user_id = assignmentIds.advisorUserId;
+  }
 
   const res = await fetch(url, {
     method: "PUT",

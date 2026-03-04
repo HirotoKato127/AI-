@@ -45,7 +45,7 @@ function mapRoleToDepartment(role) {
     r.includes('market') ||
     r.includes('admin')
   ) return 'marketing';
-  if (r.includes('advisor') || r.includes('sales')) return 'sales';
+  if (r.includes('advisor') || r.includes('sales') || r === 'ra') return 'sales';
   return '';
 }
 
@@ -175,6 +175,7 @@ async function ensureSession() {
 function resolveRoleView(session) {
   const rawRole = String(session?.role || session?.roles?.[0] || '').toLowerCase();
   return rawRole.includes('caller') ? 'caller' : 'advisor';
+  // 'ra' は 'caller' に含まれないので自動的に 'advisor' ビューになる
 }
 
 function updateRoleBadge() {

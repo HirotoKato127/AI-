@@ -6,6 +6,7 @@ const MEMBERS_LIST_PATH = '/members';
 const MEMBERS_REQUESTS_PATH = '/members/requests';
 const ROLE_OPTIONS = [
   { value: 'advisor', label: 'アドバイザー' },
+  { value: 'ra', label: 'RA' },
   { value: 'caller', label: 'CS' },
   { value: 'marketing', label: 'マーケ' }
 ];
@@ -691,7 +692,7 @@ async function handleMemberSubmit(event) {
     payload.password = password;
   }
   if (!payload.role || !ROLE_VALUE_SET.has(payload.role)) {
-    setFormError('役割は「アドバイザー / CS / マーケ」から選択してください。');
+    setFormError('役割は「アドバイザー / RA / CS / マーケ」から選択してください。');
     return;
   }
 

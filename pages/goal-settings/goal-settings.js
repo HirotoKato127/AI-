@@ -139,7 +139,7 @@ function initializeTabs() {
 
 function applyRoleBasedTabs() {
   // アドバイザー、管理者、または営業(sales)権限を持つユーザーに個人設定を表示
-  const isAllowed = hasRole(['advisor', 'admin', 'sales']);
+  const isAllowed = hasRole(['advisor', 'admin', 'sales', 'ra']);
   const personalTab = document.querySelector('[data-settings-tab="personal-settings"]');
   if (personalTab) {
     if (!isAllowed) {

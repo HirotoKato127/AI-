@@ -5,14 +5,35 @@
       <h4 class="text-sm font-semibold text-slate-700 whitespace-nowrap">
         絞り込み条件
       </h4>
-      <div class="flex items-center gap-2">
-        <button id="candidatesFilterReset"
-          class="px-3 py-1.5 border border-slate-300 rounded-md text-xs hover:bg-white">
-          条件をクリア
-        </button>
-        <span class="text-xs text-slate-500">自動で候補者一覧を更新</span>
+      <div class="candidates-filter-header-actions">
+        <div class="candidates-preset-controls">
+          <select id="candidatesFilterPresetSelect" class="filter-input candidates-preset-select" aria-label="絞り込みプリセット">
+            <option value="">プリセットを選択</option>
+          </select>
+          <button id="candidatesFilterPresetSave" type="button" class="table-action-btn candidates-preset-btn">
+            上書き保存
+          </button>
+          <button id="candidatesFilterPresetSaveAs" type="button" class="table-action-btn candidates-preset-btn">
+            新規保存
+          </button>
+          <button id="candidatesFilterPresetFavorite" type="button" class="table-action-btn candidates-preset-btn">
+            お気に入り
+          </button>
+          <button id="candidatesFilterPresetDelete" type="button" class="table-action-btn candidates-preset-btn">
+            削除
+          </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="candidatesFilterReset"
+            class="px-3 py-1.5 border border-slate-300 rounded-md text-xs hover:bg-white">
+            条件をクリア
+          </button>
+          <span class="text-xs text-slate-500">自動で候補者一覧を更新</span>
+        </div>
       </div>
     </div>
+    <div id="candidatesFavoritePresetBar" class="candidates-favorite-preset-bar hidden" aria-label="お気に入り絞り込み条件"></div>
+    <div id="candidatesPresetStatus" class="candidates-preset-status hidden" role="status" aria-live="polite"></div>
 
     <div class="candidates-filter-grid">
       <label class="filter-field">
