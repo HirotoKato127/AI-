@@ -56,6 +56,33 @@ const filterConfig = [
   { id: "candidatesFilterCsStatus", event: "change" },
 ];
 
+const FILTER_PRESET_FILTER_KEYS = [
+  "startDate",
+  "endDate",
+  "source",
+  "name",
+  "company",
+  "advisor",
+  "cs",
+  "valid",
+  "phase",
+  "csStatus",
+];
+const FILTER_PRESET_ELEMENT_MAP = {
+  startDate: "candidatesFilterStartDate",
+  endDate: "candidatesFilterEndDate",
+  source: "candidatesFilterSource",
+  name: "candidatesFilterName",
+  company: "candidatesFilterCompany",
+  advisor: "candidatesFilterAdvisor",
+  cs: "candidatesFilterCs",
+  valid: "candidatesFilterValid",
+  phase: "candidatesFilterPhase",
+  csStatus: "candidatesFilterCsStatus",
+};
+const FILTER_PRESET_STORAGE_KEY = "candidates.filterPresets.v1";
+const MAX_FILTER_PRESET_COUNT = 50;
+
 const reportStatusOptions = ["LINE報告済み", "個人シート反映済み", "請求書送付済み"];
 const finalResultOptions = ["----", "リリース(転居不可)", "リリース(精神疾患)", "リリース(人柄)", "飛び", "辞退", "承諾"];
 const refundReportOptions = ["LINE報告済み", "企業報告済み"];
@@ -181,6 +208,9 @@ let activeInlineCsStatusCandidateId = null;
 let lastCsStatusTouchInfo = { candidateId: null, timestamp: 0 };
 let calendarViewDate = new Date();
 calendarViewDate.setDate(1);
+let filterPresetState = { presets: [], activePresetId: "" };
+let filterPresetStatusTimer = null;
+let isApplyingFilterPreset = false;
 
 // Deduplicate /clients create requests when multiple saves run quickly.
 const clientCreateInFlight = new Map();
@@ -497,6 +527,18 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
     ?? "";
   candidate.applyJobName = candidate.applyJobName ?? candidate.apply_job_name ?? candidate.jobName ?? candidate.job_name ?? "";
   candidate.applyRouteText = candidate.applyRouteText ?? candidate.apply_route_text ?? candidate.source ?? "";
+  candidate.teleapoResult =
+    candidate.teleapoResult ??
+    candidate.teleapo_result ??
+    candidate.latestTeleapoResult ??
+    candidate.latest_teleapo_result ??
+    "";
+  candidate.teleapoRoute =
+    candidate.teleapoRoute ??
+    candidate.teleapo_route ??
+    candidate.latestTeleapoRoute ??
+    candidate.latest_teleapo_route ??
+    "";
   candidate.jobName = candidate.jobName ?? candidate.job_name ?? candidate.applyJobName ?? "";
   candidate.applicationNote = candidate.applicationNote ?? candidate.application_note ?? candidate.remarks ?? "";
   candidate.remarks = candidate.remarks ?? candidate.applicationNote ?? candidate.application_note ?? "";
@@ -547,7 +589,13 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
   candidate.meetingPlans = Array.isArray(candidate.meetingPlans) ? candidate.meetingPlans : [];
   candidate.resumeDocuments = Array.isArray(candidate.resumeDocuments) ? candidate.resumeDocuments : [];
 
-  candidate.selectionProgress = Array.isArray(candidate.selectionProgress) ? candidate.selectionProgress : [];
+  const rawSelectionProgress =
+    candidate.selectionProgress ??
+    candidate.selection_progress ??
+    candidate.candidateApplications ??
+    candidate.candidate_applications ??
+    [];
+  candidate.selectionProgress = Array.isArray(rawSelectionProgress) ? rawSelectionProgress : [];
   candidate.selectionProgress = candidate.selectionProgress.map((row = {}) => ({
     ...row,
     id: row.id ?? row.applicationId ?? row.application_id ?? null,
@@ -594,8 +642,38 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
       row.final_interview_at ??
       null,
     offerDate: row.offerDate ?? row.offer_date ?? null,
-    acceptanceDate: row.acceptanceDate ?? row.offer_accept_date ?? null,
-    onboardingDate: row.onboardingDate ?? row.join_date ?? null,
+    acceptanceDate:
+      row.acceptanceDate ??
+      row.offerAcceptedDate ??
+      row.offerAcceptedAt ??
+      row.offer_accepted_at ??
+      row.offerAcceptDate ??
+      row.offer_accept_date ??
+      null,
+    offerAcceptedDate:
+      row.offerAcceptedDate ??
+      row.acceptanceDate ??
+      row.offerAcceptedAt ??
+      row.offer_accepted_at ??
+      row.offerAcceptDate ??
+      row.offer_accept_date ??
+      null,
+    onboardingDate:
+      row.onboardingDate ??
+      row.joinedDate ??
+      row.joinedAt ??
+      row.joined_at ??
+      row.joinDate ??
+      row.join_date ??
+      null,
+    joinedDate:
+      row.joinedDate ??
+      row.onboardingDate ??
+      row.joinedAt ??
+      row.joined_at ??
+      row.joinDate ??
+      row.join_date ??
+      null,
     preJoinDeclineDate:
       row.preJoinDeclineDate ??
       row.declinedDate ??
@@ -649,6 +727,7 @@ function normalizeCandidate(candidate, { source = "detail" } = {}) {
       row.closingForecastDate ??
       row.closingForecastAt ??
       row.closeExpectedDate ??
+      row.close_expected_at ??
       row.closing_plan_date ??
       null,
     feeAmount: row.feeAmount ?? row.fee_amount ?? row.fee ?? "",
@@ -1080,12 +1159,21 @@ function syncMoneyInfoFromSelectionProgress(candidate) {
   if (!candidate || !Array.isArray(candidate.selectionProgress)) return;
 
   const existing = Array.isArray(candidate.moneyInfo) ? candidate.moneyInfo : [];
+  const activeAppIdSet = new Set();
   const moneyByAppId = new Map();
+
+  candidate.selectionProgress.forEach((row = {}) => {
+    const appId = row.id ?? row.applicationId ?? row.application_id;
+    if (appId === null || appId === undefined || appId === "") return;
+    activeAppIdSet.add(String(appId));
+  });
 
   existing.forEach((row = {}) => {
     const appId = row.applicationId ?? row.application_id;
     if (appId === null || appId === undefined || appId === "") return;
-    moneyByAppId.set(String(appId), { ...row });
+    const key = String(appId);
+    if (!activeAppIdSet.has(key)) return;
+    moneyByAppId.set(key, { ...row });
   });
 
   candidate.selectionProgress.forEach((row = {}) => {
@@ -1247,7 +1335,8 @@ export function mount() {
 
   openedFromUrlOnce = false;
   void loadScreeningRulesForCandidates({ force: true });
-  restoreListContextFromReturnState();
+  const restoredFromReturnState = restoreListContextFromReturnState();
+  initializeFilterPresetControls({ skipAutoApply: restoredFromReturnState });
   void loadFilterMasters();
   // まず一覧ロード（ページング）
   loadCandidatesData();
@@ -1327,6 +1416,379 @@ function initializeCandidatesFilters() {
 
   // CSステータスフィルターの初期化（保存済み/削除済みを反映）
   refreshAllCsStatusSelects();
+}
+
+function initializeFilterPresetControls({ skipAutoApply = false } = {}) {
+  loadFilterPresetStateFromStorage();
+
+  const select = document.getElementById("candidatesFilterPresetSelect");
+  if (select) select.addEventListener("change", handleFilterPresetSelectChange);
+
+  const saveBtn = document.getElementById("candidatesFilterPresetSave");
+  if (saveBtn) saveBtn.addEventListener("click", handleFilterPresetSaveClick);
+
+  const saveAsBtn = document.getElementById("candidatesFilterPresetSaveAs");
+  if (saveAsBtn) saveAsBtn.addEventListener("click", handleFilterPresetSaveAsClick);
+
+  const favoriteBtn = document.getElementById("candidatesFilterPresetFavorite");
+  if (favoriteBtn) favoriteBtn.addEventListener("click", handleFilterPresetFavoriteClick);
+
+  const deleteBtn = document.getElementById("candidatesFilterPresetDelete");
+  if (deleteBtn) deleteBtn.addEventListener("click", handleFilterPresetDeleteClick);
+
+  const favoriteBar = document.getElementById("candidatesFavoritePresetBar");
+  if (favoriteBar) favoriteBar.addEventListener("click", handleFavoritePresetBarClick);
+
+  renderFilterPresetControls();
+
+  if (skipAutoApply) return;
+  const activePreset = findFilterPresetById(filterPresetState.activePresetId);
+  if (activePreset) {
+    applyFilterPreset(activePreset, { refresh: false, preserveActivePreset: true, showStatus: false });
+  }
+}
+
+function readFilterPresetStateFromStorage() {
+  try {
+    const raw = localStorage.getItem(FILTER_PRESET_STORAGE_KEY);
+    if (!raw) return { presets: [], activePresetId: "" };
+    return normalizeFilterPresetState(JSON.parse(raw));
+  } catch (error) {
+    console.warn("絞り込みプリセットの読み込みに失敗しました。", error);
+    return { presets: [], activePresetId: "" };
+  }
+}
+
+function normalizeFilterPresetState(raw) {
+  const presets = Array.isArray(raw?.presets)
+    ? raw.presets
+      .map((preset) => normalizeFilterPreset(preset))
+      .filter(Boolean)
+      .slice(0, MAX_FILTER_PRESET_COUNT)
+    : [];
+  const activePresetId = String(raw?.activePresetId || "");
+  const hasActive = presets.some((preset) => preset.id === activePresetId);
+  return { presets, activePresetId: hasActive ? activePresetId : "" };
+}
+
+function normalizeFilterPreset(preset) {
+  const id = String(preset?.id || "").trim();
+  const name = sanitizeFilterPresetName(preset?.name);
+  if (!id || !name) return null;
+
+  const filters = {};
+  FILTER_PRESET_FILTER_KEYS.forEach((key) => {
+    const value = preset?.filters?.[key];
+    filters[key] = value === undefined || value === null ? "" : String(value).trim();
+  });
+
+  return {
+    id,
+    name,
+    filters,
+    favorite: Boolean(preset?.favorite),
+    createdAt: String(preset?.createdAt || ""),
+    updatedAt: String(preset?.updatedAt || ""),
+  };
+}
+
+function sanitizeFilterPresetName(value) {
+  return String(value ?? "").trim().slice(0, 40);
+}
+
+function loadFilterPresetStateFromStorage() {
+  filterPresetState = readFilterPresetStateFromStorage();
+}
+
+function persistFilterPresetState() {
+  try {
+    localStorage.setItem(FILTER_PRESET_STORAGE_KEY, JSON.stringify(filterPresetState));
+  } catch (error) {
+    console.warn("絞り込みプリセットの保存に失敗しました。", error);
+  }
+}
+
+function createFilterPresetId() {
+  return `preset-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function collectFilterPresetValues() {
+  const current = collectFilters();
+  const result = {};
+  FILTER_PRESET_FILTER_KEYS.forEach((key) => {
+    result[key] = String(current[key] ?? "").trim();
+  });
+  return result;
+}
+
+function findFilterPresetById(presetId) {
+  const id = String(presetId || "");
+  if (!id) return null;
+  return filterPresetState.presets.find((preset) => preset.id === id) || null;
+}
+
+function ensureSelectValue(selectElement, value) {
+  if (!selectElement) return;
+  const targetValue = String(value ?? "").trim();
+  Array.from(selectElement.options)
+    .filter((option) => option.dataset?.presetTemp === "true")
+    .forEach((option) => option.remove());
+  if (!targetValue) {
+    selectElement.value = "";
+    return;
+  }
+  const hasOption = Array.from(selectElement.options).some((option) => String(option.value) === targetValue);
+  if (!hasOption) {
+    const option = document.createElement("option");
+    option.value = targetValue;
+    option.textContent = targetValue;
+    option.dataset.presetTemp = "true";
+    selectElement.appendChild(option);
+  }
+  selectElement.value = targetValue;
+}
+
+function setFilterElementValue(elementId, value) {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+
+  if (element.tagName === "SELECT") {
+    ensureSelectValue(element, value);
+    return;
+  }
+  element.value = String(value ?? "");
+}
+
+function syncFilterSearchInputFromSelect(selectId, inputId) {
+  const select = document.getElementById(selectId);
+  const input = document.getElementById(inputId);
+  if (!select || !input) return;
+  const selected = Array.from(select.options).find((option) => String(option.value) === String(select.value));
+  if (!selected || !String(select.value || "")) {
+    input.value = "";
+    return;
+  }
+  input.value = String(selected.textContent || selected.value || "");
+}
+
+function syncFilterSearchInputs() {
+  syncFilterSearchInputFromSelect("candidatesFilterCompany", "candidatesFilterCompanySearch");
+  syncFilterSearchInputFromSelect("candidatesFilterCsStatus", "candidatesFilterCsStatusSearch");
+}
+
+function clearActiveFilterPresetSelection() {
+  if (!filterPresetState.activePresetId) return;
+  filterPresetState.activePresetId = "";
+  persistFilterPresetState();
+  renderFilterPresetControls();
+}
+
+function showFilterPresetStatus(message, type = "info") {
+  const status = document.getElementById("candidatesPresetStatus");
+  if (!status) return;
+
+  if (filterPresetStatusTimer) {
+    window.clearTimeout(filterPresetStatusTimer);
+    filterPresetStatusTimer = null;
+  }
+
+  status.textContent = String(message || "");
+  status.classList.remove("hidden", "is-success", "is-error");
+  if (type === "error") status.classList.add("is-error");
+  if (type === "success") status.classList.add("is-success");
+
+  filterPresetStatusTimer = window.setTimeout(() => {
+    status.classList.add("hidden");
+    filterPresetStatusTimer = null;
+  }, 2200);
+}
+
+function renderFavoritePresetBar() {
+  const favoriteBar = document.getElementById("candidatesFavoritePresetBar");
+  if (!favoriteBar) return;
+  const favorites = filterPresetState.presets.filter((preset) => preset.favorite);
+  if (!favorites.length) {
+    favoriteBar.innerHTML = "";
+    favoriteBar.classList.add("hidden");
+    return;
+  }
+
+  favoriteBar.innerHTML = favorites
+    .map((preset) => {
+      const activeClass = preset.id === filterPresetState.activePresetId ? " is-active" : "";
+      return `<button type="button" class="candidates-favorite-preset-chip${activeClass}" data-favorite-preset-id="${escapeHtmlAttr(preset.id)}">★ ${escapeHtml(preset.name)}</button>`;
+    })
+    .join("");
+  favoriteBar.classList.remove("hidden");
+}
+
+function renderFilterPresetControls() {
+  const select = document.getElementById("candidatesFilterPresetSelect");
+  if (select) {
+    const options = [`<option value="">プリセットを選択</option>`]
+      .concat(
+        filterPresetState.presets.map((preset) => {
+          const label = preset.favorite ? `★ ${preset.name}` : preset.name;
+          return `<option value="${escapeHtmlAttr(preset.id)}">${escapeHtml(label)}</option>`;
+        })
+      )
+      .join("");
+    select.innerHTML = options;
+    select.value = findFilterPresetById(filterPresetState.activePresetId) ? filterPresetState.activePresetId : "";
+  }
+
+  renderFavoritePresetBar();
+
+  const activePreset = findFilterPresetById(filterPresetState.activePresetId);
+  const saveBtn = document.getElementById("candidatesFilterPresetSave");
+  if (saveBtn) saveBtn.disabled = !activePreset;
+  const favoriteBtn = document.getElementById("candidatesFilterPresetFavorite");
+  if (favoriteBtn) {
+    favoriteBtn.disabled = !activePreset;
+    favoriteBtn.textContent = activePreset?.favorite ? "お気に入り解除" : "お気に入り";
+    favoriteBtn.classList.toggle("is-active", Boolean(activePreset?.favorite));
+  }
+  const deleteBtn = document.getElementById("candidatesFilterPresetDelete");
+  if (deleteBtn) deleteBtn.disabled = !activePreset;
+}
+
+function applyFilterPreset(preset, { refresh = true, preserveActivePreset = false, showStatus = true } = {}) {
+  if (!preset) return false;
+
+  isApplyingFilterPreset = true;
+  try {
+    FILTER_PRESET_FILTER_KEYS.forEach((key) => {
+      const elementId = FILTER_PRESET_ELEMENT_MAP[key];
+      if (!elementId) return;
+      setFilterElementValue(elementId, preset.filters?.[key] || "");
+    });
+    syncFilterSearchInputs();
+
+    if (preserveActivePreset) {
+      filterPresetState.activePresetId = preset.id;
+      persistFilterPresetState();
+      renderFilterPresetControls();
+    }
+
+    if (refresh) handleFilterChange();
+    if (showStatus) showFilterPresetStatus(`「${preset.name}」を適用しました。`, "success");
+    return true;
+  } finally {
+    isApplyingFilterPreset = false;
+  }
+}
+
+function handleFilterPresetSelectChange(event) {
+  const presetId = String(event.currentTarget?.value || "");
+  if (!presetId) {
+    filterPresetState.activePresetId = "";
+    persistFilterPresetState();
+    renderFilterPresetControls();
+    return;
+  }
+  const preset = findFilterPresetById(presetId);
+  if (!preset) return;
+  filterPresetState.activePresetId = preset.id;
+  persistFilterPresetState();
+  applyFilterPreset(preset, { refresh: true, preserveActivePreset: true, showStatus: true });
+}
+
+function handleFilterPresetSaveClick() {
+  const activePreset = findFilterPresetById(filterPresetState.activePresetId);
+  if (!activePreset) {
+    handleFilterPresetSaveAsClick();
+    return;
+  }
+  activePreset.filters = collectFilterPresetValues();
+  activePreset.updatedAt = new Date().toISOString();
+  persistFilterPresetState();
+  renderFilterPresetControls();
+  showFilterPresetStatus(`「${activePreset.name}」を上書き保存しました。`, "success");
+}
+
+function handleFilterPresetSaveAsClick() {
+  const activePreset = findFilterPresetById(filterPresetState.activePresetId);
+  const defaultName = activePreset?.name || "";
+  const rawName = window.prompt("プリセット名を入力してください。", defaultName);
+  if (rawName === null) return;
+
+  const name = sanitizeFilterPresetName(rawName);
+  if (!name) {
+    showFilterPresetStatus("プリセット名を入力してください。", "error");
+    return;
+  }
+
+  const existing = filterPresetState.presets.find(
+    (preset) => normalizeFilterText(preset.name) === normalizeFilterText(name)
+  );
+  const now = new Date().toISOString();
+
+  if (existing) {
+    existing.filters = collectFilterPresetValues();
+    existing.updatedAt = now;
+    filterPresetState.activePresetId = existing.id;
+    persistFilterPresetState();
+    renderFilterPresetControls();
+    showFilterPresetStatus(`「${existing.name}」を更新しました。`, "success");
+    return;
+  }
+
+  const nextPreset = {
+    id: createFilterPresetId(),
+    name,
+    filters: collectFilterPresetValues(),
+    favorite: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  filterPresetState.presets.unshift(nextPreset);
+  if (filterPresetState.presets.length > MAX_FILTER_PRESET_COUNT) {
+    filterPresetState.presets = filterPresetState.presets.slice(0, MAX_FILTER_PRESET_COUNT);
+  }
+  filterPresetState.activePresetId = nextPreset.id;
+  persistFilterPresetState();
+  renderFilterPresetControls();
+  showFilterPresetStatus(`「${nextPreset.name}」を保存しました。`, "success");
+}
+
+function handleFilterPresetFavoriteClick() {
+  const activePreset = findFilterPresetById(filterPresetState.activePresetId);
+  if (!activePreset) return;
+  activePreset.favorite = !activePreset.favorite;
+  activePreset.updatedAt = new Date().toISOString();
+  persistFilterPresetState();
+  renderFilterPresetControls();
+  showFilterPresetStatus(
+    activePreset.favorite
+      ? `「${activePreset.name}」をお気に入り登録しました。`
+      : `「${activePreset.name}」をお気に入り解除しました。`,
+    "success"
+  );
+}
+
+function handleFilterPresetDeleteClick() {
+  const activePreset = findFilterPresetById(filterPresetState.activePresetId);
+  if (!activePreset) return;
+  if (!window.confirm(`「${activePreset.name}」を削除しますか？`)) return;
+
+  filterPresetState.presets = filterPresetState.presets.filter((preset) => preset.id !== activePreset.id);
+  filterPresetState.activePresetId = "";
+  persistFilterPresetState();
+  renderFilterPresetControls();
+  showFilterPresetStatus(`「${activePreset.name}」を削除しました。`, "success");
+}
+
+function handleFavoritePresetBarClick(event) {
+  const button = event.target.closest("[data-favorite-preset-id]");
+  if (!button) return;
+  const presetId = String(button.dataset.favoritePresetId || "");
+  if (!presetId) return;
+  const preset = findFilterPresetById(presetId);
+  if (!preset) return;
+
+  filterPresetState.activePresetId = preset.id;
+  persistFilterPresetState();
+  applyFilterPreset(preset, { refresh: true, preserveActivePreset: true, showStatus: true });
 }
 
 /**
@@ -1556,7 +2018,7 @@ async function loadFilterMasters() {
 
     if (Array.isArray(masterDataUsers)) {
       masterUsers = masterDataUsers;
-      const filteredAdvisors = masterDataUsers.filter(u => u.role === 'advisor' && u.active !== false).map(u => u.name);
+      const filteredAdvisors = masterDataUsers.filter(u => (u.role === 'advisor' || u.role === 'ra') && u.active !== false).map(u => u.name);
       const filteredCsUsers = masterDataUsers.filter(u => u.role === 'caller' && u.active !== false).map(u => u.name);
       if (filteredAdvisors.length) setFilterSelectOptions("candidatesFilterAdvisor", filteredAdvisors);
       if (filteredCsUsers.length) setFilterSelectOptions("candidatesFilterCs", filteredCsUsers);
@@ -1780,7 +2242,7 @@ function peekReturnState() {
 
 function restoreListContextFromReturnState() {
   const state = peekReturnState();
-  if (!state) return;
+  if (!state) return false;
   const filters = state.filters || {};
   const setValue = (id, value) => {
     const el = document.getElementById(id);
@@ -1792,13 +2254,17 @@ function restoreListContextFromReturnState() {
   setValue("candidatesFilterName", filters.name || "");
   setValue("candidatesFilterCompany", filters.company || "");
   setValue("candidatesFilterAdvisor", filters.advisor || "");
+  setValue("candidatesFilterCs", filters.cs || "");
   setValue("candidatesFilterValid", filters.valid || "");
   setValue("candidatesFilterPhase", filters.phase || "");
+  setValue("candidatesFilterCsStatus", filters.csStatus || "");
+  syncFilterSearchInputs();
   const page = Number(state.page || 1);
   if (Number.isFinite(page) && page > 0) listPage = Math.trunc(page);
   if (Number.isFinite(state.calendarYear) && Number.isFinite(state.calendarMonth)) {
     calendarViewDate = new Date(Number(state.calendarYear), Number(state.calendarMonth), 1);
   }
+  return true;
 }
 
 function consumeReturnState() {
@@ -1883,6 +2349,9 @@ async function prefetchNextActionDates(candidates) {
 }
 
 function handleFilterChange() {
+  if (!isApplyingFilterPreset) {
+    clearActiveFilterPresetSelection();
+  }
   // Reset list paging when filters change.
   listPage = 1;
   loadCandidatesData();
@@ -2266,6 +2735,7 @@ function hasActiveFilters(filters) {
     || filters.name
     || filters.company
     || filters.valid
+    || filters.csStatus
   );
 }
 
@@ -3959,17 +4429,53 @@ function resolveSelectionStatusVariant(status) {
 }
 
 function resolveSelectionStageValue(row = {}) {
-  if (row.postJoinQuitDate) return "入社後辞退";
-  if (row.onboardingDate) return "入社";
-  if (row.preJoinDeclineDate) return "内定後辞退";
-  if (row.acceptanceDate) return "内定承諾済み";
-  if (row.offerDate) return "内定承諾待ち";
-  if (row.secondInterviewDate) return "二次面接";
-  if (row.secondInterviewSetupDate) return "二次面接調整";
-  if (row.interviewDate) return "一次面接";
-  if (row.interviewSetupDate) return "一次面接調整";
-  // ★追加: 推薦日が入っていたら「書類選考」にする
-  if (row.recommendationDate) return "書類選考";
+  const has = (v) => v !== null && v !== undefined && v !== "";
+
+  if (
+    has(row.postJoinQuitDate) ||
+    has(row.post_join_quit_date) ||
+    has(row.post_join_quit_at) ||
+    has(row.earlyTurnoverDate) ||
+    has(row.earlyTurnoverAt) ||
+    has(row.early_turnover_at)
+  ) return "入社後辞退";
+
+  if (
+    has(row.onboardingDate) ||
+    has(row.joinedDate) ||
+    has(row.joinedAt) ||
+    has(row.joined_at) ||
+    has(row.join_date)
+  ) return "入社";
+
+  if (
+    has(row.preJoinDeclineDate) ||
+    has(row.preJoinWithdrawDate) ||
+    has(row.pre_join_withdraw_date) ||
+    has(row.pre_join_decline_at) ||
+    has(row.declinedDate)
+  ) return "内定後辞退";
+
+  if (
+    has(row.acceptanceDate) ||
+    has(row.offerAcceptedDate) ||
+    has(row.offerAcceptedAt) ||
+    has(row.offer_accepted_at) ||
+    has(row.offer_accept_date)
+  ) return "内定承諾済み";
+
+  if (
+    has(row.offerDate) ||
+    has(row.offerAt) ||
+    has(row.offer_at) ||
+    has(row.offer_date)
+  ) return "内定承諾待ち";
+
+  if (has(row.secondInterviewDate) || has(row.secondInterviewAt) || has(row.second_interview_at)) return "二次面接";
+  if (has(row.secondInterviewSetupDate) || has(row.secondInterviewSetAt) || has(row.second_interview_set_at)) return "二次面接調整";
+  if (has(row.interviewDate) || has(row.firstInterviewDate) || has(row.firstInterviewAt) || has(row.first_interview_at)) return "一次面接";
+  if (has(row.interviewSetupDate) || has(row.firstInterviewSetupDate) || has(row.firstInterviewSetAt) || has(row.first_interview_set_at)) return "一次面接調整";
+  if (has(row.recommendationDate) || has(row.recommendedAt) || has(row.recommended_at)) return "書類選考";
   return "";
 }
 
@@ -4024,21 +4530,113 @@ function updateSelectionStatusCell(index, status) {
 // -----------------------
 // フェーズ表示ロジック
 // -----------------------
+function normalizeTeleapoRouteType(route) {
+  const text = String(route ?? "").trim().toLowerCase();
+  if (!text) return "";
+  if (
+    text.includes("spir") ||
+    text.includes("other") ||
+    text.includes("sms") ||
+    text.includes("mail") ||
+    text.includes("line") ||
+    text.includes("その他")
+  ) {
+    return "spir";
+  }
+  if (text.includes("tel") || text.includes("call") || text.includes("電話") || text.includes("架電")) {
+    return "tel";
+  }
+  return "";
+}
+
+function resolveTeleapoRouteLabel(route) {
+  return normalizeTeleapoRouteType(route) === "spir" ? "Spir" : "架電";
+}
+
+function normalizeTeleapoResultLabel(rawResult) {
+  const text = String(rawResult ?? "").trim();
+  if (!text) return "";
+  const lower = text.toLowerCase();
+  if (lower.includes("no_answer") || text.includes("不在")) return "不在";
+  if (lower.includes("unset") || lower.includes("not_set") || text.includes("未設定")) return "未設定";
+  if (lower.includes("show") || text.includes("着座")) return "設定";
+  if (lower.includes("set") || text.includes("設定") || text.includes("面談") || text.includes("アポ")) return "設定";
+  if (lower.includes("connect") || text.includes("通電")) return "通電";
+  if (
+    lower.includes("callback") ||
+    lower.includes("reply") ||
+    lower.includes("sms") ||
+    text.includes("折返") ||
+    text.includes("コールバック") ||
+    text.includes("返信")
+  ) {
+    return "未設定";
+  }
+  return text;
+}
+
+function resolveTeleapoPhaseLabel(result, route) {
+  const resultLabel = normalizeTeleapoResultLabel(result);
+  if (!resultLabel) return "";
+  const routeType = normalizeTeleapoRouteType(route);
+  if (routeType === "spir") {
+    if (resultLabel === "設定") return "Spir設定";
+    if (resultLabel === "未設定") return "Spir未設定";
+    return `Spir${resultLabel}`;
+  }
+  return resultLabel;
+}
+
+function getCandidateLatestTeleapoLog(candidate) {
+  const logs = Array.isArray(candidate?.teleapoLogs) ? candidate.teleapoLogs : [];
+  if (!logs.length) return null;
+
+  let latest = null;
+  let latestTs = -Infinity;
+  logs.forEach((log) => {
+    if (!log) return;
+    const rawDate = log.calledAt ?? log.called_at ?? log.datetime ?? "";
+    const ts = rawDate ? new Date(rawDate).getTime() : NaN;
+    if (Number.isFinite(ts)) {
+      if (ts > latestTs) {
+        latest = log;
+        latestTs = ts;
+      }
+      return;
+    }
+    if (!latest) latest = log;
+  });
+  return latest || logs[0] || null;
+}
+
+function resolveTeleapoPhaseFromLatestResult(candidate) {
+  const latestLog = getCandidateLatestTeleapoLog(candidate);
+  if (latestLog) {
+    const fromLog = resolveTeleapoPhaseLabel(
+      latestLog.result ?? latestLog.resultCode ?? latestLog.result_code ?? "",
+      latestLog.route
+    );
+    if (fromLog) return fromLog;
+  }
+
+  const fromCandidate = resolveTeleapoPhaseLabel(
+    candidate?.teleapoResult ?? candidate?.teleapo_result ?? "",
+    candidate?.teleapoRoute ?? candidate?.teleapo_route ?? ""
+  );
+  return fromCandidate || "";
+}
+
 function resolveCurrentPhases(candidate) {
   const selectionPhase = resolveSelectionPhaseFromProgress(candidate);
   if (selectionPhase) {
     return [selectionPhase];
   }
 
-  let phases = Array.isArray(candidate.phaseList) ? candidate.phaseList : (candidate.phase ? [candidate.phase] : []);
-  phases = phases.map((phase) => (String(phase).trim() === "新規" ? "未接触" : phase));
-
-  // 通電等の接触履歴がある場合は「未接触」を除外する
-  const hasContact = candidate.hasConnected || candidate.hasSms || (candidate.callCount > 0);
-  if (hasContact) {
-    phases = phases.filter(p => p !== "未接触");
+  const teleapoPhase = resolveTeleapoPhaseFromLatestResult(candidate);
+  if (teleapoPhase) {
+    return [teleapoPhase];
   }
-  return phases;
+  return ["未接触"];
 }
 
 function resolvePhaseDisplay(candidate) {
@@ -4153,10 +4751,12 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
           "finalInterviewAdjustDate": "finalInterviewSetAt",
           "finalInterviewDate": "finalInterviewAt",
           "offerDate": "offerDate",
-          "offerAcceptedDate": "offerAcceptDate",
-          "joinedDate": "joinDate",
-          "declinedDate": "declinedAfterOfferAt",
-          "earlyTurnoverDate": "earlyTurnoverAt",
+          "offerAcceptedDate": "acceptanceDate",
+          "joinedDate": "onboardingDate",
+          "declinedDate": "preJoinWithdrawDate",
+          "declinedReason": "preJoinWithdrawReason",
+          "earlyTurnoverDate": "postJoinQuitDate",
+          "earlyTurnoverReason": "postJoinQuitReason",
           "closingForecastDate": "closeExpectedAt"
         };
         const mappedKey = keyMap[key] || key;
@@ -4169,6 +4769,104 @@ async function saveCandidateRecord(candidate, { preserveDetailState = true, incl
           rawValue = convertManToYen(rawValue);
         }
         newData[mappedKey] = rawValue;
+        if (key === "proposalDate") {
+          newData.proposalDate = rawValue;
+          newData.proposal_date = rawValue;
+        }
+        if (key === "recommendationDate") {
+          newData.recommendationDate = rawValue;
+          newData.recommendedAt = rawValue;
+          newData.recommended_at = rawValue;
+        }
+        if (key === "firstInterviewAdjustDate") {
+          newData.firstInterviewAdjustDate = rawValue;
+          newData.firstInterviewSetAt = rawValue;
+          newData.first_interview_set_at = rawValue;
+        }
+        if (key === "firstInterviewDate") {
+          newData.firstInterviewDate = rawValue;
+          newData.firstInterviewAt = rawValue;
+          newData.first_interview_at = rawValue;
+        }
+        if (key === "secondInterviewAdjustDate") {
+          newData.secondInterviewAdjustDate = rawValue;
+          newData.secondInterviewSetAt = rawValue;
+          newData.second_interview_set_at = rawValue;
+        }
+        if (key === "secondInterviewDate") {
+          newData.secondInterviewDate = rawValue;
+          newData.secondInterviewAt = rawValue;
+          newData.second_interview_at = rawValue;
+        }
+        if (key === "finalInterviewAdjustDate") {
+          newData.finalInterviewAdjustDate = rawValue;
+          newData.finalInterviewSetAt = rawValue;
+          newData.final_interview_set_at = rawValue;
+        }
+        if (key === "finalInterviewDate") {
+          newData.finalInterviewDate = rawValue;
+          newData.finalInterviewAt = rawValue;
+          newData.final_interview_at = rawValue;
+        }
+        if (key === "offerDate") {
+          newData.offerDate = rawValue;
+          newData.offerAt = rawValue;
+          newData.offer_at = rawValue;
+          newData.offer_date = rawValue;
+        }
+        if (key === "offerAcceptedDate") {
+          newData.acceptanceDate = rawValue;
+          newData.offerAcceptedDate = rawValue;
+          newData.offerAcceptedAt = rawValue;
+          newData.offerAcceptDate = rawValue;
+          newData.offer_accepted_at = rawValue;
+          newData.offer_accept_date = rawValue;
+        }
+        if (key === "joinedDate") {
+          newData.onboardingDate = rawValue;
+          newData.joinedDate = rawValue;
+          newData.joinedAt = rawValue;
+          newData.joined_at = rawValue;
+          newData.joinDate = rawValue;
+          newData.join_date = rawValue;
+        }
+        if (key === "declinedDate") {
+          newData.preJoinWithdrawDate = rawValue;
+          newData.preJoinDeclineDate = rawValue;
+          newData.pre_join_withdraw_date = rawValue;
+          newData.declinedDate = rawValue;
+          newData.declinedAfterOfferAt = rawValue;
+          newData.declined_after_offer_at = rawValue;
+        }
+        if (key === "declinedReason") {
+          newData.preJoinWithdrawReason = rawValue;
+          newData.preJoinDeclineReason = rawValue;
+          newData.pre_join_withdraw_reason = rawValue;
+          newData.declinedReason = rawValue;
+          newData.declinedAfterOfferReason = rawValue;
+          newData.declined_after_offer_reason = rawValue;
+        }
+        if (key === "earlyTurnoverDate") {
+          newData.postJoinQuitDate = rawValue;
+          newData.post_join_quit_date = rawValue;
+          newData.earlyTurnoverDate = rawValue;
+          newData.earlyTurnoverAt = rawValue;
+          newData.early_turnover_at = rawValue;
+        }
+        if (key === "earlyTurnoverReason") {
+          newData.postJoinQuitReason = rawValue;
+          newData.post_join_quit_reason = rawValue;
+          newData.earlyTurnoverReason = rawValue;
+          newData.early_turnover_reason = rawValue;
+        }
+        if (key === "closingForecastDate") {
+          newData.closeExpectedDate = rawValue;
+          newData.closeExpectedAt = rawValue;
+          newData.close_expected_at = rawValue;
+          newData.closingForecastDate = rawValue;
+          newData.closingForecastAt = rawValue;
+          newData.closing_forecast_at = rawValue;
+        }
         if (rawValue !== "" && rawValue !== null && rawValue !== undefined) hasInput = true;
       });
 
@@ -4649,6 +5347,19 @@ function cleanupCandidatesEventListeners() {
   const resetButton = document.getElementById("candidatesFilterReset");
   if (resetButton) resetButton.removeEventListener("click", handleFilterReset);
 
+  const presetSelect = document.getElementById("candidatesFilterPresetSelect");
+  if (presetSelect) presetSelect.removeEventListener("change", handleFilterPresetSelectChange);
+  const presetSaveBtn = document.getElementById("candidatesFilterPresetSave");
+  if (presetSaveBtn) presetSaveBtn.removeEventListener("click", handleFilterPresetSaveClick);
+  const presetSaveAsBtn = document.getElementById("candidatesFilterPresetSaveAs");
+  if (presetSaveAsBtn) presetSaveAsBtn.removeEventListener("click", handleFilterPresetSaveAsClick);
+  const presetFavoriteBtn = document.getElementById("candidatesFilterPresetFavorite");
+  if (presetFavoriteBtn) presetFavoriteBtn.removeEventListener("click", handleFilterPresetFavoriteClick);
+  const presetDeleteBtn = document.getElementById("candidatesFilterPresetDelete");
+  if (presetDeleteBtn) presetDeleteBtn.removeEventListener("click", handleFilterPresetDeleteClick);
+  const favoriteBar = document.getElementById("candidatesFavoritePresetBar");
+  if (favoriteBar) favoriteBar.removeEventListener("click", handleFavoritePresetBarClick);
+
   const sortSelect = document.getElementById("candidatesSortOrder");
   if (sortSelect) sortSelect.removeEventListener("change", handleFilterChange);
 
@@ -4708,6 +5419,11 @@ function cleanupCandidatesEventListeners() {
   if (csStatusStorageListener) {
     window.removeEventListener("storage", csStatusStorageListener);
     csStatusStorageListener = null;
+  }
+
+  if (filterPresetStatusTimer) {
+    window.clearTimeout(filterPresetStatusTimer);
+    filterPresetStatusTimer = null;
   }
 }
 
@@ -5393,7 +6109,7 @@ function renderAssigneeSection(candidate) {
       value: candidate.advisorUserId ?? "",
       input: "select",
       options: buildUserOptions(candidate.advisorUserId, candidate.advisorName, {
-        allowedRoles: ["advisor"],
+        allowedRoles: ["advisor", "ra"],
         blankLabel: "未設定",
         sourceList: masterAdvisorUsers,
       }),
@@ -6001,7 +6717,7 @@ function renderSelectionFlowCard(rawRow) {
 
 function renderTeleapoLogsSection(candidate) {
   const rows = candidate.teleapoLogs || [];
-  const latestResult = rows.length > 0 ? rows[0].result : (candidate.teleapoResult || "");
+  const latestResult = resolveTeleapoPhaseFromLatestResult(candidate);
 
   const resultHtml = latestResult
     ? `<div class="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-md">
@@ -6016,10 +6732,10 @@ function renderTeleapoLogsSection(candidate) {
   <div class="detail-table-wrapper">
     <table class="detail-table">
       <thead>
-        <tr><th>架電回数</th><th>担当者</th><th>結果</th><th>日時</th></tr>
+        <tr><th>架電回数</th><th>担当者</th><th>経路</th><th>結果</th><th>日時</th></tr>
       </thead>
       <tbody>
-        <tr><td colspan="4" class="detail-empty-row text-center py-3">テレアポログはありません。</td></tr>
+        <tr><td colspan="5" class="detail-empty-row text-center py-3">テレアポログはありません。</td></tr>
       </tbody>
     </table>
   </div>
@@ -6031,6 +6747,7 @@ function renderTeleapoLogsSection(candidate) {
       const cells = [
         row.callNo,
         row.callerName,
+        resolveTeleapoRouteLabel(row.route),
         row.result,
         formatDateTimeJP(row.calledAt),
       ]
@@ -6045,7 +6762,7 @@ function renderTeleapoLogsSection(candidate) {
   <div class="detail-table-wrapper">
     <table class="detail-table">
       <thead>
-        <tr><th>架電回数</th><th>担当者</th><th>結果</th><th>日時</th></tr>
+        <tr><th>架電回数</th><th>担当者</th><th>経路</th><th>結果</th><th>日時</th></tr>
       </thead>
       <tbody>${bodyHtml}</tbody>
     </table>
@@ -6092,7 +6809,8 @@ function renderMoneySection(candidate) {
     .map((item, index) => ({ ...item, originalIndex: index }))
     .filter((item) => {
       const stage = resolveSelectionStageValue(item);
-      return ["内定後辞退", "入社後辞退", "早期退職"].includes(stage) || (Number(item.refundAmount) > 0);
+      const refundAmount = resolveMoneyValue(item, ["refundAmount", "refund_amount"]);
+      return ["内定後辞退", "入社後辞退", "早期退職"].includes(stage) || toAmount(refundAmount) > 0;
     });
 
   const renderOrderRow = (row) => {
@@ -6138,11 +6856,16 @@ function renderMoneySection(candidate) {
   const renderRefundRow = (row) => {
     const idx = row.originalIndex;
     const refundAmount = resolveMoneyValue(row, ["refundAmount", "refund_amount"]);
-    const withdrawDate = resolveMoneyValue(row, ["withdrawDate", "withdraw_date"]);
+    const retirementDate =
+      row.earlyTurnoverDate ||
+      row.postJoinQuitDate ||
+      row.preJoinWithdrawDate ||
+      row.preJoinDeclineDate ||
+      row.declinedDate ||
+      null;
+    const withdrawDate = resolveMoneyValue(row, ["withdrawDate", "withdraw_date"]) || retirementDate;
     const refundReported = resolveMoneyValue(row, ["refundReported", "refund_reported"]);
 
-    // 退職日等の判定
-    const retirementDate = row.earlyTurnoverDate || row.postJoinQuitDate || row.preJoinWithdrawDate;
     const stage = resolveSelectionStageValue(row);
 
     const canEdit = editing;
@@ -6189,7 +6912,14 @@ function renderMoneySection(candidate) {
       const feeAmount = resolveMoneyValue(row, ["feeAmount", "fee_amount"]);
       const refundAmount = resolveMoneyValue(row, ["refundAmount", "refund_amount"]);
       const orderDate = resolveMoneyValue(row, ["orderDate", "order_date"]);
-      const withdrawDate = resolveMoneyValue(row, ["withdrawDate", "withdraw_date"]);
+      const retirementDate =
+        row.earlyTurnoverDate ||
+        row.postJoinQuitDate ||
+        row.preJoinWithdrawDate ||
+        row.preJoinDeclineDate ||
+        row.declinedDate ||
+        null;
+      const withdrawDate = resolveMoneyValue(row, ["withdrawDate", "withdraw_date"]) || retirementDate;
 
       totalFee += toAmount(feeAmount);
       totalRefund += toAmount(refundAmount);
@@ -6511,9 +7241,7 @@ function renderNextActionSection(candidate) {
 
 function renderCsSection(candidate) {
   const csSummary = candidate.csSummary || {};
-  const hasConnected = Boolean(csSummary.hasConnected ?? candidate.phoneConnected);
   const callCount = csSummary.callCount ?? candidate.callCount ?? 0;
-  const lastConnectedAt = candidate.callDate ?? csSummary.lastConnectedAt ?? null;
   const editing = detailEditState.cs;
   const csStatusValue = normalizeCsStatusOption(candidate.csStatus ?? candidate.cs_status ?? "");
   const csStatusDisplay = resolveCsStatusDisplayLabel(csStatusValue) || "-";
@@ -6560,8 +7288,6 @@ function renderCsSection(candidate) {
   const items = [
     { label: "CSステータス", html: csStatusHtml },
     { label: "架電回数", value: Number(callCount) > 0 ? `${callCount} 回` : "-" },
-    { label: "通電", html: renderBooleanPill(hasConnected, { trueLabel: "通電済", falseLabel: "未通電" }) },
-    { label: "通電日", value: formatDateJP(lastConnectedAt) },
     { label: "設定日", value: scheduleConfirmedAt, path: "scheduleConfirmedAt", type: "date" },
     { label: "初回面談日時", value: candidate.firstInterviewDate, path: "firstInterviewDate", type: "datetime-local" },
 

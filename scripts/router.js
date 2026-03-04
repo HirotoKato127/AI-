@@ -5,7 +5,7 @@
 
 import { getSession, hasRole, onAuthChange } from './auth.js';
 import { authRepo } from './api/repositories/auth.js?v=20260120_2';
-import { MODULE_VERSIONS } from './module-versions.js?v=20260301_03';
+import { MODULE_VERSIONS } from './module-versions.js?v=20260304_02';
 
 const POST_LOGIN_REDIRECT_KEY = 'dashboard.postLoginRedirect';
 
@@ -20,8 +20,8 @@ const routes = {
   candidates: () => import(`../pages/candidates/candidates.js?v=${MODULE_VERSIONS.candidates}`),
   "candidate-detail": () => import(`../pages/candidate-detail/candidate-detail.js?v=${MODULE_VERSIONS.candidateDetail}`),
   "ad-performance": () => import("../pages/ad-performance/ad-performance.js?v=20260301_04"),
-  teleapo: () => import("../pages/teleapo/teleapo.js?v=20260301_11"),
-  referral: () => import("../pages/referral/referral.js?v=20260301_01"),
+  teleapo: () => import("../pages/teleapo/teleapo.js?v=20260304_14"),
+  referral: () => import("../pages/referral/referral.js?v=20260304_02"),
   settings: () => import("../pages/settings/settings.js?v=20260322_01"),
   "ms-period-settings": () => import("../pages/ms-period-settings/ms-period-settings.js"),
   "goal-settings": () => import("../pages/goal-settings/goal-settings.js?v=20260301_01"),
@@ -34,7 +34,7 @@ const routeMeta = {
   yield: { roles: ['admin', 'member'] },
   "yield-personal": { roles: ['admin', 'member'] },
   "yield-company": { roles: ['admin', 'member'] },
-  "yield-admin": { roles: ['admin'] },
+  "yield-admin": { roles: ['admin', 'member'] },
   candidates: { roles: ['admin', 'member'] },
   "candidate-detail": { roles: ['admin', 'member'] },
   'ad-performance': { roles: ['admin', 'member'] },
@@ -54,7 +54,7 @@ const pageCSS = {
   "yield-company": "pages/yield/yield.css?v=20260228_02",
   "yield-admin": "pages/yield/yield.css?v=20260228_02",
   mypage: "pages/mypage/mypage.css?v=20260213_01",
-  candidates: "pages/candidates/candidates.css?v=20260228_1645",
+  candidates: "pages/candidates/candidates.css?v=20260302_01",
   "candidate-detail": "pages/candidate-detail/candidate-detail.css?v=20260228_1630",
   "ad-performance": "pages/ad-performance/ad-performance.css?v=20260133",
   teleapo: "pages/teleapo/teleapo.css?v=20260301_04",
@@ -227,7 +227,7 @@ function updateNavigation(page) {
     // Show/hide based on role permissions
     const meta = routeMeta[target];
     if (target === "yield-admin") {
-      button.hidden = !session || session.role !== "admin";
+      button.hidden = !session;
     } else if (meta?.roles) {
       button.hidden = !session || !hasRole(meta.roles);
     } else {

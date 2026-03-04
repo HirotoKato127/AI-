@@ -799,6 +799,25 @@
   color: #94a3b8;
 }
 
+.dashboard-card-inline-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.dashboard-card-inline-select select {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  background: #fff;
+  color: #0f172a;
+}
+
 .dashboard-chart {
   position: relative;
   height: 260px;

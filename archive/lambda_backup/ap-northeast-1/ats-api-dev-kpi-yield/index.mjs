@@ -624,15 +624,14 @@ async function fetchTrendSeries(client, { startDate, endDate, advisorUserId, gra
 
 function buildJobLabelSql() {
   return `
-  CASE
-      WHEN ca.job_title ILIKE '%エンジニア%' OR ca.job_title ILIKE '%開発%' OR ca.job_title ILIKE '%SE%' OR ca.job_title ILIKE '%ＰＧ%' OR ca.job_title ILIKE '%PG%' OR ca.job_title ILIKE '%システム%' OR ca.job_title ILIKE '%インフラ%' OR ca.job_title ILIKE '%データ%' OR ca.job_title ILIKE '%AI%' OR ca.job_title ILIKE '%機械学習%' THEN 'エンジニア'
-      WHEN ca.job_title ILIKE '%営業%' OR ca.job_title ILIKE '%セールス%' OR ca.job_title ILIKE '%法人営業%' OR ca.job_title ILIKE '%インサイドセールス%' OR ca.job_title ILIKE '%フィールドセールス%' OR ca.job_title ILIKE '%BDR%' OR ca.job_title ILIKE '%SDR%' THEN '営業'
-      WHEN ca.job_title ILIKE '%人事%' OR ca.job_title ILIKE '%採用%' OR ca.job_title ILIKE '%総務%' OR ca.job_title ILIKE '%経理%' OR ca.job_title ILIKE '%財務%' OR ca.job_title ILIKE '%法務%' OR ca.job_title ILIKE '%労務%' OR ca.job_title ILIKE '%バックオフィス%' OR ca.job_title ILIKE '%管理部%' THEN 'コーポレート'
-      WHEN ca.job_title ILIKE '%マーケ%' OR ca.job_title ILIKE '%マーケティング%' OR ca.job_title ILIKE '%広報%' OR ca.job_title ILIKE '%PR%' OR ca.job_title ILIKE '%広告%' OR ca.job_title ILIKE '%プロモーション%' OR ca.job_title ILIKE '%デジタルマーケ%' THEN 'マーケ'
-      WHEN ca.job_title ILIKE '%CS%' OR ca.job_title ILIKE '%カスタマーサクセス%' OR ca.job_title ILIKE '%サポート%' OR ca.job_title ILIKE '%カスタマーサポート%' OR ca.job_title ILIKE '%ヘルプデスク%' THEN 'CS'
+    CASE
+      WHEN NULLIF(BTRIM(ca.job_title), '') IS NOT NULL THEN BTRIM(ca.job_title)
+      WHEN NULLIF(BTRIM(jm.sub_category), '') IS NOT NULL AND jm.sub_category NOT ILIKE '%その他%' THEN BTRIM(jm.sub_category)
+      WHEN NULLIF(BTRIM(SPLIT_PART(cl.job_categories, ',', 1)), '') IS NOT NULL THEN BTRIM(SPLIT_PART(cl.job_categories, ',', 1))
+      WHEN NULLIF(BTRIM(jm.sub_category), '') IS NOT NULL THEN BTRIM(jm.sub_category)
       ELSE 'その他'
-  END
-    `;
+    END
+  `;
 }
 
 function buildMediaLabelSql() {
@@ -715,6 +714,35 @@ async function fetchBreakdownItems(client, { dimension, startDate, endDate, advi
       `SELECT ${labelSql} AS label, COUNT(DISTINCT c.id)::int AS count
        FROM candidates c
        LEFT JOIN candidate_applications ca ON ca.candidate_id = c.id
+       LEFT JOIN LATERAL (
+         SELECT cl.id, cl.job_categories
+         FROM clients cl
+         WHERE cl.id = ca.client_id
+            OR (
+              ca.client_id IS NULL
+              AND NULLIF(BTRIM(c.company_name), '') IS NOT NULL
+              AND BTRIM(cl.name) = BTRIM(c.company_name)
+            )
+         ORDER BY
+           CASE WHEN cl.id = ca.client_id THEN 0 ELSE 1 END,
+           cl.id
+         LIMIT 1
+       ) cl ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT jcm.sub_category
+         FROM client_job_categories cjc
+         JOIN job_category_master jcm ON jcm.id = cjc.job_category_id
+         WHERE cjc.client_id = cl.id
+           AND COALESCE(jcm.is_active, TRUE) = TRUE
+         ORDER BY
+           CASE
+             WHEN jcm.sub_category ILIKE '%その他%' OR jcm.major_category ILIKE '%その他%' THEN 1
+             ELSE 0
+           END,
+           COALESCE(jcm.sort_order, 9999),
+           jcm.id
+         LIMIT 1
+       ) jm ON TRUE
        WHERE c.first_contact_at::date BETWEEN $1 AND $2
        ${advisorFilter}
        GROUP BY label`,

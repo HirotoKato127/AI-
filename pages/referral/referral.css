@@ -252,8 +252,8 @@ textarea.referral-input {
   border: 1px solid #f1f5f9;
   box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.08);
   /* Stronger shadow for floating effect */
-  padding: 40px;
-  margin: 40px 0;
+  padding: 28px;
+  margin: 28px 0;
   position: relative;
   animation: slideUpFade 0.3s ease-out;
 }
@@ -357,7 +357,7 @@ textarea.referral-input {
   font-weight: 700;
   color: #1e293b;
   /* Dark Slate to match Headers */
-  margin: 40px 0 24px 0;
+  margin: 24px 0 14px 0;
   padding-bottom: 12px;
   border-bottom: 1px solid #e5e7eb;
   /* Divider */
@@ -474,6 +474,10 @@ textarea.referral-input {
   gap: 24px;
 }
 
+.referral-detail-grid--2col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 /* Detail Card (Boxed Item) */
 .referral-detail-card {
   background: #fff;
@@ -484,6 +488,8 @@ textarea.referral-input {
   flex-direction: column;
   gap: 8px;
   transition: box-shadow 0.2s;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .referral-detail-card:hover {
@@ -504,14 +510,35 @@ textarea.referral-input {
   color: #0f172a;
   font-weight: 500;
   line-height: 1.6;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.referral-detail-card-content a {
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+.referral-detail-card--full {
+  grid-column: 1 / -1;
 }
 
 /* Stats Row (KPIs) */
 .referral-detail-stats {
   display: flex;
   gap: 16px;
-  margin-bottom: 40px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
+}
+
+.referral-detail-stats--dense {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.referral-detail-stats--dense .referral-detail-stat {
+  min-width: 0;
 }
 
 .referral-detail-stat {
@@ -555,6 +582,22 @@ textarea.referral-input {
   font-size: 14px;
   color: #334155;
   line-height: 1.7;
+}
+
+@media (max-width: 1024px) {
+  .referral-detail-panel {
+    padding: 20px;
+  }
+
+  .referral-detail-grid,
+  .referral-detail-grid--2col {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .referral-detail-section-title {
+    margin-top: 18px;
+  }
 }
 
 /* Searchable Dropdown Style */
@@ -656,4 +699,245 @@ textarea.referral-input {
   text-align: center;
   border-top: 1px dashed #f1f5f9;
   margin-top: 4px;
+}
+
+/* =========================================
+   職種フィルタ チェックボックスパネル
+   ========================================= */
+.referral-job-filter-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 1000;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+  min-width: 320px;
+  max-width: 400px;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+  animation: dropdown-slide-down 0.2s cubic-bezier(0, 0, 0.2, 1);
+}
+
+.referral-job-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+
+.referral-job-filter-body {
+  overflow-y: auto;
+  padding: 8px 6px;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.referral-job-filter-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.referral-job-filter-body::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 10px;
+}
+
+/* 大分類グループ */
+.referral-job-filter-major {
+  margin-bottom: 2px;
+}
+
+.referral-job-filter-major-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s;
+  user-select: none;
+}
+
+.referral-job-filter-major-header:hover {
+  background: #f8fafc;
+}
+
+.referral-job-filter-major-header input[type="checkbox"] {
+  accent-color: #4f46e5;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.referral-job-filter-major-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  flex: 1;
+}
+
+.referral-job-filter-major-count {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.referral-job-filter-major-arrow {
+  width: 16px;
+  height: 16px;
+  color: #94a3b8;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.referral-job-filter-major.is-open .referral-job-filter-major-arrow {
+  transform: rotate(180deg);
+}
+
+/* 小分類リスト */
+.referral-job-filter-subs {
+  display: none;
+  padding: 2px 0 6px 28px;
+}
+
+.referral-job-filter-major.is-open .referral-job-filter-subs {
+  display: block;
+}
+
+.referral-job-filter-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.referral-job-filter-sub:hover {
+  background: #f1f5f9;
+}
+
+.referral-job-filter-sub input[type="checkbox"] {
+  accent-color: #4f46e5;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.referral-job-filter-sub-label {
+  font-size: 12px;
+  color: #475569;
+  cursor: pointer;
+}
+
+/* =========================================
+   募集職種別ランキング
+   ========================================= */
+.referral-ranking-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.referral-ranking-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.referral-ranking-toggle:hover {
+  background: #f8fafc;
+}
+
+.referral-ranking-body {
+  border-top: 1px solid #f1f5f9;
+  padding: 0;
+}
+
+.referral-ranking-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.referral-ranking-table thead th {
+  background: #f9fafb;
+  color: #475569;
+  font-weight: 600;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.referral-ranking-table thead th:not(:first-child) {
+  text-align: right;
+}
+
+.referral-ranking-table tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+}
+
+.referral-ranking-table tbody td:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.referral-ranking-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.referral-ranking-table tbody td:first-child {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+/* ランキング：大分類行ホバー＆展開状態 */
+.ranking-major-row:hover td {
+  background: #f1f5f9;
+}
+
+.ranking-major-row.ranking-major-open td {
+  background: #eff6ff;
+  border-bottom-color: #bfdbfe;
+}
+
+.ranking-major-row td:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ランキング：TOP3サブ行 */
+.ranking-sub-row td {
+  background: #fafbfd;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.ranking-sub-row:last-child td {
+  border-bottom: 2px solid #e2e8f0;
+}
+
+/* 展開アイコン */
+.ranking-expand-icon {
+  color: #94a3b8;
+  vertical-align: middle;
 }

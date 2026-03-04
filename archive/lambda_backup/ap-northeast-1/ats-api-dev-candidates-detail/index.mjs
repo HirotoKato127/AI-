@@ -184,6 +184,69 @@ async function syncCandidateValidApplication(client, candidateId, screeningRules
     return toBooleanOrNull(row.is_effective_application);
 }
 
+function uniqNonEmpty(values) {
+    const set = new Set();
+    (values || []).forEach((value) => {
+        const text = String(value ?? "").trim();
+        if (!text) return;
+        set.add(text);
+    });
+    return Array.from(set.values());
+}
+
+function resolveSelectionStage(row = {}) {
+    if (row.postJoinQuitDate || row.post_join_quit_date) return "入社後辞退";
+    if (row.onboardingDate || row.joinedDate || row.joined_at || row.join_date) return "入社";
+    if (row.preJoinDeclineDate || row.preJoinWithdrawDate || row.pre_join_withdraw_date) return "内定後辞退";
+    if (row.acceptanceDate || row.offerAcceptedDate || row.offer_accepted_at || row.offer_accept_date) return "内定承諾済み";
+    if (row.offerDate || row.offer_at || row.offer_date) return "内定承諾待ち";
+    if (row.finalInterviewDate || row.final_interview_at) return "最終面接";
+    if (row.secondInterviewDate || row.second_interview_at) return "二次面接";
+    if (row.firstInterviewDate || row.first_interview_at) return "一次面接";
+    if (row.recommendationDate || row.recommended_at) return "書類選考";
+    if (row.proposalDate || row.proposal_date) return "提案";
+    return String(row.stageCurrent ?? row.stage_current ?? row.status ?? "").trim();
+}
+
+function normalizeTeleapoRouteType(route) {
+    const text = String(route ?? "").trim().toLowerCase();
+    if (!text) return "";
+    if (text.includes("spir") || text.includes("other") || text.includes("sms") || text.includes("mail") || text.includes("line")) {
+        return "spir";
+    }
+    if (text.includes("tel") || text.includes("call") || text.includes("電話") || text.includes("架電")) {
+        return "tel";
+    }
+    return "";
+}
+
+function normalizeTeleapoResultLabel(rawResult) {
+    const text = String(rawResult ?? "").trim();
+    if (!text) return "";
+    const lower = text.toLowerCase();
+    if (lower.includes("no_answer") || text.includes("不在")) return "不在";
+    if (lower.includes("unset") || lower.includes("not_set") || text.includes("未設定")) return "未設定";
+    if (lower.includes("show") || text.includes("着座")) return "設定";
+    if (lower.includes("set") || text.includes("設定") || text.includes("面談") || text.includes("アポ")) return "設定";
+    if (lower.includes("connect") || text.includes("通電")) return "通電";
+    if (lower.includes("sms") || lower.includes("reply") || lower.includes("callback") || text.includes("返信") || text.includes("折返")) {
+        return "未設定";
+    }
+    return text;
+}
+
+function resolveTeleapoPhaseLabel(result, route) {
+    const resultLabel = normalizeTeleapoResultLabel(result);
+    if (!resultLabel) return "";
+    const routeType = normalizeTeleapoRouteType(route);
+    if (routeType === "spir") {
+        if (resultLabel === "設定") return "Spir設定";
+        if (resultLabel === "未設定") return "Spir未設定";
+        return `Spir${resultLabel}`;
+    }
+    return resultLabel;
+}
+
 async function fetchMasters(client) {
     const [clientsRes, usersRes, csUsersRes, advisorUsersRes] = await Promise.all([
         client.query("SELECT id, name FROM clients ORDER BY name ASC"),
@@ -234,7 +297,8 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false, 
       ca_latest.job_title AS job_name,
       ca_latest.stage_current AS stage_current,
       u_call.name AS caller_name,
-      t_last.result AS teleapo_result
+      t_last.result AS teleapo_result,
+      t_last.route AS teleapo_route
     FROM candidates c
     LEFT JOIN users u_ad ON u_ad.id = c.advisor_user_id
     LEFT JOIN users u_pt ON u_pt.id = c.partner_user_id
@@ -246,7 +310,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false, 
       ORDER BY COALESCE(ca.updated_at, ca.created_at) DESC NULLS LAST LIMIT 1
     ) ca_latest ON TRUE
     LEFT JOIN LATERAL (
-      SELECT caller_user_id, called_at, result, call_no FROM teleapo t
+      SELECT caller_user_id, called_at, result, route, call_no FROM teleapo t
       WHERE t.candidate_id = c.id ORDER BY t.called_at DESC LIMIT 1
     ) t_last ON TRUE
     LEFT JOIN users u_call ON u_call.id = t_last.caller_user_id
@@ -288,14 +352,23 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false, 
             'finalInterviewDate', ca.final_interview_at,
             
             'offerDate', COALESCE(ca.offer_at, ca.offer_date),
+            'acceptanceDate', COALESCE(ca.offer_accepted_at, ca.offer_accept_date),
             'offerAcceptedDate', COALESCE(ca.offer_accepted_at, ca.offer_accept_date),
+            'onboardingDate', COALESCE(ca.joined_at, ca.join_date),
             'joinedDate', COALESCE(ca.joined_at, ca.join_date),
+            'closeExpectedDate', COALESCE(ca.close_expected_at, ca.closing_forecast_at),
             'closingForecastDate', COALESCE(ca.closing_forecast_at, ca.close_expected_at),
 
-            'declinedDate', ca.pre_join_withdraw_date,
-            'declinedReason', ca.pre_join_withdraw_reason,
-            'earlyTurnoverDate', ca.post_join_quit_date,
-            'earlyTurnoverReason', ca.post_join_quit_reason,
+            'preJoinWithdrawDate', ca.pre_join_withdraw_date,
+            'preJoinDeclineDate', ca.pre_join_withdraw_date,
+            'preJoinWithdrawReason', ca.pre_join_withdraw_reason,
+            'preJoinDeclineReason', ca.pre_join_withdraw_reason,
+            'declinedDate', COALESCE(ca.pre_join_withdraw_date, ca.declined_after_offer_at),
+            'declinedReason', COALESCE(ca.pre_join_withdraw_reason, ca.declined_after_offer_reason),
+            'postJoinQuitDate', ca.post_join_quit_date,
+            'postJoinQuitReason', ca.post_join_quit_reason,
+            'earlyTurnoverDate', COALESCE(ca.early_turnover_at, ca.post_join_quit_date),
+            'earlyTurnoverReason', COALESCE(ca.early_turnover_reason, ca.post_join_quit_reason),
             'note', ca.selection_note,
             'fee', ca.fee,
             'feeAmount', ca.fee_amount,
@@ -332,7 +405,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false, 
     // 4. ★追加: テレアポログ(teleapo)の取得
     const teleapoSql = `
     SELECT 
-      t.id, t.call_no, t.caller_user_id, t.result, t.memo, t.called_at, t.created_at,
+      t.id, t.call_no, t.caller_user_id, t.result, t.route, t.memo, t.called_at, t.created_at,
       u.name as caller_name
     FROM teleapo t
     LEFT JOIN users u ON u.id = t.caller_user_id
@@ -346,21 +419,56 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false, 
         callerUserId: row.caller_user_id,
         callerName: row.caller_name || "",
         result: row.result,
+        route: row.route || "",
         memo: row.memo,
         calledAt: row.called_at,
         createdAt: row.created_at
     }));
 
+    // 5. 売上・返金情報(placements)の取得
+    const moneySql = `
+    SELECT
+      ca.id AS application_id,
+      ca.client_id,
+      cl.name AS company_name,
+      COALESCE(ca.joined_at, ca.join_date) AS join_date,
+      ca.pre_join_withdraw_date,
+      ca.post_join_quit_date,
+      COALESCE(p.fee_amount::text, ca.fee_amount::text, ca.fee::text) AS fee_amount,
+      p.order_date,
+      COALESCE(p.refund_amount::text, ca.refund_amount::text) AS refund_amount,
+      p.withdraw_date,
+      COALESCE(p.order_reported, ca.order_reported) AS order_reported,
+      COALESCE(p.refund_reported, ca.refund_reported) AS refund_reported
+    FROM candidate_applications ca
+    LEFT JOIN clients cl ON cl.id = ca.client_id
+    LEFT JOIN placements p ON p.candidate_application_id = ca.id
+    WHERE ca.candidate_id = $1
+    ORDER BY COALESCE(ca.updated_at, ca.created_at) DESC
+  `;
+    const moneyRes = await client.query(moneySql, [candidateId]);
+    const moneyInfo = moneyRes.rows.map(row => ({
+        applicationId: row.application_id,
+        clientId: row.client_id,
+        companyName: row.company_name ?? "",
+        joinDate: row.join_date,
+        preJoinWithdrawDate: row.pre_join_withdraw_date,
+        postJoinQuitDate: row.post_join_quit_date,
+        feeAmount: row.fee_amount,
+        orderDate: row.order_date,
+        refundAmount: row.refund_amount,
+        withdrawDate: row.withdraw_date,
+        orderReported: row.order_reported,
+        refundReported: row.refund_reported,
+    }));
+
     // 整形
     const address = [b.address_pref, b.address_city, b.address_detail].filter(Boolean).join("");
-    let phase = "未接触";
-    const phases = b.stage_list || [];
-    if (phases.length > 0) phase = phases.join(" / ");
-    else {
-        if (b.has_connected) phase = "通電";
-        else if (b.has_sms) phase = "SMS送信";
-        else if ((b.max_call_no || 0) > 0) phase = "架電中";
-    }
+    const selectionPhases = uniqNonEmpty((selectionProgress || []).map((row) => resolveSelectionStage(row)));
+    const teleapoPhase = resolveTeleapoPhaseLabel(b.teleapo_result, b.teleapo_route);
+    const primarySelectionPhase = selectionPhases[0] || "";
+    const phase = primarySelectionPhase || teleapoPhase || "未接触";
+    const phases = primarySelectionPhase ? selectionPhases : [phase];
 
     const computedAge = calculateAge(b.birth_date);
     const resolvedValidApplication =
@@ -446,6 +554,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false, 
         scheduleConfirmedAt: b.first_schedule_fixed_at ?? null,
 
         selectionProgress,
+        moneyInfo,
         csSummary: {
             hasConnected: Boolean(b.has_connected),
             hasSms: Boolean(b.has_sms),
@@ -453,6 +562,7 @@ async function fetchCandidateDetail(client, candidateId, includeMaster = false, 
             lastConnectedAt: b.last_connected_at ?? null,
         },
         teleapoResult: b.teleapo_result ?? "",
+        teleapoRoute: b.teleapo_route ?? "",
     };
 
     if (includeMaster) {
@@ -640,6 +750,37 @@ export const handler = async (event) => {
                         if (teleRes.rows.length > 0) await client.query("UPDATE teleapo SET result='着座' WHERE id=$1", [teleRes.rows[0].id]);
                     }
 
+                    const deletedSelectionIdsRaw = Array.isArray(payload.deletedSelectionProgressIds)
+                        ? payload.deletedSelectionProgressIds
+                        : (Array.isArray(payload.deleted_selection_progress_ids) ? payload.deleted_selection_progress_ids : []);
+                    const deletedSelectionIds = Array.from(
+                        new Set(
+                            deletedSelectionIdsRaw
+                                .map((id) => toIntOrNull(id))
+                                .filter((id) => Number.isInteger(id) && id > 0)
+                        )
+                    );
+                    if (deletedSelectionIds.length > 0) {
+                        await client.query(
+                            `
+                              DELETE FROM placements
+                              WHERE candidate_application_id = ANY($1::bigint[])
+                                AND candidate_application_id IN (
+                                  SELECT id FROM candidate_applications WHERE candidate_id = $2
+                                )
+                            `,
+                            [deletedSelectionIds, candidateId]
+                        );
+                        await client.query(
+                            `
+                              DELETE FROM candidate_applications
+                              WHERE candidate_id = $1
+                                AND id = ANY($2::bigint[])
+                            `,
+                            [candidateId, deletedSelectionIds]
+                        );
+                    }
+
                     const selectionPayload = Array.isArray(payload.selectionProgress) ? payload.selectionProgress : (Array.isArray(payload.selection_progress) ? payload.selection_progress : null);
                     if (selectionPayload) {
                         console.log("📋 [DEBUG] selectionProgress received:", JSON.stringify(selectionPayload, null, 2));
@@ -651,6 +792,7 @@ export const handler = async (event) => {
                             const s_stage = entry.stageCurrent || entry.stage_current || entry.status || "";
                             const s_jobTitle = entry.jobTitle || entry.job_title || "";
                             const s_route = entry.route || entry.applyRoute || entry.apply_route || "";
+                            const s_proposalDate = emptyToNull(entry.proposalDate ?? entry.proposal_date);
 
                             // すべての日付フィールドを取得
                             const s_recommendedAt = emptyToNull(entry.recommendedAt ?? entry.recommended_at ?? entry.recommendationDate);
@@ -661,8 +803,11 @@ export const handler = async (event) => {
                             const s_finalInterviewSetAt = emptyToNull(entry.finalInterviewSetAt ?? entry.final_interview_set_at ?? entry.finalInterviewAdjustDate);
                             const s_finalInterviewAt = emptyToNull(entry.finalInterviewAt ?? entry.final_interview_at ?? entry.finalInterviewDate);
                             const s_offerAt = emptyToNull(entry.offerAt ?? entry.offer_at ?? entry.offerDate ?? entry.offer_date);
+                            const s_offerDate = emptyToNull(entry.offerDate ?? entry.offer_date ?? entry.offerAt ?? entry.offer_at);
                             const s_offerAcceptedAt = emptyToNull(entry.offerAcceptedAt ?? entry.offer_accepted_at ?? entry.offerAcceptedDate ?? entry.offerAcceptDate ?? entry.offer_accept_date ?? entry.acceptanceDate);
+                            const s_offerAcceptDate = emptyToNull(entry.acceptanceDate ?? entry.offerAcceptDate ?? entry.offer_accept_date ?? entry.offerAcceptedDate ?? entry.offerAcceptedAt ?? entry.offer_accepted_at);
                             const s_joinedAt = emptyToNull(entry.joinedAt ?? entry.joined_at ?? entry.joinedDate ?? entry.joinDate ?? entry.join_date ?? entry.onboardingDate);
+                            const s_joinDate = emptyToNull(entry.onboardingDate ?? entry.joinDate ?? entry.join_date ?? entry.joinedDate ?? entry.joinedAt ?? entry.joined_at);
                             const s_preJoinWithdrawDate = emptyToNull(entry.preJoinWithdrawDate ?? entry.pre_join_withdraw_date ?? entry.declinedDate ?? entry.preJoinDeclineDate);
                             const s_preJoinWithdrawReason = emptyToNull(entry.preJoinWithdrawReason ?? entry.pre_join_withdraw_reason ?? entry.declinedReason ?? entry.preJoinDeclineReason);
                             const s_postJoinQuitDate = emptyToNull(entry.postJoinQuitDate ?? entry.post_join_quit_date ?? entry.earlyTurnoverDate);
@@ -672,6 +817,7 @@ export const handler = async (event) => {
                             const s_earlyTurnoverAt = emptyToNull(entry.earlyTurnoverAt ?? entry.early_turnover_at ?? entry.earlyTurnoverDate);
                             const s_earlyTurnoverReason = emptyToNull(entry.earlyTurnoverReason ?? entry.early_turnover_reason);
                             const s_closeExpectedAt = emptyToNull(entry.closeExpectedAt ?? entry.close_expected_at ?? entry.closeExpectedDate ?? entry.closingForecastAt ?? entry.closing_forecast_at ?? entry.closingForecastDate);
+                            const s_closeExpectedDate = emptyToNull(entry.closeExpectedDate ?? entry.close_expected_at ?? entry.closingForecastDate ?? entry.closingForecastAt ?? entry.closing_forecast_at ?? entry.closeExpectedAt);
                             const s_selectionNote = emptyToNull(entry.selectionNote ?? entry.selection_note ?? entry.note);
                             const s_fee = toIntOrNull(entry.fee ?? entry.feeAmount ?? entry.fee_amount);
                             const s_feeAmount = toIntOrNull(entry.feeAmount ?? entry.fee_amount);
@@ -687,44 +833,49 @@ export const handler = async (event) => {
                                 stage_current = $3,
                                 job_title = $4,
                                 apply_route = $5,
-                                recommended_at = COALESCE($6, recommended_at),
-                                first_interview_set_at = COALESCE($7, first_interview_set_at),
-                                first_interview_at = COALESCE($8, first_interview_at),
-                                second_interview_set_at = COALESCE($9, second_interview_set_at),
-                                second_interview_at = COALESCE($10, second_interview_at),
-                                final_interview_set_at = COALESCE($11, final_interview_set_at),
-                                final_interview_at = COALESCE($12, final_interview_at),
-                                offer_at = COALESCE($13, offer_at),
-                                offer_accepted_at = COALESCE($14, offer_accepted_at),
-                                joined_at = COALESCE($15, joined_at),
-                                pre_join_withdraw_date = COALESCE($16, pre_join_withdraw_date),
-                                pre_join_withdraw_reason = COALESCE($17, pre_join_withdraw_reason),
-                                post_join_quit_date = COALESCE($18, post_join_quit_date),
-                                post_join_quit_reason = COALESCE($19, post_join_quit_reason),
-                                declined_after_offer_at = COALESCE($20, declined_after_offer_at),
-                                declined_after_offer_reason = COALESCE($21, declined_after_offer_reason),
-                                early_turnover_at = COALESCE($22, early_turnover_at),
-                                early_turnover_reason = COALESCE($23, early_turnover_reason),
-                                closing_forecast_at = COALESCE($24, closing_forecast_at),
-                                selection_note = COALESCE($25, selection_note),
-                                fee = COALESCE($26, fee),
-                                fee_amount = COALESCE($27, fee_amount),
-                                refund_amount = COALESCE($28, refund_amount),
-                                order_reported = COALESCE($29, order_reported),
-                                refund_reported = COALESCE($30, refund_reported),
+                                proposal_date = $6,
+                                recommended_at = $7,
+                                first_interview_set_at = $8,
+                                first_interview_at = $9,
+                                second_interview_set_at = $10,
+                                second_interview_at = $11,
+                                final_interview_set_at = $12,
+                                final_interview_at = $13,
+                                offer_at = $14,
+                                offer_date = $15,
+                                offer_accepted_at = $16,
+                                offer_accept_date = $17,
+                                joined_at = $18,
+                                join_date = $19,
+                                pre_join_withdraw_date = $20,
+                                pre_join_withdraw_reason = $21,
+                                post_join_quit_date = $22,
+                                post_join_quit_reason = $23,
+                                declined_after_offer_at = $24,
+                                declined_after_offer_reason = $25,
+                                early_turnover_at = $26,
+                                early_turnover_reason = $27,
+                                closing_forecast_at = $28,
+                                close_expected_at = $29,
+                                selection_note = $30,
+                                fee = $31,
+                                fee_amount = $32,
+                                refund_amount = $33,
+                                order_reported = $34,
+                                refund_reported = $35,
                                 updated_at = NOW() 
-                                    WHERE id = $1 AND candidate_id = $31
+                                    WHERE id = $1 AND candidate_id = $36
                                 `, [
                                     s_id, s_clientId, s_stage, s_jobTitle, s_route,
-                                    s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
+                                    s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
                                     s_secondInterviewSetAt, s_secondInterviewAt,
                                     s_finalInterviewSetAt, s_finalInterviewAt,
-                                    s_offerAt, s_offerAcceptedAt, s_joinedAt,
+                                    s_offerAt, s_offerDate, s_offerAcceptedAt, s_offerAcceptDate, s_joinedAt, s_joinDate,
                                     s_preJoinWithdrawDate, s_preJoinWithdrawReason,
                                     s_postJoinQuitDate, s_postJoinQuitReason,
                                     s_declinedAfterOfferAt, s_declinedAfterOfferReason,
                                     s_earlyTurnoverAt, s_earlyTurnoverReason,
-                                    s_closeExpectedAt, s_selectionNote, s_fee,
+                                    s_closeExpectedAt, s_closeExpectedDate, s_selectionNote, s_fee,
                                     s_feeAmount, s_refundAmount, s_orderReported, s_refundReported,
                                     candidateId
                                 ]);
@@ -733,39 +884,114 @@ export const handler = async (event) => {
                                 await client.query(`
                                     INSERT INTO candidate_applications(
                                     candidate_id, client_id, stage_current, job_title, apply_route,
-                                    recommended_at, first_interview_set_at, first_interview_at,
+                                    proposal_date, recommended_at, first_interview_set_at, first_interview_at,
                                     second_interview_set_at, second_interview_at,
                                     final_interview_set_at, final_interview_at,
-                                    offer_at, offer_accepted_at, joined_at,
+                                    offer_at, offer_date, offer_accepted_at, offer_accept_date, joined_at, join_date,
                                     pre_join_withdraw_date, pre_join_withdraw_reason,
                                     post_join_quit_date, post_join_quit_reason,
                                     declined_after_offer_at, declined_after_offer_reason,
                                     early_turnover_at, early_turnover_reason,
-                                    closing_forecast_at, selection_note, fee,
+                                    close_expected_at, closing_forecast_at, selection_note, fee,
                                     fee_amount, refund_amount, order_reported, refund_reported,
                                     created_at, updated_at
                                 ) VALUES(
                                     $1, $2, $3, $4, $5,
                                     $6, $7, $8, $9, $10,
                                     $11, $12, $13, $14, $15,
-                                    $16, $17, $18, $19, $20,
-                                    $21, $22, $23, $24, $25, $26,
-                                    $27, $28, $29, $30,
+                                    $16, $17, $18, $19, $20, $21,
+                                    $22, $23, $24, $25, $26, $27,
+                                    $28, $29, $30, $31, $32,
+                                    $33, $34, $35, $36,
                                     NOW(), NOW()
                                 )
                                     `, [
                                     candidateId, s_clientId, s_stage, s_jobTitle, s_route,
-                                    s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
+                                    s_proposalDate, s_recommendedAt, s_firstInterviewSetAt, s_firstInterviewAt,
                                     s_secondInterviewSetAt, s_secondInterviewAt,
                                     s_finalInterviewSetAt, s_finalInterviewAt,
-                                    s_offerAt, s_offerAcceptedAt, s_joinedAt,
+                                    s_offerAt, s_offerDate, s_offerAcceptedAt, s_offerAcceptDate, s_joinedAt, s_joinDate,
                                     s_preJoinWithdrawDate, s_preJoinWithdrawReason,
                                     s_postJoinQuitDate, s_postJoinQuitReason,
                                     s_declinedAfterOfferAt, s_declinedAfterOfferReason,
                                     s_earlyTurnoverAt, s_earlyTurnoverReason,
-                                    s_closeExpectedAt, s_selectionNote, s_fee,
+                                    s_closeExpectedDate, s_closeExpectedAt, s_selectionNote, s_fee,
                                     s_feeAmount, s_refundAmount, s_orderReported, s_refundReported
                                 ]);
+                            }
+                        }
+                    }
+
+                    const moneyPayload = Array.isArray(payload.moneyInfo) ? payload.moneyInfo : (Array.isArray(payload.money_info) ? payload.money_info : null);
+                    if (moneyPayload) {
+                        const moneyApplicationIds = Array.from(
+                            new Set(
+                                moneyPayload
+                                    .map((entry) => toIntOrNull(entry?.applicationId ?? entry?.application_id))
+                                    .filter((id) => Number.isInteger(id) && id > 0)
+                            )
+                        );
+
+                        let validMoneyApplicationIdSet = new Set();
+                        if (moneyApplicationIds.length > 0) {
+                            const validMoneyRes = await client.query(
+                                `
+                                  SELECT id
+                                  FROM candidate_applications
+                                  WHERE candidate_id = $1
+                                    AND id = ANY($2::bigint[])
+                                `,
+                                [candidateId, moneyApplicationIds]
+                            );
+                            validMoneyApplicationIdSet = new Set(validMoneyRes.rows.map((row) => String(row.id)));
+                        }
+
+                        for (const entry of moneyPayload) {
+                            const applicationId = toIntOrNull(entry.applicationId ?? entry.application_id);
+                            if (!applicationId) continue;
+                            if (!validMoneyApplicationIdSet.has(String(applicationId))) {
+                                console.warn(
+                                    `Skipping placements upsert for invalid candidate_application_id=${applicationId} candidate_id=${candidateId}`
+                                );
+                                continue;
+                            }
+
+                            const feeAmount = toIntOrNull(entry.feeAmount ?? entry.fee_amount);
+                            const refundAmount = toIntOrNull(entry.refundAmount ?? entry.refund_amount);
+                            const orderDate = emptyToNull(entry.orderDate ?? entry.order_date);
+                            const withdrawDate = emptyToNull(entry.withdrawDate ?? entry.withdraw_date);
+                            const orderReported = toBooleanOrNull(entry.orderReported ?? entry.order_reported);
+                            const refundReported = toBooleanOrNull(entry.refundReported ?? entry.refund_reported);
+
+                            const placementRes = await client.query(
+                                "SELECT id FROM placements WHERE candidate_application_id = $1 LIMIT 1",
+                                [applicationId]
+                            );
+
+                            if (placementRes.rows.length > 0) {
+                                await client.query(
+                                    `
+                                    UPDATE placements SET
+                                        fee_amount = $2,
+                                        refund_amount = $3,
+                                        order_date = $4,
+                                        withdraw_date = $5,
+                                        order_reported = $6,
+                                        refund_reported = $7,
+                                        updated_at = NOW()
+                                    WHERE candidate_application_id = $1
+                                `,
+                                    [applicationId, feeAmount, refundAmount, orderDate, withdrawDate, orderReported, refundReported]
+                                );
+                            } else {
+                                await client.query(
+                                    `
+                                    INSERT INTO placements (
+                                        candidate_application_id, fee_amount, refund_amount, order_date, withdraw_date, order_reported, refund_reported, created_at, updated_at
+                                    ) VALUES ($1, $2, $3, $4, $5, COALESCE($6, false), COALESCE($7, false), NOW(), NOW())
+                                `,
+                                    [applicationId, feeAmount, refundAmount, orderDate, withdrawDate, orderReported, refundReported]
+                                );
                             }
                         }
                     }

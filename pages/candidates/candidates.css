@@ -100,6 +100,90 @@
   gap: 1rem;
 }
 
+.candidates-filter-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.candidates-preset-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.candidates-preset-select {
+  min-width: 170px;
+  max-width: 240px;
+  height: 32px;
+  font-size: 12px;
+  padding: 0 10px;
+}
+
+.candidates-preset-btn {
+  padding: 0.26rem 0.85rem;
+  font-size: 0.76rem;
+}
+
+.candidates-preset-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.candidates-favorite-preset-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
+.candidates-favorite-preset-chip {
+  border: 1px solid #cbd5f5;
+  border-radius: 999px;
+  padding: 0.28rem 0.85rem;
+  background: #ffffff;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.candidates-favorite-preset-chip.is-active {
+  background: #4338ca;
+  border-color: #4338ca;
+  color: #ffffff;
+}
+
+.candidates-preset-status {
+  margin-top: 0.25rem;
+  font-size: 12px;
+  color: #475569;
+}
+
+.candidates-preset-status.is-success {
+  color: #065f46;
+}
+
+.candidates-preset-status.is-error {
+  color: #b91c1c;
+}
+
+@media (max-width: 920px) {
+  .candidates-filter-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .candidates-preset-select {
+    flex: 1 1 220px;
+    max-width: none;
+  }
+}
+
 /* Filter Content Grid */
 .candidates-filter-grid {
   padding: 8px 0 0 0;

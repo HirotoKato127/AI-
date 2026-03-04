@@ -26,6 +26,7 @@ let referralRateTargets = {}; // 目標値キャッシュ
 const REFERRAL_API_BASE = 'https://st70aifr22.execute-api.ap-northeast-1.amazonaws.com/prod';
 const CLIENTS_KPI_API_URL = `${REFERRAL_API_BASE}/kpi/clients`;
 const CLIENTS_PROFILE_API_URL = `${REFERRAL_API_BASE}/clients`;
+const JOB_CATEGORIES_API_URL = `${REFERRAL_API_BASE}/job-categories`;
 const CANDIDATES_API_BASE = REFERRAL_API_BASE;
 const CANDIDATES_LIST_PATH = '/candidates';
 const CANDIDATES_LIST_LIMIT = 500;
@@ -44,6 +45,132 @@ let referralRecommendedCandidates = [];
 let selectedRecommendedCandidateId = '';
 const flowCandidateCache = new Map();
 const flowCandidateInFlight = new Map();
+let jobCategoryMaster = [];  // 職種マスターキャッシュ [{major, subs: [{id, name}]}]
+let selectedCreateJobCategoryIds = []; // 新規作成フォームで選択された職種IDリスト
+
+function normalizeJobCategoryMasterTree(rawCategories = []) {
+  if (!Array.isArray(rawCategories)) return [];
+
+  const majorMap = new Map();
+  for (const rawCategory of rawCategories) {
+    const major = String(
+      rawCategory?.major
+      ?? rawCategory?.majorCategory
+      ?? rawCategory?.major_category
+      ?? ''
+    ).trim();
+    if (!major) continue;
+
+    const rawSubs = Array.isArray(rawCategory?.subs)
+      ? rawCategory.subs
+      : Array.isArray(rawCategory?.subCategories)
+        ? rawCategory.subCategories
+        : [];
+
+    if (!majorMap.has(major)) majorMap.set(major, new Map());
+    const subMap = majorMap.get(major);
+
+    for (const rawSub of rawSubs) {
+      const id = Number(rawSub?.id ?? rawSub?.jobCategoryId ?? rawSub?.job_category_id);
+      const name = String(
+        rawSub?.name
+        ?? rawSub?.subCategory
+        ?? rawSub?.sub_category
+        ?? ''
+      ).trim();
+      if (!Number.isFinite(id) || !name) continue;
+      if (!subMap.has(id)) subMap.set(id, { id, name });
+    }
+  }
+
+  return Array.from(majorMap.entries()).map(([major, subMap]) => ({
+    major,
+    subs: Array.from(subMap.values()).sort((a, b) => Number(a.id) - Number(b.id))
+  }));
+}
+
+function normalizeClientJobCategoryEntries(rawEntries = []) {
+  if (!Array.isArray(rawEntries)) return [];
+
+  return rawEntries
+    .map((entry) => {
+      const id = Number(entry?.id ?? entry?.jobCategoryId ?? entry?.job_category_id);
+      const majorCategory = String(
+        entry?.majorCategory
+        ?? entry?.major_category
+        ?? entry?.major
+        ?? ''
+      ).trim();
+      const subCategory = String(
+        entry?.subCategory
+        ?? entry?.sub_category
+        ?? entry?.name
+        ?? ''
+      ).trim();
+
+      if (!Number.isFinite(id) || !subCategory) return null;
+      return {
+        id,
+        majorCategory: majorCategory || 'その他',
+        subCategory
+      };
+    })
+    .filter(Boolean);
+}
+
+function mergeJobCategoryMaster(nextCategories = []) {
+  const normalized = normalizeJobCategoryMasterTree(nextCategories);
+  if (!normalized.length) return;
+
+  const mergedByMajor = new Map();
+  for (const cat of jobCategoryMaster) {
+    if (!cat?.major) continue;
+    const currentSubMap = new Map();
+    for (const sub of (cat?.subs || [])) {
+      const id = Number(sub?.id);
+      const name = String(sub?.name || '').trim();
+      if (!Number.isFinite(id) || !name) continue;
+      currentSubMap.set(id, { id, name });
+    }
+    mergedByMajor.set(String(cat.major), currentSubMap);
+  }
+
+  for (const cat of normalized) {
+    const major = String(cat.major || '').trim();
+    if (!major) continue;
+    if (!mergedByMajor.has(major)) mergedByMajor.set(major, new Map());
+    const targetSubMap = mergedByMajor.get(major);
+    for (const sub of (cat.subs || [])) {
+      const id = Number(sub?.id);
+      const name = String(sub?.name || '').trim();
+      if (!Number.isFinite(id) || !name) continue;
+      if (!targetSubMap.has(id)) targetSubMap.set(id, { id, name });
+    }
+  }
+
+  jobCategoryMaster = Array.from(mergedByMajor.entries()).map(([major, subMap]) => ({
+    major,
+    subs: Array.from(subMap.values()).sort((a, b) => Number(a.id) - Number(b.id))
+  }));
+}
+
+function hydrateJobCategoryMasterFromItems(items = []) {
+  if (!Array.isArray(items) || !items.length) return;
+
+  const majorMap = new Map();
+  for (const item of items) {
+    const entries = normalizeClientJobCategoryEntries(item?.jobCategoryMaster || []);
+    for (const entry of entries) {
+      const major = entry.majorCategory || 'その他';
+      if (!majorMap.has(major)) majorMap.set(major, []);
+      majorMap.get(major).push({ id: entry.id, name: entry.subCategory });
+    }
+  }
+
+  if (!majorMap.size) return;
+  const categories = Array.from(majorMap.entries()).map(([major, subs]) => ({ major, subs }));
+  mergeJobCategoryMaster(categories);
+}
 
 
 // ★追加: 候補者詳細ページへの遷移用関数（グローバルに公開）
@@ -85,7 +212,7 @@ export function unmount() {
 
     'matchTabCandidate', 'matchTabCondition', 'matchFromCandidate', 'matchFromCondition', 'matchResultSort',
 
-    'referralCreateCompany', 'referralCreateJobTitle', 'referralCreatePlanHeadcount', 'referralCreateIndustry',
+    'referralCreateCompany', 'referralCreatePlanHeadcount',
 
     'referralCreateLocation', 'referralCreateFee', 'referralCreateSelectionNote', 'referralCreateToggle', 'referralCreateSubmit',
 
@@ -130,6 +257,8 @@ export function unmount() {
   selectedRecommendedCandidateId = '';
   flowCandidateCache.clear();
   flowCandidateInFlight.clear();
+  jobCategoryMaster = [];
+  selectedCreateJobCategoryIds = [];
   closeReferralCandidateModal();
 
 }
@@ -143,8 +272,11 @@ export function unmount() {
 // ==========================================
 
 async function loadReferralData() {
-  // 目標値をロード
-  await loadReferralRateTargets();
+  // 目標値と職種マスターを並列ロード
+  await Promise.all([
+    loadReferralRateTargets(),
+    loadJobCategoryMaster()
+  ]);
 
   const from = document.getElementById('referralDateStart')?.value || '';
 
@@ -177,6 +309,11 @@ async function loadReferralData() {
 
 
   allData = items.map((item, index) => normalizeReferralItem(item, index));
+  hydrateJobCategoryMasterFromItems(allData);
+  if (jobCategoryMaster.length === 0) {
+    console.warn('[referral] 職種マスターが空です。job_category_master / client_job_categories の設定を確認してください。');
+    setCreateStatus('職種マスターが空です。DBマイグレーション（job_category_master / client_job_categories）を確認してください。', 'error');
+  }
   updateJobFilterOptions();
 
   // Don't auto-select any company
@@ -186,6 +323,30 @@ async function loadReferralData() {
 
   applyFilters();
 
+}
+
+// 職種マスターテーブルの取得
+async function loadJobCategoryMaster() {
+  if (jobCategoryMaster.length > 0) return; // キャッシュがあれば再取得しない
+  try {
+    const res = await fetch(JOB_CATEGORIES_API_URL, { headers: { Accept: 'application/json' } });
+    if (!res.ok) {
+      console.warn('[referral] 職種マスター取得失敗:', res.status);
+      setCreateStatus('職種マスターの取得に失敗しました。Lambda/API設定を確認してください。', 'error');
+      return;
+    }
+    const json = await res.json();
+    mergeJobCategoryMaster(json?.categories || []);
+    if (jobCategoryMaster.length === 0) {
+      console.warn('[referral] 職種マスター取得結果が空です');
+      setCreateStatus('職種マスターが未登録です。DBの job_category_master を確認してください。', 'error');
+      return;
+    }
+    console.log(`[referral] 職種マスター: ${jobCategoryMaster.length}大分類ロード`);
+  } catch (err) {
+    console.warn('[referral] 職種マスター取得エラー:', err);
+    setCreateStatus('職種マスターの取得で通信エラーが発生しました。Lambda/ネットワークを確認してください。', 'error');
+  }
 }
 
 function extractCompanyName(item = {}) {
@@ -272,7 +433,7 @@ function normalizeReferralItem(item = {}, index = 0) {
 
   const company = str(['name', 'companyName', 'company'], '-');
 
-  const industry = str(['industry'], '-');
+  const legacyIndustry = str(['industry'], '');
   const contactName = str(['contactName', 'contact_name', 'contact', 'contactPerson', 'contact_person'], '');
   const contactEmail = str(['contactEmail', 'contact_email'], '');
   const contact = contactName || contactEmail || '-';
@@ -329,8 +490,33 @@ function normalizeReferralItem(item = {}, index = 0) {
 
 
 
-  const jobCategories = str(['jobCategories', 'jobTitle', 'job_categories'], '-');
+  // 職種マスター対応: APIの返却形式差分を吸収
+  const itemJobCategoryMaster = normalizeClientJobCategoryEntries(
+    Array.isArray(item.jobCategoryMaster)
+      ? item.jobCategoryMaster
+      : (Array.isArray(item.job_category_master) ? item.job_category_master : [])
+  );
+
+  const jobCategoryIdsRaw = val(['jobCategoryIds', 'job_category_ids'], []);
+  const baseJobCategoryIds = Array.isArray(jobCategoryIdsRaw)
+    ? jobCategoryIdsRaw.map(Number).filter(Number.isFinite)
+    : [];
+  const jobCategoryIds = baseJobCategoryIds.length
+    ? baseJobCategoryIds
+    : itemJobCategoryMaster.map((entry) => Number(entry.id)).filter(Number.isFinite);
+
+  const jobCategoryNamesRaw = val(['jobCategoryNames', 'job_category_names'], '');
+  const jobCategoryNamesText = Array.isArray(jobCategoryNamesRaw)
+    ? jobCategoryNamesRaw.map((name) => String(name || '').trim()).filter(Boolean).join(', ')
+    : String(jobCategoryNamesRaw || '').trim();
+  const jobCategoryNamesFromMaster = itemJobCategoryMaster
+    .map((entry) => entry.subCategory)
+    .filter(Boolean)
+    .join(', ');
+  const jobCategoriesFallback = str(['jobCategories', 'jobTitle', 'job_categories'], '');
+  const jobCategories = jobCategoryNamesText || jobCategoryNamesFromMaster || jobCategoriesFallback || '-';
   const jobTitle = jobCategories || '-';
+  const industry = jobCategories || legacyIndustry || '-';
 
   const highlightPosition = str(['highlightPosition', 'highlight'], jobTitle);
 
@@ -383,7 +569,7 @@ function normalizeReferralItem(item = {}, index = 0) {
 
     proposal, docScreen, interview1, interview2, offer,
 
-    jobTitle, jobCategories, highlightPosition,
+    jobTitle, jobCategories, jobCategoryIds, jobCategoryMaster: itemJobCategoryMaster, highlightPosition,
 
     prejoinDeclines, prejoinDeclineReason, dropoutCount,
 
@@ -464,39 +650,128 @@ function formatCurrency(val) {
   return val == null ? '-' : `${Number(val).toLocaleString('ja-JP')}`;
 }
 
+// 職種フィルタ: チェックボックスパネルの描画
 function updateJobFilterOptions() {
-  const select = document.getElementById('referralJobFilter');
-  if (!select) return;
+  renderJobFilterCheckboxes();
+}
 
-  const current = select.value || '';
-  const jobSet = new Set();
-  (allData || []).forEach(item => {
-    const title = String(item?.jobTitle || '').trim();
-    if (!title || title === '-' || title === 'ー') return;
-    jobSet.add(title);
+function renderJobFilterCheckboxes() {
+  const body = document.getElementById('referralJobFilterBody');
+  if (!body) return;
+
+  // 現在の選択状態を保存
+  const prevSelected = getSelectedJobFilterIds();
+  body.innerHTML = '';
+
+  if (!Array.isArray(jobCategoryMaster) || jobCategoryMaster.length === 0) {
+    body.innerHTML = '<div style="padding:16px; text-align:center; color:#94a3b8; font-size:12px;">職種マスター未ロード</div>';
+    return;
+  }
+
+  jobCategoryMaster.forEach((cat, majorIdx) => {
+    const majorDiv = document.createElement('div');
+    majorDiv.className = 'referral-job-filter-major';
+    majorDiv.dataset.majorIdx = String(majorIdx);
+
+    const subs = Array.isArray(cat.subs) ? cat.subs : [];
+    const subIds = subs.map(s => Number(s.id));
+    const allChecked = subIds.length > 0 && subIds.every(id => prevSelected.includes(id));
+
+    // 大分類ヘッダー
+    const header = document.createElement('div');
+    header.className = 'referral-job-filter-major-header';
+    header.innerHTML = `
+      <input type="checkbox" class="jf-major-cb" data-major-idx="${majorIdx}" ${allChecked ? 'checked' : ''} />
+      <span class="referral-job-filter-major-label">${escapeHtml(cat.major || '')}</span>
+      <span class="referral-job-filter-major-count">${subs.length}件</span>
+      <svg class="referral-job-filter-major-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6L8 10L12 6"/></svg>
+    `;
+    majorDiv.appendChild(header);
+
+    // 小分類チェックボックスリスト
+    const subsDiv = document.createElement('div');
+    subsDiv.className = 'referral-job-filter-subs';
+    subs.forEach(sub => {
+      const subDiv = document.createElement('label');
+      subDiv.className = 'referral-job-filter-sub';
+      const checked = prevSelected.includes(Number(sub.id));
+      subDiv.innerHTML = `
+        <input type="checkbox" class="jf-sub-cb" data-sub-id="${sub.id}" data-major-idx="${majorIdx}" ${checked ? 'checked' : ''} />
+        <span class="referral-job-filter-sub-label">${escapeHtml(sub.name || '')}</span>
+      `;
+      subsDiv.appendChild(subDiv);
+    });
+    majorDiv.appendChild(subsDiv);
+
+    body.appendChild(majorDiv);
+
+    // 大分類ヘッダークリック: アコーディオン開閉
+    header.addEventListener('click', (e) => {
+      if (e.target.closest('input')) return; // チェックボックスは除外
+      majorDiv.classList.toggle('is-open');
+    });
+
+    // 大分類チェックボックス: 配下の小分類を全選択/全解除
+    const majorCb = header.querySelector('.jf-major-cb');
+    if (majorCb) {
+      majorCb.addEventListener('change', () => {
+        const checked = majorCb.checked;
+        subsDiv.querySelectorAll('.jf-sub-cb').forEach(cb => { cb.checked = checked; });
+        updateJobFilterBadge();
+        applyFilters();
+      });
+    }
+
+    // 小分類チェックボックス変更
+    subsDiv.querySelectorAll('.jf-sub-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        // 大分類チェックの同期
+        const allSubs = subsDiv.querySelectorAll('.jf-sub-cb');
+        const allSubChecked = Array.from(allSubs).every(s => s.checked);
+        if (majorCb) majorCb.checked = allSubChecked;
+        updateJobFilterBadge();
+        applyFilters();
+      });
+    });
   });
 
-  const jobs = Array.from(jobSet).sort((a, b) => a.localeCompare(b, 'ja'));
+  updateJobFilterBadge();
+}
 
-  while (select.firstChild) select.removeChild(select.firstChild);
-  const allOption = document.createElement('option');
-  allOption.value = '';
-  allOption.textContent = '全て';
-  select.appendChild(allOption);
+// 選択中の職種IDリストを取得
+function getSelectedJobFilterIds() {
+  const body = document.getElementById('referralJobFilterBody');
+  if (!body) return [];
+  return Array.from(body.querySelectorAll('.jf-sub-cb:checked'))
+    .map(cb => Number(cb.dataset.subId))
+    .filter(Number.isFinite);
+}
 
-  jobs.forEach(job => {
-    const opt = document.createElement('option');
-    opt.value = job;
-    opt.textContent = job;
-    select.appendChild(opt);
-  });
-
-  if (current && jobs.includes(current)) {
-    select.value = current;
-  } else {
-    select.value = '';
+// バッジ表示更新
+function updateJobFilterBadge() {
+  const ids = getSelectedJobFilterIds();
+  const badge = document.getElementById('referralJobFilterBadge');
+  const label = document.getElementById('referralJobFilterLabel');
+  if (badge) {
+    if (ids.length > 0) {
+      badge.textContent = String(ids.length);
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+  if (label) {
+    label.textContent = ids.length > 0 ? `${ids.length}件選択中` : '全て';
+  }
+  // 全選択チェックボックスの同期
+  const selectAllCb = document.getElementById('referralJobFilterSelectAll');
+  if (selectAllCb) {
+    const allSubs = document.querySelectorAll('#referralJobFilterBody .jf-sub-cb');
+    selectAllCb.checked = allSubs.length > 0 && Array.from(allSubs).every(cb => cb.checked);
   }
 }
+
+// HTMLエスケープ（ファイル末尾に統合）
 
 
 
@@ -1856,7 +2131,8 @@ function applyFilters() {
 
   const companyFilter = document.getElementById('referralCompanyFilter')?.value.toLowerCase() || '';
 
-  const jobFilter = document.getElementById('referralJobFilter')?.value || '';
+  // チェックボックスパネルから選択中の職種IDを取得
+  const selectedJobIds = getSelectedJobFilterIds();
 
 
 
@@ -1870,7 +2146,10 @@ function applyFilters() {
 
       const matchCompany = !companyFilter || item.company.toLowerCase().includes(companyFilter);
 
-      const matchJob = !jobFilter || item.jobTitle.includes(jobFilter);
+      // 職種フィルタ: 選択された職種IDのいずれかが企業のjobCategoryIdsに含まれるかチェック
+      const matchJob = selectedJobIds.length === 0 || (
+        Array.isArray(item.jobCategoryIds) && item.jobCategoryIds.some(id => selectedJobIds.includes(id))
+      );
 
       return matchCompany && matchJob;
 
@@ -1907,6 +2186,9 @@ function applyFilters() {
   updatePaginationInfo();
 
   updateFilterCount();
+
+  // ランキング再描画（フィルタ変更時）
+  renderJobRanking();
 
 }
 
@@ -2207,6 +2489,53 @@ function renderCompanyDetail() {
         <button type="button" id="referralDetailDeleteBtn" class="referral-danger-btn text-xs px-3 py-1.5">削除</button>
       </div>
     `;
+  const basicInfoContent = editing
+    ? `
+      <div class="border border-indigo-100 rounded-xl p-4 bg-indigo-50/40 space-y-4">
+        <div class="text-xs text-indigo-700 font-semibold">会社名・募集職種・採用予定人数をここで編集できます</div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <label class="block md:col-span-2">
+            <span class="text-xs font-semibold text-slate-600 block mb-1">会社名</span>
+            <input type="text" id="referralDetailCompanyName" class="referral-input text-sm w-full" value="${company.company}">
+          </label>
+          <label class="block">
+            <span class="text-xs font-semibold text-slate-600 block mb-1">採用予定人数</span>
+            <input type="number" min="0" id="referralDetailPlanHeadcount" class="referral-input text-sm w-full" value="${company.planHeadcount || 0}">
+          </label>
+          <label class="block">
+            <span class="text-xs font-semibold text-slate-600 block mb-1">所在地</span>
+            <input type="text" id="referralDetailLocation" class="referral-input text-sm w-full" placeholder="所在地" value="${company.location === '-' ? '' : company.location || ''}">
+          </label>
+          <label class="block md:col-span-3">
+            <span class="text-xs font-semibold text-slate-600 block mb-1">募集職種</span>
+            <div id="referralDetailJobCategoryArea">
+              <div style="display:flex; gap:8px; align-items:center;">
+                <select id="referralDetailJobMajor" class="referral-input text-sm" style="flex:1;"><option value="">大分類を選択...</option></select>
+                <select id="referralDetailJobSub" class="referral-input text-sm" style="flex:1;"><option value="">小分類を選択...</option></select>
+                <button type="button" id="referralDetailJobAddBtn" class="referral-secondary-btn text-xs px-2 py-1">追加</button>
+              </div>
+              <div id="referralDetailJobTags" class="flex flex-wrap gap-1 mt-2"></div>
+            </div>
+          </label>
+        </div>
+      </div>
+    `
+    : `
+      <div class="referral-detail-grid">
+        <div class="referral-detail-card">
+          <div class="referral-detail-card-title">会社名</div>
+          <div class="referral-detail-card-content font-medium text-slate-800">${company.company || '-'}</div>
+        </div>
+        <div class="referral-detail-card">
+          <div class="referral-detail-card-title">募集職種</div>
+          <div class="referral-detail-card-content font-medium text-slate-800">${company.highlightPosition || company.jobTitle || '-'}</div>
+        </div>
+        <div class="referral-detail-card">
+          <div class="referral-detail-card-title">採用予定人数</div>
+          <div class="referral-detail-card-content font-medium text-slate-800">${company.planHeadcount ?? 0}名</div>
+        </div>
+      </div>
+    `;
 
   const desiredContent = editing
     ? `
@@ -2296,11 +2625,11 @@ function renderCompanyDetail() {
     <div class="referral-detail-panel">
       <!-- ヘッダー -->
       <div class="referral-detail-header">
-        <div>
+        <div style="flex:1;">
           <h2 class="referral-detail-company">${company.company}</h2>
           <div class="referral-detail-meta">担当者: ${contactNameDisplay}</div>
           <div class="referral-detail-tags">
-            <span class="referral-detail-tag">${company.industry || '-'}</span>
+            <span class="referral-detail-tag">${company.highlightPosition || company.jobTitle || '-'}</span>
             <span class="referral-detail-tag">${company.location || '-'}</span>
           </div>
         </div>
@@ -2312,36 +2641,14 @@ function renderCompanyDetail() {
 
       <!-- ボディ -->
       <div class="referral-detail-body">
-        <!-- 募集ポジション -->
         <div class="referral-detail-section">
-          <div class="referral-detail-section-title">募集ポジション</div>
-          <div class="text-lg font-bold text-slate-800">${company.highlightPosition || company.jobTitle || '-'}</div>
+          <div class="referral-detail-section-title !mb-0 !border-0 !pb-0">基本情報</div>
+          <div class="mt-3">${basicInfoContent}</div>
         </div>
 
-        <!-- 指標カード -->
-        <div class="referral-detail-stats">
-          <div class="referral-detail-stat">
-            <div class="referral-detail-stat-value">${company.retention || '-'}</div>
-            <div class="referral-detail-stat-label">定着率</div>
-          </div>
-          <div class="referral-detail-stat">
-            <div class="referral-detail-stat-value">${company.leadTime || 0}日</div>
-            <div class="referral-detail-stat-label">リードタイム</div>
-          </div>
-          <div class="referral-detail-stat highlight">
-            <div class="referral-detail-stat-value">${company.feeDisplay || '-'}</div>
-            <div class="referral-detail-stat-label">合計Fee</div>
-          </div>
-          <div class="referral-detail-stat">
-            <div class="referral-detail-stat-value">${formatCurrency(company.refundAmount)}</div>
-            <div class="referral-detail-stat-label">返金</div>
-          </div>
-        </div>
-
-        <!-- 採用状況 -->
         <div class="referral-detail-section">
-          <div class="referral-detail-section-title">採用状況</div>
-          <div class="referral-detail-stats !mb-0">
+          <div class="referral-detail-section-title">採用サマリー</div>
+          <div class="referral-detail-stats referral-detail-stats--dense !mb-0">
             <div class="referral-detail-stat">
               <div class="referral-detail-stat-value">${company.planHeadcount}<span class="text-sm font-normal text-slate-400 ml-1">名</span></div>
               <div class="referral-detail-stat-label">採用予定</div>
@@ -2353,6 +2660,22 @@ function renderCompanyDetail() {
             <div class="referral-detail-stat">
               <div class="referral-detail-stat-value">${company.remaining}<span class="text-sm font-normal text-slate-400 ml-1">名</span></div>
               <div class="referral-detail-stat-label">残り人数</div>
+            </div>
+            <div class="referral-detail-stat">
+              <div class="referral-detail-stat-value">${company.retention || '-'}</div>
+              <div class="referral-detail-stat-label">定着率</div>
+            </div>
+            <div class="referral-detail-stat">
+              <div class="referral-detail-stat-value">${company.leadTime || 0}日</div>
+              <div class="referral-detail-stat-label">リードタイム</div>
+            </div>
+            <div class="referral-detail-stat highlight">
+              <div class="referral-detail-stat-value">${company.feeDisplay || '-'}</div>
+              <div class="referral-detail-stat-label">合計Fee</div>
+            </div>
+            <div class="referral-detail-stat">
+              <div class="referral-detail-stat-value">${formatCurrency(company.refundAmount)}</div>
+              <div class="referral-detail-stat-label">返金</div>
             </div>
           </div>
         </div>
@@ -2377,7 +2700,7 @@ function renderCompanyDetail() {
         <!-- 求人情報 -->
         <div class="referral-detail-section">
           <div class="referral-detail-section-title !mb-0 !border-0 !pb-0">求人情報</div>
-          <div class="referral-detail-grid">
+          <div class="referral-detail-grid referral-detail-grid--2col">
             <div class="referral-detail-card">
               <div class="referral-detail-card-title">欲しい人材</div>
               <div class="referral-detail-card-content">${desiredContent}</div>
@@ -2389,13 +2712,19 @@ function renderCompanyDetail() {
           </div>
         </div>
 
-        <!-- 担当者情報 -->
+        <!-- 担当者・契約情報 -->
         <div class="referral-detail-section">
           <div class="flex justify-between items-center mb-4">
-            <div class="referral-detail-section-title !mb-0 !border-0 !pb-0">担当者情報</div>
-            <button id="contactInfoEditBtn" class="referral-secondary-btn text-xs px-2 py-1">編集</button>
+            <div class="referral-detail-section-title !mb-0 !border-0 !pb-0">担当者・契約情報</div>
+            ${editing
+      ? `<div class="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">基本情報編集中</div>`
+      : `<div class="flex items-center gap-2 flex-wrap">
+                <button id="contactInfoEditBtn" class="referral-secondary-btn text-xs px-2 py-1">担当者を編集</button>
+                <button id="contractInfoEditBtn" class="referral-secondary-btn text-xs px-2 py-1">契約を編集</button>
+              </div>`
+    }
           </div>
-          <div class="referral-detail-grid">
+          <div class="referral-detail-grid referral-detail-grid--2col">
             <div class="referral-detail-card">
               <div class="referral-detail-card-title">担当者名</div>
               <div id="contactNameDisplay" class="referral-detail-card-content font-medium text-slate-800">${contactNameDisplay}</div>
@@ -2406,20 +2735,6 @@ function renderCompanyDetail() {
               <div id="contactEmailDisplay" class="referral-detail-card-content">${contactEmailHtml}</div>
               <input id="contactEmailInput" type="email" style="display: none;" class="referral-input text-sm w-full mt-2" placeholder="example@company.com" value="${company.contactEmail || ''}">
             </div>
-          </div>
-          <div id="contactInfoEditActions" style="display: none; margin-top: 12px; justify-content: flex-end; gap: 8px;">
-            <button id="contactInfoCancelBtn" class="referral-secondary-btn text-xs px-3 py-1.5">キャンセル</button>
-            <button id="contactInfoSaveBtn" class="referral-primary-btn text-xs px-3 py-1.5">保存</button>
-          </div>
-        </div>
-
-        <!-- 契約情報 -->
-        <div class="referral-detail-section">
-          <div class="flex justify-between items-center mb-4">
-            <div class="referral-detail-section-title !mb-0 !border-0 !pb-0">契約情報</div>
-            <button id="contractInfoEditBtn" class="referral-secondary-btn text-xs px-2 py-1">編集</button>
-          </div>
-          <div class="referral-detail-grid">
             <div class="referral-detail-card">
               <div class="referral-detail-card-title">返金保証期間</div>
               <div id="warrantyPeriodDisplay" class="referral-detail-card-content font-medium text-slate-800">${company.warrantyPeriod || '-'}</div>
@@ -2430,15 +2745,19 @@ function renderCompanyDetail() {
               <div id="feeContractDisplay" class="referral-detail-card-content">${feeDetailsDisplay || '-'}</div>
               <input id="feeContractInput" style="display: none;" class="referral-input text-sm w-full mt-2" placeholder="詳細を入力" value="${feeDetailsDisplay || ''}">
             </div>
-            <div class="referral-detail-card" style="grid-column: span 2;">
+            <div class="referral-detail-card referral-detail-card--full">
               <div class="referral-detail-card-title">その他メモ</div>
               <div id="contractNotesDisplay" class="referral-detail-card-content whitespace-pre-wrap">${contractNoteDisplay || '-'}</div>
               <textarea id="contractNotesInput" style="display: none;" class="referral-input text-sm w-full mt-2" rows="3" placeholder="メモを入力">${contractNoteDisplay || ''}</textarea>
             </div>
           </div>
+          <div id="contactInfoEditActions" style="display: none; margin-top: 12px; justify-content: flex-end; gap: 8px;">
+            <button id="contactInfoCancelBtn" class="referral-secondary-btn text-xs px-3 py-1.5">担当者編集をキャンセル</button>
+            <button id="contactInfoSaveBtn" class="referral-primary-btn text-xs px-3 py-1.5">担当者を保存</button>
+          </div>
           <div id="contractInfoEditActions" style="display: none; margin-top: 12px; justify-content: flex-end; gap: 8px;">
-            <button id="contractInfoCancelBtn" class="referral-secondary-btn text-xs px-3 py-1.5">キャンセル</button>
-            <button id="contractInfoSaveBtn" class="referral-primary-btn text-xs px-3 py-1.5">保存</button>
+            <button id="contractInfoCancelBtn" class="referral-secondary-btn text-xs px-3 py-1.5">契約編集をキャンセル</button>
+            <button id="contractInfoSaveBtn" class="referral-primary-btn text-xs px-3 py-1.5">契約を保存</button>
           </div>
         </div>
 
@@ -2511,7 +2830,6 @@ function attachDetailEditHandlers(company) {
 
 
   const saveBtn = document.getElementById('referralDetailSaveBtn');
-
   if (saveBtn) {
 
     saveBtn.addEventListener('click', () => {
@@ -2529,10 +2847,20 @@ function attachDetailEditHandlers(company) {
     });
   }
 
-  // Contract information edit handlers
+  // 契約情報・担当者情報の編集ハンドラー
   attachContractInfoEditHandlers(company);
   attachContactInfoEditHandlers(company);
 
+  // 職種プルダウン初期化（編集モード時のみ）
+  if (detailEditMode) {
+    initJobCategorySelectors(
+      'referralDetailJobMajor',
+      'referralDetailJobSub',
+      'referralDetailJobAddBtn',
+      'referralDetailJobTags',
+      company.jobCategoryIds || []
+    );
+  }
 }
 
 
@@ -2729,7 +3057,15 @@ function collectDetailEdits() {
 
     salaryMin,
 
-    salaryMax
+    salaryMax,
+
+    // Phase 3: 基本情報編集
+    companyName: readInputValue('referralDetailCompanyName'),
+    location: readInputValue('referralDetailLocation'),
+    planHeadcount: readOptionalNumberValue('referralDetailPlanHeadcount'),
+
+    // Phase 4: 職種プルダウン
+    jobCategoryIds: getSelectedJobCategoryIds('referralDetailJobTags')
 
   };
 
@@ -2746,6 +3082,14 @@ function buildDetailUpdatePayload(companyId, edits) {
   return {
 
     id: companyId,
+
+    // Phase 3: 基本情報
+    name: edits.companyName || null,
+    location: edits.location || null,
+    plannedHiresCount: edits.planHeadcount,
+
+    // Phase 4: 職種ID配列
+    jobCategoryIds: Array.isArray(edits.jobCategoryIds) ? edits.jobCategoryIds : null,
 
     salaryRange: hasSalary ? edits.desiredTalent.salaryRange : null,
 
@@ -3018,12 +3362,157 @@ function applyDetailEdits(company, edits) {
 
   if (!company) return;
 
-
-
   company.desiredTalent = edits.desiredTalent;
-
   company.selectionNote = edits.selectionNote || '';
 
+  // Phase 3: 基本情報のローカル更新
+  if (edits.companyName) company.company = edits.companyName;
+  if (edits.location !== undefined) company.location = edits.location || '-';
+  if (edits.planHeadcount !== null && edits.planHeadcount !== undefined) {
+    company.planHeadcount = edits.planHeadcount;
+    company.remaining = Math.max((edits.planHeadcount || 0) - (company.joined || 0), 0);
+  }
+
+  // Phase 4: 職種IDのローカル更新
+  if (Array.isArray(edits.jobCategoryIds)) {
+    company.jobCategoryIds = edits.jobCategoryIds;
+    const names = resolveJobCategoryNames(edits.jobCategoryIds);
+    company.jobCategories = names || '-';
+    company.jobTitle = names || '-';
+    company.highlightPosition = names || '-';
+  }
+
+}
+
+
+
+// ==========================================
+
+// 職種プルダウン共通ヘルパー
+
+// ==========================================
+
+// 職種マスターデータから大分類・小分類プルダウンを初期化し、タグ管理を行う
+function initJobCategorySelectors(majorId, subId, addBtnId, tagsContainerId, initialIds = []) {
+  const majorSelect = document.getElementById(majorId);
+  const subSelect = document.getElementById(subId);
+  const addBtn = document.getElementById(addBtnId);
+  const tagsContainer = document.getElementById(tagsContainerId);
+  if (!majorSelect || !subSelect || !addBtn || !tagsContainer) return;
+
+  // 選択中IDの管理用配列（data属性としてタグコンテナに持たせる）
+  let selectedIds = Array.isArray(initialIds) ? [...initialIds] : [];
+
+  const hasMaster = Array.isArray(jobCategoryMaster) && jobCategoryMaster.length > 0;
+  majorSelect.disabled = !hasMaster;
+  subSelect.disabled = !hasMaster;
+  addBtn.disabled = !hasMaster;
+  addBtn.classList.toggle('opacity-50', !hasMaster);
+  addBtn.classList.toggle('cursor-not-allowed', !hasMaster);
+
+  if (!hasMaster) {
+    majorSelect.innerHTML = '<option value="">大分類マスター未取得</option>';
+    subSelect.innerHTML = '<option value="">小分類を選択できません</option>';
+    renderJobCategoryTags(tagsContainer, selectedIds, () => { });
+    if (tagsContainerId === 'referralCreateJobTags') {
+      setCreateStatus('職種マスターが取得できないため、募集職種を選択できません。Lambda/API/DBを確認してください。', 'error');
+    }
+    return;
+  }
+
+  // 大分類プルダウンを構築
+  majorSelect.innerHTML = '<option value="">大分類を選択...</option>';
+  jobCategoryMaster.forEach((cat, idx) => {
+    const opt = document.createElement('option');
+    opt.value = String(idx);
+    opt.textContent = cat.major;
+    majorSelect.appendChild(opt);
+  });
+
+  // 大分類変更時に小分類を更新
+  majorSelect.addEventListener('change', () => {
+    const idx = majorSelect.value;
+    subSelect.innerHTML = '<option value="">小分類を選択...</option>';
+    if (idx === '') return;
+    const cat = jobCategoryMaster[Number(idx)];
+    if (!cat) return;
+    (cat.subs || []).forEach(sub => {
+      const opt = document.createElement('option');
+      opt.value = String(sub.id);
+      opt.textContent = sub.name;
+      subSelect.appendChild(opt);
+    });
+  });
+
+  // タグを再描画する共通関数
+  const refresh = () => {
+    renderJobCategoryTags(tagsContainer, selectedIds, (removedId) => {
+      selectedIds = selectedIds.filter(id => id !== removedId);
+      refresh(); // 再帰的に再描画
+    });
+  };
+
+  // 追加ボタン: 選択した小分類をタグとして追加
+  addBtn.addEventListener('click', () => {
+    const subVal = Number(subSelect.value);
+    if (!subVal || selectedIds.includes(subVal)) return;
+    selectedIds.push(subVal);
+    refresh();
+    subSelect.value = '';
+  });
+
+  // 初期タグ描画
+  refresh();
+
+  if (tagsContainerId === 'referralCreateJobTags') {
+    setCreateStatus('');
+  }
+}
+
+// タグコンテナに職種タグをレンダリング
+function renderJobCategoryTags(container, ids, onRemove) {
+  if (!container) return;
+  container.innerHTML = '';
+  ids.forEach(id => {
+    const name = resolveJobCategoryNameById(id);
+    const tag = document.createElement('span');
+    tag.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 mr-1 mb-1';
+    tag.dataset.jobCategoryId = String(id);
+    tag.innerHTML = `${name} <button type="button" class="ml-1 text-indigo-400 hover:text-indigo-600" data-remove-id="${id}">&times;</button>`;
+    const removeBtn = tag.querySelector(`[data-remove-id="${id}"]`);
+    if (removeBtn) {
+      removeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (onRemove) onRemove(id);
+      });
+    }
+    container.appendChild(tag);
+  });
+}
+
+// 単一IDから職種名を解決
+function resolveJobCategoryNameById(id) {
+  for (const cat of jobCategoryMaster) {
+    for (const sub of (cat.subs || [])) {
+      if (Number(sub.id) === Number(id)) return sub.name;
+    }
+  }
+  return `職種#${id}`;
+}
+
+// タグコンテナから選択済みIDリストを取得
+function getSelectedJobCategoryIds(tagsContainerId) {
+  const container = document.getElementById(tagsContainerId);
+  if (!container) return [];
+  const tags = container.querySelectorAll('[data-job-category-id]');
+  return Array.from(tags).map(tag => Number(tag.dataset.jobCategoryId)).filter(Number.isFinite);
+}
+
+// ID配列から職種名をカンマ区切りで解決
+function resolveJobCategoryNames(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return '';
+  return ids.map(id => resolveJobCategoryNameById(id)).join(', ');
 }
 
 
@@ -3080,6 +3569,7 @@ function initializeCreateForm() {
 
   document.getElementById('referralCreateReset')?.addEventListener('click', () => resetCreateForm(true));
 
+
 }
 
 function updateUI() {
@@ -3114,9 +3604,9 @@ function resetCreateForm(clearStatus = false) {
 
   const ids = [
 
-    'referralCreateCompany', 'referralCreateJobTitle', 'referralCreatePlanHeadcount',
+    'referralCreateCompany', 'referralCreatePlanHeadcount',
 
-    'referralCreateIndustry', 'referralCreateLocation', 'referralCreateFee',
+    'referralCreateLocation', 'referralCreateFee',
     'referralCreateContactName', 'referralCreateContactEmail',
 
     'referralCreateSalaryMin', 'referralCreateSalaryMax',
@@ -3138,6 +3628,17 @@ function resetCreateForm(clearStatus = false) {
 
   });
 
+  // 職種プルダウンとタグのリセット
+  const majorSelect = document.getElementById('referralCreateJobMajor');
+  const subSelect = document.getElementById('referralCreateJobSub');
+  const tagsContainer = document.getElementById('referralCreateJobTags');
+  if (majorSelect) majorSelect.value = '';
+  if (subSelect) {
+    subSelect.innerHTML = '<option value="">小分類を選択...</option>';
+  }
+  if (tagsContainer) tagsContainer.innerHTML = '';
+  selectedCreateJobCategoryIds = [];
+
   if (clearStatus) setCreateStatus('');
 
 }
@@ -3148,9 +3649,11 @@ function collectCreateFormData() {
 
   const company = readInputValue('referralCreateCompany');
 
-  const jobTitle = readInputValue('referralCreateJobTitle');
-
-  const industry = readInputValue('referralCreateIndustry');
+  // 職種マスター対応: プルダウンから選択されたIDを取得
+  const jobCategoryIds = getSelectedJobCategoryIds('referralCreateJobTags');
+  const jobTitle = jobCategoryIds.length > 0
+    ? resolveJobCategoryNames(jobCategoryIds)
+    : '';
 
   const location = readInputValue('referralCreateLocation');
   const contactName = readInputValue('referralCreateContactName');
@@ -3181,7 +3684,7 @@ function collectCreateFormData() {
 
 
 
-  if (!company && !jobTitle) {
+  if (!company && !jobTitle && jobCategoryIds.length === 0) {
 
     return { error: '企業名と募集職種を入力してください' };
 
@@ -3193,9 +3696,9 @@ function collectCreateFormData() {
 
   }
 
-  if (!jobTitle) {
+  if (!jobTitle && jobCategoryIds.length === 0) {
 
-    return { error: '募集職種を入力してください' };
+    return { error: '募集職種を選択してください' };
 
   }
 
@@ -3206,8 +3709,6 @@ function collectCreateFormData() {
     company,
 
     jobTitle,
-
-    industry,
 
     location,
 
@@ -3234,7 +3735,8 @@ function collectCreateFormData() {
     contactEmail,
     warrantyPeriod,
     feeDetails,
-    contractNote
+    contractNote,
+    jobCategoryIds
 
   };
 
@@ -3256,11 +3758,11 @@ function buildCreatePayload(data) {
 
     companyName: data.company,
 
-    industry: data.industry || null,
-
     location: data.location || null,
 
     jobCategories: data.jobTitle || null,
+
+    jobCategoryIds: data.jobCategoryIds?.length ? data.jobCategoryIds : null,
 
     plannedHiresCount: data.planHeadcount ?? null,
 
@@ -3453,7 +3955,39 @@ function initializeFilters() {
 
   document.getElementById('referralDateEnd')?.addEventListener('change', applyFilters);
 
-  document.getElementById('referralJobFilter')?.addEventListener('change', applyFilters);
+  // 職種フィルタ: チェックボックスパネルの開閉・イベント
+  const jobFilterToggle = document.getElementById('referralJobFilterToggle');
+  const jobFilterPanel = document.getElementById('referralJobFilterPanel');
+  const jobFilterClose = document.getElementById('referralJobFilterClose');
+  const jobFilterSelectAll = document.getElementById('referralJobFilterSelectAll');
+
+  if (jobFilterToggle && jobFilterPanel) {
+    jobFilterToggle.addEventListener('click', () => {
+      jobFilterPanel.classList.toggle('hidden');
+    });
+    // パネル外クリックで閉じる
+    document.addEventListener('click', (e) => {
+      if (!jobFilterPanel.classList.contains('hidden') &&
+        !jobFilterPanel.contains(e.target) &&
+        !jobFilterToggle.contains(e.target)) {
+        jobFilterPanel.classList.add('hidden');
+      }
+    });
+  }
+  if (jobFilterClose && jobFilterPanel) {
+    jobFilterClose.addEventListener('click', () => {
+      jobFilterPanel.classList.add('hidden');
+    });
+  }
+  if (jobFilterSelectAll) {
+    jobFilterSelectAll.addEventListener('change', () => {
+      const checked = jobFilterSelectAll.checked;
+      document.querySelectorAll('#referralJobFilterBody .jf-sub-cb').forEach(cb => { cb.checked = checked; });
+      document.querySelectorAll('#referralJobFilterBody .jf-major-cb').forEach(cb => { cb.checked = checked; });
+      updateJobFilterBadge();
+      applyFilters();
+    });
+  }
 
   document.getElementById('referralFilterReset')?.addEventListener('click', () => {
 
@@ -3463,7 +3997,10 @@ function initializeFilters() {
 
     document.getElementById('referralDateEnd').value = '2025-12-31';
 
-    document.getElementById('referralJobFilter').value = '';
+    // 職種チェックボックスを全解除
+    document.querySelectorAll('#referralJobFilterBody .jf-sub-cb').forEach(cb => { cb.checked = false; });
+    document.querySelectorAll('#referralJobFilterBody .jf-major-cb').forEach(cb => { cb.checked = false; });
+    updateJobFilterBadge();
 
     applyFilters();
 
@@ -3842,10 +4379,21 @@ export async function mount(appElement) {
       loadCandidateSummaries()
     ]);
 
+    // データロード完了後に職種プルダウンを初期化（jobCategoryMasterが必要）
+    selectedCreateJobCategoryIds = [];
+    initJobCategorySelectors(
+      'referralCreateJobMajor',
+      'referralCreateJobSub',
+      'referralCreateJobAddBtn',
+      'referralCreateJobTags',
+      []
+    );
+
     updateUI();
 
     initializeSort();
     attachFilters();
+    initializeFilters(); // 職種フィルタのチェックボックスパネル開閉イベント
     initializeSearchableDropdowns();
     attachPagination();
 
@@ -3854,6 +4402,10 @@ export async function mount(appElement) {
     attachExport();
 
     attachMatchingHandlers();
+
+    // 職種別ランキング初期化
+    initJobRankingToggle();
+    renderJobRanking();
 
     const detail = document.getElementById('referralCompanyDetail');
     if (detail) {
@@ -4114,5 +4666,237 @@ function escapeHtml(str) {
       '"': '&quot;',
       "'": '&#039;'
     }[m];
+  });
+}
+
+// ==========================================
+// 職種別ランキング
+// ==========================================
+
+/**
+ * 大分類ごとにランキングデータ + TOP3企業を集計する
+ */
+function buildJobRankingData() {
+  // 職種マスターが無ければ空を返す
+  if (!Array.isArray(jobCategoryMaster) || jobCategoryMaster.length === 0) return [];
+
+  // 大分類名 → サブIDセット のマップを構築
+  const majorSubMap = new Map();
+  for (const cat of jobCategoryMaster) {
+    const majorName = cat.major || '不明';
+    const subIds = new Set((cat.subs || []).map(s => s.id));
+    majorSubMap.set(majorName, subIds);
+  }
+
+  // 大分類ごとの集計オブジェクト
+  const stats = new Map();
+  for (const [majorName] of majorSubMap) {
+    stats.set(majorName, {
+      major: majorName,
+      companyCount: 0,
+      proposal: 0,
+      offer: 0,
+      joined: 0,
+      retentionSum: 0,
+      retentionCount: 0,
+      leadTimeSum: 0,
+      leadTimeCount: 0,
+      companies: [] // この大分類に属する企業リスト
+    });
+  }
+
+  // filteredData を集計
+  const data = Array.isArray(filteredData) && filteredData.length > 0 ? filteredData : allData;
+  for (const item of data) {
+    const ids = Array.isArray(item.jobCategoryIds) ? item.jobCategoryIds : [];
+    if (ids.length === 0) continue;
+
+    // この企業がどの大分類に属するかチェック（複数可）
+    for (const [majorName, subIds] of majorSubMap) {
+      const belongs = ids.some(id => subIds.has(id));
+      if (!belongs) continue;
+
+      const s = stats.get(majorName);
+      s.companyCount++;
+      s.proposal += Number(item.proposal) || 0;
+      s.offer += Number(item.offer) || 0;
+      s.joined += Number(item.joined) || 0;
+
+      // 定着率（パーセント値として集計）
+      const ret = parseFloat(item.retention);
+      if (Number.isFinite(ret)) {
+        const pct = ret <= 1 ? ret * 100 : ret;
+        s.retentionSum += pct;
+        s.retentionCount++;
+      }
+
+      // リードタイム（日数として集計）
+      const lt = parseFloat(item.leadTime);
+      if (Number.isFinite(lt) && lt > 0) {
+        s.leadTimeSum += lt;
+        s.leadTimeCount++;
+      }
+
+      // 企業情報を保存（TOP3算出用）
+      s.companies.push({
+        id: item.id,
+        company: item.company || '-',
+        proposal: Number(item.proposal) || 0,
+        offer: Number(item.offer) || 0,
+        joined: Number(item.joined) || 0,
+        retention: item.retention,
+        leadTime: item.leadTime
+      });
+    }
+  }
+
+  // ソート（企業数降順）& 平均値算出 & TOP3企業算出
+  const result = Array.from(stats.values())
+    .filter(s => s.companyCount > 0)
+    .sort((a, b) => b.proposal - a.proposal)
+    .map(s => {
+      // TOP3: 推薦数 → 内定数 → 入社数 の順で降順ソート
+      const top3 = s.companies
+        .sort((a, b) => (b.proposal - a.proposal) || (b.offer - a.offer) || (b.joined - a.joined))
+        .slice(0, 3)
+        .map(c => {
+          const ret = parseFloat(c.retention);
+          const retPct = Number.isFinite(ret) ? (ret <= 1 ? Math.round(ret * 100) : Math.round(ret)) : null;
+          const lt = parseFloat(c.leadTime);
+          return {
+            id: c.id,
+            company: c.company,
+            proposal: c.proposal,
+            offer: c.offer,
+            joined: c.joined,
+            retention: retPct,
+            leadTime: Number.isFinite(lt) && lt > 0 ? Math.round(lt) : null
+          };
+        });
+
+      return {
+        major: s.major,
+        companyCount: s.companyCount,
+        proposal: s.proposal,
+        offer: s.offer,
+        joined: s.joined,
+        retention: s.retentionCount > 0
+          ? Math.round(s.retentionSum / s.retentionCount)
+          : null,
+        avgLeadTime: s.leadTimeCount > 0
+          ? Math.round(s.leadTimeSum / s.leadTimeCount)
+          : null,
+        top3
+      };
+    });
+
+  return result;
+}
+
+/**
+ * ランキングテーブルを描画する（TOP3企業展開付き）
+ */
+function renderJobRanking() {
+  const tbody = document.getElementById('referralJobRankingTableBody');
+  const badge = document.getElementById('referralJobRankingBadge');
+  if (!tbody) return;
+
+  const rankings = buildJobRankingData();
+
+  if (rankings.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#94a3b8; padding:24px;">データなし</td></tr>';
+    if (badge) badge.textContent = '';
+    return;
+  }
+
+  if (badge) badge.textContent = `${rankings.length}件`;
+
+  let html = '';
+  rankings.forEach((r, idx) => {
+    const retDisplay = r.retention !== null ? `${r.retention}%` : '-';
+    const ltDisplay = r.avgLeadTime !== null ? `${r.avgLeadTime}日` : '-';
+    // 上位3位にメダルアイコン
+    const rank = idx < 3
+      ? ['🥇', '🥈', '🥉'][idx]
+      : `${idx + 1}`;
+
+    const hasTop3 = r.top3 && r.top3.length > 0;
+    const toggleIcon = hasTop3
+      ? '<svg class="ranking-expand-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform 0.2s; flex-shrink:0;"><path d="M4 5.5L7 8.5L10 5.5"/></svg>'
+      : '';
+
+    // 大分類の集計行
+    html += `<tr class="ranking-major-row" data-ranking-idx="${idx}" style="cursor:${hasTop3 ? 'pointer' : 'default'};">
+      <td><span style="margin-right:6px;">${rank}</span>${escapeHtml(r.major)} ${toggleIcon}</td>
+      <td>${r.companyCount}</td>
+      <td>${r.proposal}</td>
+      <td>${r.offer}</td>
+      <td>${r.joined}</td>
+      <td>${retDisplay}</td>
+      <td>${ltDisplay}</td>
+    </tr>`;
+
+    // TOP3企業のサブ行（初期非表示）
+    if (hasTop3) {
+      r.top3.forEach((c, ci) => {
+        const cRet = c.retention !== null ? `${c.retention}%` : '-';
+        const cLt = c.leadTime !== null ? `${c.leadTime}日` : '-';
+        const topMedal = ['🥇', '🥈', '🥉'][ci] || '';
+        html += `<tr class="ranking-sub-row ranking-sub-${idx}" style="display:none;">
+          <td style="padding-left:40px; font-weight:500; color:#475569; font-size:12px;">
+            <span style="margin-right:4px; font-size:11px;">${topMedal}</span>${escapeHtml(c.company)}
+          </td>
+          <td style="font-size:12px; color:#64748b;">-</td>
+          <td style="font-size:12px; color:#334155; font-weight:600;">${c.proposal}</td>
+          <td style="font-size:12px; color:#334155; font-weight:600;">${c.offer}</td>
+          <td style="font-size:12px; color:#334155; font-weight:600;">${c.joined}</td>
+          <td style="font-size:12px; color:#64748b;">${cRet}</td>
+          <td style="font-size:12px; color:#64748b;">${cLt}</td>
+        </tr>`;
+      });
+    }
+  });
+
+  tbody.innerHTML = html;
+
+  // 大分類行クリックでTOP3展開/折りたたみ
+  tbody.querySelectorAll('.ranking-major-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const idx = row.dataset.rankingIdx;
+      const subs = tbody.querySelectorAll(`.ranking-sub-${idx}`);
+      if (subs.length === 0) return;
+
+      const isOpen = subs[0].style.display !== 'none';
+      subs.forEach(sub => { sub.style.display = isOpen ? 'none' : 'table-row'; });
+
+      // 矢印アイコン回転
+      const icon = row.querySelector('.ranking-expand-icon');
+      if (icon) icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+
+      // 行のハイライト
+      row.classList.toggle('ranking-major-open', !isOpen);
+    });
+  });
+}
+
+/**
+ * ランキングカードの折りたたみトグルを初期化する
+ */
+function initJobRankingToggle() {
+  const toggle = document.getElementById('referralJobRankingToggle');
+  const body = document.getElementById('referralJobRankingBody');
+  const arrow = document.getElementById('referralJobRankingArrow');
+
+  if (!toggle || !body) return;
+
+  toggle.addEventListener('click', () => {
+    const isOpen = !body.classList.contains('hidden');
+    if (isOpen) {
+      body.classList.add('hidden');
+      if (arrow) arrow.style.transform = 'rotate(0deg)';
+    } else {
+      body.classList.remove('hidden');
+      if (arrow) arrow.style.transform = 'rotate(180deg)';
+    }
   });
 }

@@ -79,6 +79,69 @@ function normalizeView(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function uniqNonEmpty(values) {
+  const set = new Set();
+  (values || []).forEach((value) => {
+    const text = String(value ?? "").trim();
+    if (!text) return;
+    set.add(text);
+  });
+  return Array.from(set.values());
+}
+
+function resolveSelectionStage(row = {}) {
+  if (row.postJoinQuitDate || row.post_join_quit_date) return "入社後辞退";
+  if (row.onboardingDate || row.joinedDate || row.joined_at || row.join_date) return "入社";
+  if (row.preJoinDeclineDate || row.preJoinWithdrawDate || row.pre_join_withdraw_date) return "内定後辞退";
+  if (row.acceptanceDate || row.offerAcceptedDate || row.offer_accepted_at || row.offer_accept_date) return "内定承諾済み";
+  if (row.offerDate || row.offer_at || row.offer_date) return "内定承諾待ち";
+  if (row.finalInterviewDate || row.final_interview_at) return "最終面接";
+  if (row.secondInterviewDate || row.second_interview_at) return "二次面接";
+  if (row.firstInterviewDate || row.first_interview_at) return "一次面接";
+  if (row.recommendationDate || row.recommended_at) return "書類選考";
+  if (row.proposalDate || row.proposal_date) return "提案";
+  return String(row.stageCurrent ?? row.stage_current ?? row.status ?? "").trim();
+}
+
+function normalizeTeleapoRouteType(route) {
+  const text = String(route ?? "").trim().toLowerCase();
+  if (!text) return "";
+  if (text.includes("spir") || text.includes("other") || text.includes("sms") || text.includes("mail") || text.includes("line")) {
+    return "spir";
+  }
+  if (text.includes("tel") || text.includes("call") || text.includes("電話") || text.includes("架電")) {
+    return "tel";
+  }
+  return "";
+}
+
+function normalizeTeleapoResultLabel(rawResult) {
+  const text = String(rawResult ?? "").trim();
+  if (!text) return "";
+  const lower = text.toLowerCase();
+  if (lower.includes("no_answer") || text.includes("不在")) return "不在";
+  if (lower.includes("unset") || lower.includes("not_set") || text.includes("未設定")) return "未設定";
+  if (lower.includes("show") || text.includes("着座")) return "設定";
+  if (lower.includes("set") || text.includes("設定") || text.includes("面談") || text.includes("アポ")) return "設定";
+  if (lower.includes("connect") || text.includes("通電")) return "通電";
+  if (lower.includes("sms") || lower.includes("reply") || lower.includes("callback") || text.includes("返信") || text.includes("折返")) {
+    return "未設定";
+  }
+  return text;
+}
+
+function resolveTeleapoPhaseLabel(result, route) {
+  const resultLabel = normalizeTeleapoResultLabel(result);
+  if (!resultLabel) return "";
+  const routeType = normalizeTeleapoRouteType(route);
+  if (routeType === "spir") {
+    if (resultLabel === "設定") return "Spir設定";
+    if (resultLabel === "未設定") return "Spir未設定";
+    return `Spir${resultLabel}`;
+  }
+  return resultLabel;
+}
+
 // ===== Valid-application judgment (shared backend logic for list/detail consistency) =====
 const PLACEHOLDERS = new Set(["-", "ー", "未設定", "未入力", "未登録", "未指定"]);
 
@@ -250,6 +313,14 @@ function buildListItem(row, resolvedValid = null) {
   const mediaValue = row.apply_route || row.apply_route_text || row.db_source || "-";
   const companyValue = row.client_name || row.apply_company_name || row.db_company_name || "-";
   const jobValue = row.apply_job_name || row.db_job_name || "-";
+  const apps = Array.isArray(row.apps) ? row.apps : [];
+  const phasesFromSelection = uniqNonEmpty(apps.map((entry) => resolveSelectionStage(entry)));
+  const selectionPhase = phasesFromSelection.length > 0
+    ? phasesFromSelection[0]
+    : String(row.stage_current || "").trim();
+  const teleapoPhase = resolveTeleapoPhaseLabel(row.teleapo_result, row.teleapo_route);
+  const phase = selectionPhase || teleapoPhase || "未接触";
+  const phaseList = phasesFromSelection.length > 0 ? phasesFromSelection : [phase];
 
   const validValue =
     resolvedValid === true || resolvedValid === false ? resolvedValid : toBoolOrNull(row.is_effective_application);
@@ -292,7 +363,9 @@ function buildListItem(row, resolvedValid = null) {
     csStatus: row.cs_status ?? "",
     cs_status: row.cs_status ?? "",
 
-    phase: row.stage_current || "未接触",
+    phase,
+    phaseList,
+    phases: phaseList,
 
     media: mediaValue,
     route: mediaValue,
@@ -305,8 +378,10 @@ function buildListItem(row, resolvedValid = null) {
 
     next_action_date: row.next_action_date || null,
     next_action_note: row.next_action_note || "",
+    teleapoResult: row.teleapo_result ?? "",
+    teleapoRoute: row.teleapo_route ?? "",
 
-    candidateApplications: row.apps || [],
+    candidateApplications: apps,
   };
 }
 
@@ -526,6 +601,19 @@ export const handler = async (event) => {
         LIMIT 1
       ) ca_latest ON TRUE
     `;
+    const joinLatestTeleapo = `
+      LEFT JOIN LATERAL (
+        SELECT
+          t.result AS teleapo_result,
+          t.route AS teleapo_route,
+          t.called_at AS teleapo_called_at,
+          t.call_no AS teleapo_call_no
+        FROM teleapo t
+        WHERE t.candidate_id = c.id
+        ORDER BY t.called_at DESC, t.call_no DESC
+        LIMIT 1
+      ) t_latest ON TRUE
+    `;
 
     if (view === "calendar") {
       const selectSql = `
@@ -563,11 +651,16 @@ export const handler = async (event) => {
           u_pt.name AS db_partner_name,
           ca_latest.stage_current,
           ca_latest.apply_route,
-          ca_latest.client_name
+          ca_latest.client_name,
+          t_latest.teleapo_result,
+          t_latest.teleapo_route,
+          t_latest.teleapo_called_at,
+          t_latest.teleapo_call_no
         FROM candidates c
         LEFT JOIN users u_ad ON c.advisor_user_id = u_ad.id
         LEFT JOIN users u_pt ON c.partner_user_id = u_pt.id
         ${joinLatest}
+        ${joinLatestTeleapo}
         WHERE ${whereClause}
         ORDER BY c.next_action_date ASC NULLS LAST, c.created_at DESC, c.id DESC
         LIMIT $${params.length + 1} OFFSET $${params.length + 2}
@@ -642,11 +735,16 @@ export const handler = async (event) => {
         ca_latest.stage_current,
         ca_latest.apply_route,
         ca_latest.client_name,
+        t_latest.teleapo_result,
+        t_latest.teleapo_route,
+        t_latest.teleapo_called_at,
+        t_latest.teleapo_call_no,
         ca_all.apps
       FROM candidates c
       LEFT JOIN users u_ad ON c.advisor_user_id = u_ad.id
       LEFT JOIN users u_pt ON c.partner_user_id = u_pt.id
       ${joinLatest}
+      ${joinLatestTeleapo}
       LEFT JOIN LATERAL (
         SELECT json_agg(json_build_object(
           'id', ca.id,
